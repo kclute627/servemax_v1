@@ -18,29 +18,25 @@ export default function AddressAutocomplete({
   const [isLoading, setIsLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
-  const [selectedAddress, setSelectedAddress] = useState(null); // Track the selected address text
-  const [isFocused, setIsFocused] = useState(false); // New state
+  const [selectedAddress, setSelectedAddress] = useState(null);
+  const [isFocused, setIsFocused] = useState(false);
   const justSelectedRef = useRef(false);
   const inputRef = useRef(null);
   const suggestionsRef = useRef(null);
   const debounceRef = useRef(null);
 
   useEffect(() => {
-    // Only run search logic if the input is focused
     if (!isFocused) {
       setShowSuggestions(false);
       return;
     }
 
-    // Guard: Don't fetch if a selection was just made.
     if (justSelectedRef.current) {
       justSelectedRef.current = false;
       return;
     }
 
-    // Don't show suggestions if user has selected an address and hasn't deleted enough
     if (selectedAddress && value.length > 0) {
-      // Only show suggestions again if user has deleted 3+ characters from selected address
       const charsDeleted = selectedAddress.length - value.length;
       if (charsDeleted < 3) {
         return;
@@ -51,7 +47,7 @@ export default function AddressAutocomplete({
       setSuggestions([]);
       setShowSuggestions(false);
       if (!value) {
-        setSelectedAddress(null); // Reset when completely cleared
+        setSelectedAddress(null);
       }
       return;
     }
@@ -69,7 +65,7 @@ export default function AddressAutocomplete({
         clearTimeout(debounceRef.current);
       }
     };
-  }, [value, selectedAddress, isFocused]); // Dependency on isFocused is key
+  }, [value, selectedAddress, isFocused]);
 
   const fetchSuggestions = async (query) => {
     setIsLoading(true);
@@ -97,20 +93,77 @@ export default function AddressAutocomplete({
     try {
       const response = await googlePlaceDetails({ place_id: suggestion.place_id });
       if (response.data?.address) {
-        const addressText = response.data.address.address1;
-        setSelectedAddress(addressText); // Store the selected address text
+        const addressData = {
+          address1: response.data.address.address1 || '',
+          address2: response.data.address.address2 || '',
+          city: response.data.address.city || '',
+          state: response.data.address.state || '',
+          postal_code: response.data.address.postal_code || '',
+          county: response.data.address.county || '',
+          latitude: response.data.address.latitude || null,
+          longitude: response.data.address.longitude || null,
+          formatted_address: response.data.address.formatted_address || ''
+        };
+        
+        const streetAddress = addressData.address1;
+        setSelectedAddress(streetAddress);
+        
+        // Call onAddressSelect FIRST with complete address data
         if (onAddressSelect) {
-          onAddressSelect(response.data.address);
+          onAddressSelect(addressData);
         }
-        onChange(addressText);
+        
+        // Then update the input field
+        if (onChange) {
+          onChange(streetAddress);
+        }
       } else {
-        setSelectedAddress(suggestion.description);
-        onChange(suggestion.description);
+        // Fallback: try to parse the formatted address
+        const fallbackData = {
+          address1: suggestion.main_text || suggestion.description || '',
+          address2: '',
+          city: '',
+          state: '',
+          postal_code: '',
+          county: '',
+          latitude: null,
+          longitude: null,
+          formatted_address: suggestion.description || ''
+        };
+        
+        setSelectedAddress(fallbackData.address1);
+        
+        if (onAddressSelect) {
+          onAddressSelect(fallbackData);
+        }
+        
+        if (onChange) {
+          onChange(fallbackData.address1);
+        }
       }
     } catch (error) {
       console.error('Error fetching address details:', error);
-      setSelectedAddress(suggestion.description);
-      onChange(suggestion.description);
+      const fallbackData = {
+        address1: suggestion.description || '',
+        address2: '',
+        city: '',
+        state: '',
+        postal_code: '',
+        county: '',
+        latitude: null,
+        longitude: null,
+        formatted_address: suggestion.description || ''
+      };
+      
+      setSelectedAddress(fallbackData.address1);
+      
+      if (onAddressSelect) {
+        onAddressSelect(fallbackData);
+      }
+      
+      if (onChange) {
+        onChange(fallbackData.address1);
+      }
     }
 
     setIsLoading(false);
@@ -120,7 +173,9 @@ export default function AddressAutocomplete({
   const handleInputChange = (e) => {
     const newValue = e.target.value;
     justSelectedRef.current = false;
-    onChange(newValue);
+    if (onChange) {
+      onChange(newValue);
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -150,10 +205,8 @@ export default function AddressAutocomplete({
   };
 
   const handleInputFocus = () => {
-    setIsFocused(true); // Set focus state
-    // Only show suggestions if we have valid conditions AND user hasn't made a recent selection
+    setIsFocused(true);
     if (value.length >= 3 && !justSelectedRef.current && suggestions.length > 0) {
-      // Additional check: if there's a selected address, only show if significantly different
       if (selectedAddress) {
         const charsDeleted = selectedAddress.length - value.length;
         if (charsDeleted >= 3) {
@@ -166,7 +219,7 @@ export default function AddressAutocomplete({
   };
 
   const handleInputBlur = (e) => {
-    setIsFocused(false); // Unset focus state
+    setIsFocused(false);
     if (suggestionsRef.current?.contains(e.relatedTarget)) {
       return;
     }
@@ -174,10 +227,28 @@ export default function AddressAutocomplete({
   };
 
   const clearInput = () => {
-    onChange('');
+    // Clear all address fields
+    if (onAddressSelect) {
+      onAddressSelect({
+        address1: '',
+        address2: '',
+        city: '',
+        state: '',
+        postal_code: '',
+        county: '',
+        latitude: null,
+        longitude: null,
+        formatted_address: ''
+      });
+    }
+    
+    if (onChange) {
+      onChange('');
+    }
+    
     setSuggestions([]);
     setShowSuggestions(false);
-    setSelectedAddress(null); // Reset selected address
+    setSelectedAddress(null);
     justSelectedRef.current = false;
     inputRef.current?.focus();
   };
@@ -223,7 +294,10 @@ export default function AddressAutocomplete({
                 className={`flex items-start gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors ${
                   selectedIndex === index ? 'bg-slate-100' : ''
                 }`}
-                onClick={() => handleSuggestionSelect(suggestion)}
+                onMouseDown={(e) => {
+                  e.preventDefault(); // This is the key: prevent input from losing focus
+                  handleSuggestionSelect(suggestion);
+                }}
               >
                 <MapPin className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
                 <div>

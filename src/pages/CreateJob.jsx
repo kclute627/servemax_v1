@@ -37,6 +37,7 @@ import AddressAutocomplete from "../components/jobs/AddressAutocomplete";
 import ServerPayItems from "../components/jobs/ServerPayItems";
 import CourtAutocomplete from "../components/jobs/CourtAutocomplete";
 import ContractorSearchInput from "../components/jobs/ContractorSearchInput";
+import { generateFieldSheet } from "@/api/functions"; // Added import for generateFieldSheet
 
 export default function CreateJobPage() {
   const navigate = useNavigate();
@@ -514,6 +515,15 @@ export default function CreateJobPage() {
           received_at: new Date().toISOString()
         }));
         await Document.bulkCreate(documentsToCreate);
+      }
+
+      // Auto-generate field sheet after job creation
+      try {
+        await generateFieldSheet({ job_id: newJob.id });
+        console.log("Field sheet auto-generated for job:", newJob.job_number);
+      } catch (error) {
+        console.error("Failed to auto-generate field sheet:", error);
+        // Don't block job creation if field sheet generation fails
       }
 
       navigate(createPageUrl("Jobs"));
@@ -1098,12 +1108,7 @@ export default function CreateJobPage() {
                       <option value="unassigned">Unassigned</option>
                       {employees.map(employee => (
                         <option key={employee.id} value={String(employee.id)}>
-                          <div className="flex items-center gap-2">
-                            <span>{employee.first_name} {employee.last_name}</span>
-                            {employee.is_default_server && (
-                              <Star className="w-3 h-3 text-amber-500 fill-amber-400" />
-                            )}
-                          </div>
+                          {employee.first_name} {employee.last_name} {employee.is_default_server ? '★' : ''}
                         </option>
                       ))}
                     </select>

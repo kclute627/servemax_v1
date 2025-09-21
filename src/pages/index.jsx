@@ -20,6 +20,10 @@ import Settings from "./Settings";
 
 import JobDetails from "./JobDetails";
 
+import LogAttempt from "./LogAttempt";
+
+import GenerateAffidavit from "./GenerateAffidavit";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -43,6 +47,10 @@ const PAGES = {
     Settings: Settings,
     
     JobDetails: JobDetails,
+    
+    LogAttempt: LogAttempt,
+    
+    GenerateAffidavit: GenerateAffidavit,
     
 }
 
@@ -90,6 +98,10 @@ function PagesContent() {
                 <Route path="/Settings" element={<Settings />} />
                 
                 <Route path="/JobDetails" element={<JobDetails />} />
+                
+                <Route path="/LogAttempt" element={<LogAttempt />} />
+                
+                <Route path="/GenerateAffidavit" element={<GenerateAffidavit />} />
                 
             </Routes>
         </Layout>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Job, Client, Employee, CourtCase, Document, Attempt, Invoice, CompanySettings } from '@/api/entities';
+import { Job, Client, Employee, CourtCase, Document, Attempt, Invoice, CompanySettings, User } from '@/api/entities';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import {
   ArrowLeft,
   Building2,
-  User,
+  User as UserIcon,
   Calendar,
   AlertTriangle,
   FileText,
@@ -38,12 +38,19 @@ import {
   Mail,
   Settings,
   UserCircle,
-  UserPlus
+  UserPlus,
+  FileEdit,
+  FileX,
+  Download, // NEW: Import Download icon
+  QrCode, // NEW: Import QrCode icon
+  FileClock // Added for field sheet history
 } from 'lucide-react';
 import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
 import NewContactDialog from '../components/jobs/NewContactDialog';
 import ContractorSearchInput from '../components/jobs/ContractorSearchInput';
+import { generateFieldSheet } from "@/api/functions"; // NEW: Import generateFieldSheet
+import { UploadFile } from "@/api/integrations"; // Added for upload
 
 const statusConfig = {
   pending: { color: "bg-slate-100 text-slate-700", label: "Pending" },
@@ -60,7 +67,20 @@ const priorityConfig = {
   emergency: { color: "bg-red-100 text-red-700", label: "Emergency" }
 };
 
-// A custom hook for debouncing a value - NOT USED FOR INVOICE ITEMS ANYMORE
+const eventTypeConfig = {
+  attempt_logged: { color: 'bg-green-500', icon: Clock },
+  job_reopened: { color: 'bg-green-500', icon: Unlock },
+  invoice_generated: { color: 'bg-green-500', icon: Receipt },
+  affidavit_generated: { color: 'bg-green-500', icon: FileText },
+  
+  job_closed: { color: 'bg-red-500', icon: Lock },
+  document_deleted: { color: 'bg-red-500', icon: FileX },
+
+  job_updated: { color: 'bg-slate-400', icon: Pencil },
+  notes_updated: { color: 'bg-slate-400', icon: StickyNote },
+  case_info_updated: { color: 'bg-slate-400', icon: Scale }
+};
+
 const useDebounce = (value, delay) => {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -86,8 +106,8 @@ export default function JobDetailsPage() {
   const [error, setError] = useState(null);
   const [jobNotes, setJobNotes] = useState('');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   
-  // Add edit states for different sections
   const [isEditingJobDetails, setIsEditingJobDetails] = useState(false);
   const [isEditingAssignment, setIsEditingAssignment] = useState(false);
   const [isEditingCaseInfo, setIsEditingCaseInfo] = useState(false);
@@ -96,23 +116,21 @@ export default function JobDetailsPage() {
   const [selectedContractor, setSelectedContractor] = useState(null);
   const [contractorSearchValue, setContractorSearchValue] = useState("");
   
-  // State for the new invoice section - Initialize with safe defaults
   const [lineItems, setLineItems] = useState([]);
   const [invoicePresets, setInvoicePresets] = useState([]);
-  const [customItem, setCustomItem] = useState(null); // State to track which item has a custom description input
+  const [customItem, setCustomItem] = useState(null);
   const [invoiceSaved, setInvoiceSaved] = useState(false);
   
-  // Add temporary state for editing
   const [editFormData, setEditFormData] = useState({});
   const [addressLoadingStates, setAddressLoadingStates] = useState([]);
 
-  // States for dropdown options
   const [allEmployees, setAllEmployees] = useState([]);
   const [allClients, setAllClients] = useState([]);
+
+  const [isGeneratingFieldSheet, setIsGeneratingFieldSheet] = useState(false); // NEW: State for field sheet generation
   
   const location = useLocation();
 
-  // Memos to track unsaved changes
   const isAssignmentDirty = useMemo(() => {
     if (!isEditingAssignment || !job) return false;
     const original = {
@@ -142,7 +160,6 @@ export default function JobDetailsPage() {
       addresses: editFormData.addresses || [],
       service_instructions: editFormData.service_instructions || '',
     };
-    // Deep comparison of addresses array of objects
     return JSON.stringify(original) !== JSON.stringify(current);
   }, [editFormData, job, isEditingJobDetails]);
 
@@ -186,11 +203,10 @@ export default function JobDetailsPage() {
   const areInvoiceItemsDirty = useMemo(() => {
     if (!job) return false;
     const originalItems = Array.isArray(job.line_items) ? job.line_items : [];
-    // Ensure that originalItems and lineItems are structured similarly for comparison
     const normalizedOriginal = originalItems.map(item => ({
         description: item.description || '',
-        quantity: item.quantity ?? 1, // Default quantity to 1 if not present
-        rate: item.rate ?? 0, // Default rate to 0 if not present
+        quantity: item.quantity ?? 1,
+        rate: item.rate ?? 0,
     }));
     const normalizedCurrent = lineItems.map(item => ({
         description: item.description || '',
@@ -199,6 +215,56 @@ export default function JobDetailsPage() {
     }));
     return JSON.stringify(normalizedCurrent) !== JSON.stringify(normalizedOriginal);
   }, [lineItems, job]);
+
+  const validateJobStatus = async (jobData, attempts) => {
+    const servedAttempts = attempts.filter(attempt => attempt.status === 'served');
+    const hasValidServedAttempt = servedAttempts.length > 0;
+    
+    let updatedJobData = { ...jobData };
+    let needsUpdate = false;
+    let updatePayload = {};
+
+    if (updatedJobData.status === 'served' && !hasValidServedAttempt) {
+      console.warn(`Job ${updatedJobData.job_number} marked as served but has no successful attempts. Correcting status.`);
+      
+      let correctStatus = 'pending';
+      if (attempts.length > 0) {
+        correctStatus = 'in_progress';
+      } else if (updatedJobData.assigned_server_id && updatedJobData.assigned_server_id !== 'unassigned') {
+        correctStatus = 'assigned';
+      }
+      
+      updatePayload = { 
+        status: correctStatus,
+        service_date: null,
+        service_method: null
+      };
+      needsUpdate = true;
+    }
+    
+    if (updatedJobData.status !== 'served' && hasValidServedAttempt) {
+      console.warn(`Job ${updatedJobData.job_number} has successful attempts but not marked as served. Correcting status.`);
+      
+      const latestServedAttempt = servedAttempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))[0];
+      
+      updatePayload = { 
+        status: 'served',
+        service_date: latestServedAttempt.attempt_date
+      };
+      needsUpdate = true;
+    }
+
+    if (needsUpdate) {
+      await Job.update(updatedJobData.id, updatePayload);
+      
+      return {
+        ...updatedJobData,
+        ...updatePayload
+      };
+    }
+    
+    return updatedJobData;
+  };
   
   const loadJobDetails = useCallback(async (jobId) => {
     setIsLoading(true);
@@ -208,10 +274,7 @@ export default function JobDetailsPage() {
       if (!jobData) {
         throw new Error("Job not found");
       }
-      setJob(jobData);
-      setJobNotes(jobData.notes || '');
 
-      // Fetch all related data in parallel for a massive speed improvement
       const [
         clientData,
         courtCaseData,
@@ -231,6 +294,11 @@ export default function JobDetailsPage() {
         Client.list().catch(e => { console.error("Error loading clients:", e); return []; }),
         CompanySettings.filter({ setting_key: "invoice_settings" }).catch(e => { console.error("Error loading invoice settings:", e); return []; }),
       ]);
+
+      const validatedJobData = await validateJobStatus(jobData, Array.isArray(attemptsData) ? attemptsData : []);
+      
+      setJob(validatedJobData);
+      setJobNotes(validatedJobData.notes || '');
       
       setClient(clientData);
       setCourtCase(courtCaseData);
@@ -240,7 +308,6 @@ export default function JobDetailsPage() {
       setAllEmployees(Array.isArray(employeesList) ? employeesList : []);
       setAllClients(Array.isArray(clientsList) ? clientsList : []);
 
-      // Set invoice presets with safe fallback + normalization
       if (
         Array.isArray(invoiceSettingsData) &&
         invoiceSettingsData.length > 0 &&
@@ -251,7 +318,6 @@ export default function JobDetailsPage() {
 
         const normalized = raw
           .map((p) => {
-            // Support strings, numbers, and objects
             if (p == null) return null;
             if (typeof p === 'string') return { description: p, rate: 0 };
             if (typeof p === 'number') return { description: String(p), rate: Number(p) || 0 };
@@ -262,36 +328,34 @@ export default function JobDetailsPage() {
             }
             return null;
           })
-          .filter(Boolean); // This removes the nulls
+          .filter(Boolean);
 
         setInvoicePresets(normalized);
       } else {
         setInvoicePresets([]);
       }
       
-      // Migrate old fee structure to new line_items structure if necessary, or load existing line_items
-      if (jobData.line_items && Array.isArray(jobData.line_items) && jobData.line_items.length > 0) {
-        setLineItems(jobData.line_items);
+      if (validatedJobData.line_items && Array.isArray(validatedJobData.line_items) && validatedJobData.line_items.length > 0) {
+        setLineItems(validatedJobData.line_items);
       } else {
         const migratedItems = [];
-        if (jobData.service_fee) migratedItems.push({ description: "Service Fee", quantity: 1, rate: jobData.service_fee });
-        if (jobData.rush_fee) migratedItems.push({ description: "Rush Fee", quantity: 1, rate: jobData.rush_fee });
-        if (jobData.mileage_fee) migratedItems.push({ description: "Mileage Fee", quantity: 1, rate: jobData.mileage_fee });
+        if (validatedJobData.service_fee) migratedItems.push({ description: "Service Fee", quantity: 1, rate: validatedJobData.service_fee });
+        if (validatedJobData.rush_fee) migratedItems.push({ description: "Rush Fee", quantity: 1, rate: validatedJobData.rush_fee });
+        if (validatedJobData.mileage_fee) migratedItems.push({ description: "Mileage Fee", quantity: 1, rate: validatedJobData.mileage_fee });
         setLineItems(migratedItems.length > 0 ? migratedItems : [{ description: '', quantity: 1, rate: 0 }]);
       }
       
-      // Handle server assignment
-      if (jobData.assigned_server_id && jobData.assigned_server_id !== "unassigned") {
+      if (validatedJobData.assigned_server_id && validatedJobData.assigned_server_id !== "unassigned") {
         try {
-          const employee = Array.isArray(employeesList) ? employeesList.find(e => e.id === jobData.assigned_server_id) : null;
+          const employee = Array.isArray(employeesList) ? employeesList.find(e => e.id === validatedJobData.assigned_server_id) : null;
           if (employee) {
             setServer({ name: `${employee.first_name} ${employee.last_name}`, type: 'Employee' });
           } else {
-            const contractor = Array.isArray(clientsList) ? clientsList.find(c => c.id === jobData.assigned_server_id) : null;
+            const contractor = clientsList.find(c => c.id === validatedJobData.assigned_server_id);
             if (contractor) {
               setServer({ name: contractor.company_name, type: 'Contractor' });
             } else {
-              console.warn(`Could not find server with ID ${jobData.assigned_server_id}`);
+              console.warn(`Could not find server with ID ${validatedJobData.assigned_server_id}`);
               setServer(null);
             }
           }
@@ -311,16 +375,44 @@ export default function JobDetailsPage() {
   }, []);
   
   useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const user = await User.me();
+        setCurrentUser(user);
+      } catch (e) {
+        console.error("No user logged in for activity tracking.");
+      }
+    };
+    fetchUser();
+    
     const urlParams = new URLSearchParams(location.search);
     let jobId = urlParams.get('id');
+    
+    // Check for success message
+    const successType = urlParams.get('success');
+    if (successType === 'attempt_saved') {
+      // Show success message temporarily
+      setTimeout(() => {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-right-2';
+        alertDiv.textContent = 'Attempt saved successfully';
+        document.body.appendChild(alertDiv);
+        
+        // Remove after 3 seconds
+        setTimeout(() => {
+          alertDiv.remove();
+        }, 3000);
+        
+        // Clean up URL
+        const newUrl = new URL(window.location.href); // Use window.location.href for a full URL
+        newUrl.searchParams.delete('success');
+        window.history.replaceState({}, '', newUrl.toString()); // Convert URL object back to string
+      }, 100);
+    }
 
     if (jobId) {
-      // If an ID is present in the URL, it is the source of truth.
-      // We store it in sessionStorage to survive a refresh.
       sessionStorage.setItem('lastViewedJobId', jobId);
     } else {
-      // If no ID is in the URL (e.g., after a refresh in the previewer),
-      // we attempt to retrieve it from sessionStorage.
       jobId = sessionStorage.getItem('lastViewedJobId');
     }
     
@@ -340,9 +432,9 @@ export default function JobDetailsPage() {
         
         const newLogEntry = {
             timestamp: new Date().toISOString(),
-            user_name: "Current User", // Placeholder, replace with actual user in a real app
+            user_name: currentUser?.full_name || "System",
             event_type: newClosedStatus ? "job_closed" : "job_reopened",
-            description: `Job ${actionText} by user.`
+            description: `Job ${actionText} by ${currentUser?.full_name || 'user'}.`
         };
         
         const currentActivityLog = Array.isArray(job?.activity_log) ? job.activity_log : [];
@@ -353,7 +445,6 @@ export default function JobDetailsPage() {
             activity_log: updatedActivityLog 
         });
         
-        // Update local state instead of reloading everything
         setJob(prevJob => ({
             ...prevJob,
             is_closed: newClosedStatus,
@@ -369,11 +460,10 @@ export default function JobDetailsPage() {
   const handleStartEdit = (section) => {
     switch(section) {
       case 'jobDetails':
-        // Ensure addresses is a valid array before spreading
         const currentAddresses = Array.isArray(job?.addresses) ? job.addresses : [];
         const initialAddresses = currentAddresses.length > 0
-          ? JSON.parse(JSON.stringify(currentAddresses)) // Deep copy
-          : [{ label: 'Primary', address1: '', address2: '', city: '', state: '', postal_code: '', primary: true }]; // Default with one primary if none exist
+          ? JSON.parse(JSON.stringify(currentAddresses))
+          : [{ label: 'Primary', address1: '', address2: '', city: '', state: '', postal_code: '', primary: true }];
         
         setEditFormData({
           recipient_name: job?.recipient?.name || '',
@@ -383,7 +473,6 @@ export default function JobDetailsPage() {
         setIsEditingJobDetails(true);
         break;
       case 'assignment':
-        // Load the selected contractor if one is assigned
         const loadSelectedContractor = () => {
           if (job?.server_type === 'contractor' && job?.assigned_server_id && job.assigned_server_id !== 'unassigned') {
             const contractorClient = allClients.find(c => c.id === job.assigned_server_id);
@@ -432,8 +521,7 @@ export default function JobDetailsPage() {
 
   const handleCancelEdit = (section) => {
     setEditFormData({});
-    setAddressLoadingStates([]); // Clear loading states
-    // Reset contractor selection states
+    setAddressLoadingStates([]);
     setSelectedContractor(null);
     setContractorSearchValue("");
     
@@ -441,7 +529,7 @@ export default function JobDetailsPage() {
       case 'jobDetails':
         setIsEditingJobDetails(false);
         break;
-      case 'assignment': // New assignment section cancel
+      case 'assignment':
         setIsEditingAssignment(false);
         break;
       case 'caseInfo':
@@ -458,20 +546,18 @@ export default function JobDetailsPage() {
       let updateData = {};
       let logDescription = '';
 
-      // Create a temporary job object to get current recipient/addresses to merge with edits
       const currentJob = job;
       const currentRecipient = currentJob?.recipient || {};
       
       switch(section) {
         case 'jobDetails':
-          // Ensure there's always at least one primary address
           const currentAddresses = Array.isArray(editFormData.addresses) ? editFormData.addresses : [];
           let updatedAddresses = [...currentAddresses];
           const hasPrimary = updatedAddresses.some(addr => addr.primary);
           if (!hasPrimary && updatedAddresses.length > 0) {
             updatedAddresses = updatedAddresses.map((addr, idx) => ({
               ...addr,
-              primary: idx === 0 // Make the first address primary if none is set
+              primary: idx === 0
             }));
           }
           
@@ -501,18 +587,17 @@ export default function JobDetailsPage() {
               plaintiff: editFormData.plaintiff,
               defendant: editFormData.defendant
             });
-            // Update local courtCase state immediately
             setCourtCase(prevCase => ({
                 ...prevCase,
                 case_number: editFormData.case_number,
                 plaintiff: editFormData.plaintiff,
                 defendant: editFormData.defendant
             }));
+            logDescription = 'Case information updated.';
           } else {
             console.warn("Cannot update case info: No court case linked to this job.");
             alert("No court case linked to this job to update.");
           }
-          logDescription = 'Case information updated.';
           break;
         case 'serviceDetails':
           updateData = {
@@ -525,11 +610,10 @@ export default function JobDetailsPage() {
           break;
       }
 
-      // Only update Job if we have data to update
       if (Object.keys(updateData).length > 0) {
         const newLogEntry = {
           timestamp: new Date().toISOString(),
-          user_name: "Current User", // Replace with actual user in a real app
+          user_name: currentUser?.full_name || "System",
           event_type: "job_updated",
           description: logDescription
         };
@@ -538,20 +622,30 @@ export default function JobDetailsPage() {
         const updatedActivityLog = [...currentActivityLog, newLogEntry];
         updateData.activity_log = updatedActivityLog;
 
-        // Backend update
         await Job.update(job.id, updateData);
         console.log(`✅ Successfully saved ${section}:`, updateData);
         
-        // Update local job state
         setJob(prevJob => ({
           ...prevJob,
           ...updateData
         }));
 
-        // If assignment was updated, reload the full job details to get updated client/server info names
         if (section === 'assignment') {
           await loadJobDetails(job.id);
         }
+      }
+
+      if (section === 'caseInfo' && logDescription) {
+        const newLogEntry = {
+          timestamp: new Date().toISOString(),
+          user_name: currentUser?.full_name || "System",
+          event_type: "case_info_updated",
+          description: logDescription
+        };
+        const currentActivityLog = Array.isArray(job?.activity_log) ? job.activity_log : [];
+        const updatedActivityLog = [...currentActivityLog, newLogEntry];
+        await Job.update(job.id, { activity_log: updatedActivityLog });
+        setJob(prevJob => ({...prevJob, activity_log: updatedActivityLog }));
       }
 
       handleCancelEdit(section);
@@ -567,7 +661,7 @@ export default function JobDetailsPage() {
             return {
                 ...prev,
                 [field]: value,
-                assigned_server_id: 'unassigned' // Reset assigned server when type changes
+                assigned_server_id: 'unassigned'
             };
         }
         return {
@@ -618,7 +712,7 @@ export default function JobDetailsPage() {
   const handleAddAddress = () => {
     setEditFormData(prev => {
       const currentAddresses = Array.isArray(prev.addresses) ? prev.addresses : [];
-      if (currentAddresses.length >= 4) return prev; // Limit to 4 addresses
+      if (currentAddresses.length >= 4) return prev;
       const newAddresses = [...currentAddresses, {
         label: `Address ${currentAddresses.length + 1}`,
         address1: '',
@@ -635,14 +729,13 @@ export default function JobDetailsPage() {
   const handleRemoveAddress = (indexToRemove) => {
     setEditFormData(prev => {
       const currentAddresses = Array.isArray(prev.addresses) ? prev.addresses : [];
-      if (currentAddresses.length <= 1) { // Don't remove the last address
+      if (currentAddresses.length <= 1) {
         alert("A job must have at least one service address.");
         return prev;
       }
       
       let newAddresses = currentAddresses.filter((_, index) => index !== indexToRemove);
       
-      // If the primary address was removed, set the first remaining address as primary
       if (!newAddresses.some(addr => addr.primary) && newAddresses.length > 0) {
         newAddresses[0] = { ...newAddresses[0], primary: true };
       }
@@ -666,7 +759,7 @@ export default function JobDetailsPage() {
     try {
       const newLogEntry = {
         timestamp: new Date().toISOString(),
-        user_name: "Current User",
+        user_name: currentUser?.full_name || "System",
         event_type: "notes_updated",
         description: "Job notes were updated."
       };
@@ -679,11 +772,9 @@ export default function JobDetailsPage() {
         activity_log: updatedActivityLog 
       };
 
-      // Backend update
       await Job.update(job.id, updateData);
       console.log("✅ Successfully saved notes:", updateData);
       
-      // Update local state
       setJob(prevJob => ({
         ...prevJob,
         ...updateData
@@ -704,10 +795,10 @@ export default function JobDetailsPage() {
   const serviceDocuments = getDocumentsByCategory('to_be_served');
   const affidavitDocuments = getDocumentsByCategory('affidavit');
   const photoDocuments = getDocumentsByCategory('photo');
+  const fieldSheetDocuments = getDocumentsByCategory('field_sheet'); // Added this line
 
   const isOverdue = job && job.due_date && new Date(job.due_date) < new Date() && job.status !== 'served';
   
-  // Simplified handlers for the invoice section
   const handleLineItemChange = (index, field, value) => {
     setLineItems(prev => {
         const currentItems = Array.isArray(prev) ? prev : [];
@@ -731,7 +822,7 @@ export default function JobDetailsPage() {
       const currentItems = Array.isArray(prev) ? prev : [];
       return [...currentItems, { description: '', quantity: 1, rate: 0 }];
     });
-    setCustomItem(null); // New item should not start in custom mode
+    setCustomItem(null);
   };
 
   const handleRemoveLineItem = (indexToRemove) => {
@@ -740,11 +831,9 @@ export default function JobDetailsPage() {
       const updatedItems = currentItems.filter((_, i) => i !== indexToRemove);
       return updatedItems;
     });
-    // If the removed item was the one in custom mode, clear the custom state.
     if (customItem === indexToRemove) {
       setCustomItem(null);
     } else if (customItem !== null && customItem > indexToRemove) {
-      // If the custom item was after the removed item, adjust its index.
       setCustomItem(prevIndex => prevIndex - 1);
     }
   };
@@ -758,7 +847,7 @@ export default function JobDetailsPage() {
         const updated = [...currentItems];
         
         if (!updated[index]) {
-            updated[index] = { description: '', quantity: 1, rate: 0 }; // Initialize if somehow missing
+            updated[index] = { description: '', quantity: 1, rate: 0 };
         }
         
         updated[index] = {
@@ -769,7 +858,6 @@ export default function JobDetailsPage() {
         
         return updated;
     });
-    // If a preset is selected, this item is no longer in "custom input" mode.
     setCustomItem(null); 
   };
 
@@ -782,7 +870,6 @@ export default function JobDetailsPage() {
     }, 0);
   }, [lineItems]);
   
-  // Save function that can be called manually
   const saveInvoiceItems = async () => {
     if (!job?.id || !Array.isArray(lineItems)) {
       console.warn("⚠️ Cannot save invoice items: missing job ID or invalid line items");
@@ -796,11 +883,9 @@ export default function JobDetailsPage() {
         total_fee: total
       };
 
-      // Backend update
       await Job.update(job.id, updateData);
       console.log("✅ Successfully saved invoice items:", updateData);
       
-      // Update local state
       setJob(prevJob => ({
         ...prevJob,
         ...updateData
@@ -808,7 +893,6 @@ export default function JobDetailsPage() {
       
       setInvoiceSaved(true);
       
-      // Hide the checkmark after 3 seconds
       setTimeout(() => {
         setInvoiceSaved(false);
       }, 3000);
@@ -820,16 +904,13 @@ export default function JobDetailsPage() {
   };
 
   const handleContactCreated = (newContact) => {
-    // Update the client state with the new contact
     setClient(prevClient => ({
         ...prevClient,
         contacts: [...(prevClient.contacts || []), newContact]
     }));
     
-    // Automatically select the new contact in the dropdown
     handleEditInputChange('contact_email', newContact.email);
 
-    // Close the dialog
     setIsNewContactDialogOpen(false);
   };
 
@@ -842,6 +923,54 @@ export default function JobDetailsPage() {
     }
   };
 
+  // NEW: handleGenerateFieldSheet function
+  const handleGenerateFieldSheet = async () => {
+    setIsGeneratingFieldSheet(true);
+    try {
+      // 1. Generate the PDF from the backend function
+      const response = await generateFieldSheet({ job_id: job.id });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const formattedDateForFilename = format(new Date(), 'yyyy-MM-dd-HH-mm-ss');
+      const fileName = `field-sheet-${job.job_number}-${formattedDateForFilename}.pdf`;
+
+      // 2. Create a File object to upload
+      const fileToUpload = new File([blob], fileName, { type: 'application/pdf' });
+
+      // 3. Upload the file using the integration
+      const { file_url } = await UploadFile({ file: fileToUpload });
+
+      if (!file_url) {
+        throw new Error("File upload failed, could not get a file URL.");
+      }
+
+      // 4. Create a new Document entity record for the field sheet
+      const newDocument = await Document.create({
+        job_id: job.id,
+        title: `Field Sheet - ${format(new Date(), 'MMM d, yyyy h:mm a')}`,
+        file_url: file_url,
+        document_category: 'field_sheet',
+        received_at: new Date().toISOString()
+      });
+
+      // 5. Update the local state to show the new document immediately
+      setDocuments(prev => [...prev, newDocument]);
+
+      // 6. Trigger the download for the user
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      a.remove();
+
+    } catch (error) {
+      console.error('Error generating and saving field sheet:', error);
+      alert('Failed to generate and save field sheet: ' + error.message);
+    }
+    setIsGeneratingFieldSheet(false);
+  };
 
   if (isLoading) {
     return (
@@ -877,7 +1006,6 @@ export default function JobDetailsPage() {
     );
   }
 
-  // Ensure job data is available before rendering the main content
   if (!job) {
     return (
       <div className="p-8 text-center">
@@ -893,10 +1021,10 @@ export default function JobDetailsPage() {
       </div>
     );
   }
-
+  
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="p-6 md:p-8 max-w-full mx-auto">
+      <div className="p-6 md:p-8 max-w-6xl mx-auto"> {/* Adjusted max-w-full to max-w-6xl */}
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
           <div className="flex items-center gap-4">
@@ -937,7 +1065,6 @@ export default function JobDetailsPage() {
                 {isOverdue && ' (Overdue)'}
               </Badge>
             )}
-            {/* New Close/Open Job Button */}
             <Button 
               onClick={handleToggleJobClosed}
               className={`gap-2 ${job.is_closed ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-700 hover:bg-slate-800'}`}
@@ -1042,7 +1169,7 @@ export default function JobDetailsPage() {
                           }`}
                           variant="ghost"
                         >
-                          <User className="w-4 h-4" />
+                          <UserIcon className="w-4 h-4" />
                           Employee
                         </Button>
                         <Button
@@ -1084,7 +1211,6 @@ export default function JobDetailsPage() {
                             value={contractorSearchValue}
                             onValueChange={setContractorSearchValue}
                             onContractorSelected={handleContractorSelected}
-                            selectedContractor={selectedContractor}
                             currentClientId={editFormData.client_id}
                           />
                         </div>
@@ -1111,7 +1237,7 @@ export default function JobDetailsPage() {
                     <div>
                       <Label className="text-xs text-slate-500">Client</Label>
                       <p className="font-semibold flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-slate-500" />
+                        <Building2 className="w-4 h-4"/>
                         {client?.company_name || 'N/A'}
                       </p>
                       
@@ -1149,7 +1275,7 @@ export default function JobDetailsPage() {
                     <div>
                       <Label className="text-xs text-slate-500">Assigned Server</Label>
                       <div className="flex items-center gap-2 font-semibold">
-                        {server?.type === 'Employee' ? <User className="w-4 h-4"/> : <HardHat className="w-4 h-4"/>}
+                        {server?.type === 'Employee' ? <UserIcon className="w-4 h-4"/> : <HardHat className="w-4 h-4"/>}
                         <span>{server?.name || 'Unassigned'}</span>
                       </div>
                       <p className="text-sm text-slate-600 mt-1 capitalize">{job.server_type || 'employee'}</p>
@@ -1159,7 +1285,73 @@ export default function JobDetailsPage() {
               </CardContent>
             </Card>
 
-            {/* Job Details (now Recipient & Service Details) */}
+            {/* Field Sheet Section */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <QrCode className="w-6 h-6 text-blue-600" />
+                    <div>
+                      <CardTitle>Field Sheet</CardTitle>
+                    </div>
+                  </div>
+                  <Button 
+                    onClick={handleGenerateFieldSheet}
+                    disabled={isGeneratingFieldSheet}
+                    className="gap-2"
+                  >
+                    {isGeneratingFieldSheet ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        Generate New Sheet
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {fieldSheetDocuments.length > 0 ? (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium text-slate-600 mb-2">Generated Sheets:</h4>
+                    {fieldSheetDocuments.slice().sort((a, b) => {
+                      const dateA = new Date(a.received_at || a.created_date);
+                      const dateB = new Date(b.received_at || b.created_date);
+                      return dateB - dateA;
+                    }).map(doc => {
+                      const docDate = doc.received_at || doc.created_date;
+                      return (
+                        <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50 border">
+                          <div className="flex items-center gap-2">
+                            <FileClock className="w-4 h-4 text-slate-500" />
+                            <div>
+                              <p className="font-medium text-slate-800 text-sm">{doc.title}</p>
+                              <p className="text-xs text-slate-500">
+                                {docDate ? `Generated on ${format(new Date(docDate), 'MMM d, yyyy @ h:mm a')}` : 'Date unknown'}
+                              </p>
+                            </div>
+                          </div>
+                          <Button variant="outline" size="sm" asChild>
+                            <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="gap-2">
+                              <Download className="w-3 h-3" />
+                              Download
+                            </a>
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-slate-500 text-sm text-center py-4">No field sheets have been generated for this job yet.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Job Details */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Recipient & Service Details</CardTitle>
@@ -1274,7 +1466,6 @@ export default function JobDetailsPage() {
                   </div>
                 ) : (
                   <>
-                    {/* Recipient & Address */}
                     <div className="border-t border-slate-200">
                       <Label className="text-xs text-slate-500">Recipient</Label>
                       <p className="font-medium text-slate-900 mb-2">{job?.recipient?.name}</p>
@@ -1301,11 +1492,10 @@ export default function JobDetailsPage() {
                       )}
                     </div>
 
-                    {/* Service Instructions */}
                     {job?.service_instructions && (
                       <div className="pt-4 border-t border-slate-200">
                         <Label className="text-xs text-slate-500">Service Instructions</Label>
-                        <p className="text-slate-700 mt-1">{job.service_instructions}</p>
+                        <p className="text-sm text-slate-700 mt-1">{job.service_instructions}</p>
                       </div>
                     )}
                   </>
@@ -1403,10 +1593,12 @@ export default function JobDetailsPage() {
                   <Clock className="w-5 h-5" />
                   Service Attempts ({Array.isArray(attempts) ? attempts.length : 0})
                 </CardTitle>
-                <Button className="gap-2">
-                  <Plus className="w-4 h-4" />
-                  Add New Attempt
-                </Button>
+                <Link to={`${createPageUrl("LogAttempt")}?jobId=${job.id}`}>
+                  <Button className="gap-2">
+                    <Plus className="w-4 h-4" />
+                    Add New Attempt
+                  </Button>
+                </Link>
               </CardHeader>
               <CardContent>
                 {Array.isArray(attempts) && attempts.length > 0 ? (
@@ -1473,10 +1665,18 @@ export default function JobDetailsPage() {
                   <Paperclip className="w-5 h-5" />
                   Affidavits ({affidavitDocuments.length})
                 </CardTitle>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Plus className="w-4 h-4" />
-                  Generate Affidavit
-                </Button>
+                <Link to={createPageUrl(`GenerateAffidavit?jobId=${job.id}`)}>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-2"
+                    disabled={!attempts || attempts.length === 0}
+                    title={!attempts || attempts.length === 0 ? "At least one service attempt is required to generate an affidavit" : "Generate affidavit based on service attempts"}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Generate Affidavit
+                  </Button>
+                </Link>
               </CardHeader>
               <CardContent>
                 {affidavitDocuments.length > 0 ? (
@@ -1494,8 +1694,175 @@ export default function JobDetailsPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-slate-500 text-center py-4">No affidavits generated yet.</p>
+                  <div className="text-center py-4">
+                    {!attempts || attempts.length === 0 ? (
+                      <div>
+                        <p className="text-slate-500">No service attempts recorded yet.</p>
+                        <p className="text-sm text-slate-400 mt-1">At least one service attempt is required to generate an affidavit.</p>
+                      </div>
+                    ) : (
+                      <p className="text-slate-500">No affidavits generated yet.</p>
+                    )}
+                  </div>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* Live Invoice Card - MOVED HERE */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <CardTitle className="flex items-center gap-2">
+                    <Receipt className="w-5 h-5"/>
+                    Invoice
+                  </CardTitle>
+                  {(() => {
+                    const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
+                    if (!jobInvoice) {
+                      return (
+                        <Badge className="bg-slate-100 text-slate-700">
+                          Not Invoiced
+                        </Badge>
+                      );
+                    }
+                    
+                    const invoiceStatusConfig = { // Renamed to avoid conflict with global statusConfig
+                      draft: { color: "bg-slate-100 text-slate-700", label: "Draft" },
+                      sent: { color: "bg-blue-100 text-blue-700", label: "Sent" },
+                      paid: { color: "bg-green-100 text-green-700", label: "Paid" },
+                      overdue: { color: "bg-red-100 text-red-700", label: "Overdue" },
+                      cancelled: { color: "bg-slate-100 text-slate-500", label: "Cancelled" }
+                    };
+                    
+                    const config = invoiceStatusConfig[jobInvoice.status] || invoiceStatusConfig.draft;
+                    return (
+                      <Badge className={config.color}>
+                        {config.label}
+                      </Badge>
+                    );
+                  })()}
+                </div>
+                <Button variant="outline" size="sm" onClick={saveInvoiceItems} className="gap-2 relative">
+                  {areInvoiceItemsDirty && !invoiceSaved && (
+                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                    </span>
+                  )}
+                  {invoiceSaved ? (
+                    <>
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      Saved
+                    </>
+                  ) : (
+                    'Save Invoice'
+                  )}
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                  <div className="space-y-3">
+                    {Array.isArray(lineItems) && lineItems.map((item, index) => (
+                      <div key={index} className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                        <div className="w-full">
+                          <Label className="text-xs text-slate-500">Description</Label>
+                          {(Array.isArray(invoicePresets) && invoicePresets.length > 0 && customItem !== index) ? (
+                            <select
+                              value={item?.description || ''}
+                              onChange={(e) => {
+                                if (e.target.value === 'custom') {
+                                  handleLineItemChange(index, 'description', '');
+                                  setCustomItem(index);
+                                } else if (e.target.value) {
+                                  handlePresetSelect(index, e.target.value);
+                                }
+                              }}
+                              className="w-full p-2 border border-slate-300 rounded-md text-sm mt-1"
+                            >
+                              <option value="">Select preset...</option>
+                              {invoicePresets.map((preset, presetIndex) => (
+                                <option key={presetIndex} value={preset.description}>
+                                  {preset.description} - ${preset.rate}
+                                </option>
+                              ))}
+                              <option value="custom">Custom description...</option>
+                            </select>
+                          ) : (
+                            <Input
+                              value={item?.description || ''}
+                              onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
+                              placeholder="Description"
+                              className="w-full mt-1"
+                            />
+                          )}
+                        </div>
+                        
+                        <div className="flex flex-col sm:flex-row items-end gap-2 mt-3">
+                          <div className="flex-1 w-full">
+                            <Label className="text-xs text-slate-500">Qty</Label>
+                            <Input
+                              type="number"
+                              value={item?.quantity || ''}
+                              onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
+                              placeholder="1"
+                              className="mt-1"
+                            />
+                          </div>
+                          
+                          <div className="flex-1 w-full">
+                            <Label className="text-xs text-slate-500">Rate ($)</Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={item?.rate || ''}
+                              onChange={(e) => handleLineItemChange(index, 'rate', e.target.value)}
+                              placeholder="0.00"
+                              className="mt-1"
+                            />
+                          </div>
+                          
+                          <div className="flex-1 w-full">
+                            <Label className="text-xs text-slate-500">Total</Label>
+                            <div className="mt-1 h-10 flex items-center px-3 bg-slate-100 rounded-md border font-medium text-slate-900">
+                              ${((parseFloat(item?.quantity) || 0) * (parseFloat(item?.rate) || 0)).toFixed(2)}
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => handleRemoveLineItem(index)}
+                              className="text-red-600 hover:text-red-700 h-10 w-10"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                
+                  <Button variant="outline" className="w-full" onClick={handleAddLineItem}>
+                    <Plus className="w-4 h-4 mr-2" /> Add Item
+                  </Button>
+                
+                <div className="pt-3 border-t">
+                    <div className="flex justify-between items-center mb-4">
+                      <span className="font-bold">Total:</span>
+                      <span className="text-xl font-bold">${totalFee.toFixed(2)}</span>
+                    </div>
+                    
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Button variant="outline" size="sm" className="flex-1 gap-2">
+                        <Settings className="w-4 h-4" />
+                        Manage Invoice
+                      </Button>
+                      <Button variant="outline" size="sm" className="flex-1 gap-2">
+                        <Mail className="w-4 h-4" />
+                        Email Invoice
+                      </Button>
+                    </div>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -1604,144 +1971,6 @@ export default function JobDetailsPage() {
               </CardContent>
             </Card>
 
-            {/* Live Invoice Card */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <CardTitle className="flex items-center gap-2">
-                    <Receipt className="w-5 h-5"/>
-                    Invoice
-                  </CardTitle>
-                  {/* Invoice Status Badge */}
-                  {(() => {
-                    const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
-                    if (!jobInvoice) {
-                      return (
-                        <Badge className="bg-slate-100 text-slate-700">
-                          Not Invoiced
-                        </Badge>
-                      );
-                    }
-                    
-                    const statusConfig = {
-                      draft: { color: "bg-slate-100 text-slate-700", label: "Draft" },
-                      sent: { color: "bg-blue-100 text-blue-700", label: "Sent" },
-                      paid: { color: "bg-green-100 text-green-700", label: "Paid" },
-                      overdue: { color: "bg-red-100 text-red-700", label: "Overdue" },
-                      cancelled: { color: "bg-slate-100 text-slate-500", label: "Cancelled" }
-                    };
-                    
-                    const config = statusConfig[jobInvoice.status] || statusConfig.draft;
-                    return (
-                      <Badge className={config.color}>
-                        {config.label}
-                      </Badge>
-                    );
-                  })()}
-                </div>
-                <Button variant="outline" size="sm" onClick={saveInvoiceItems} className="gap-2 relative">
-                  {areInvoiceItemsDirty && !invoiceSaved && (
-                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                    </span>
-                  )}
-                  {invoiceSaved ? (
-                    <>
-                      <CheckCircle className="w-4 h-4 text-green-600" />
-                      Saved
-                    </>
-                  ) : (
-                    'Save Invoice'
-                  )}
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    {Array.isArray(lineItems) && lineItems.map((item, index) => (
-                      <div key={index} className="grid grid-cols-[1fr,80px,100px,32px] gap-2 items-center">
-                        {/* Simple preset selection or text input */}
-                        {(Array.isArray(invoicePresets) && invoicePresets.length > 0 && customItem !== index) ? (
-                          <select
-                            value={item?.description || ''}
-                            onChange={(e) => {
-                              if (e.target.value === 'custom') {
-                                // Switch to custom input
-                                handleLineItemChange(index, 'description', '');
-                                setCustomItem(index)
-                              } else if (e.target.value) {
-                                handlePresetSelect(index, e.target.value);
-                              }
-                            }}
-                            className="w-full p-2 border border-slate-300 rounded-md text-sm"
-                          >
-                            <option value="">Select preset...</option>
-                            {invoicePresets.map((preset, presetIndex) => (
-                              <option key={presetIndex} value={preset.description}>
-                                {preset.description} - ${preset.rate}
-                              </option>
-                            ))}
-                            <option value="custom">Custom description...</option>
-                          </select>
-                        ) : (
-                          <Input
-                            value={item?.description || ''}
-                            onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                            placeholder="Description"
-                          />
-                        )}
-                        
-                        <Input
-                          type="number"
-                          value={item?.quantity || ''}
-                          onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
-                          placeholder="Qty"
-                        />
-                        
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={item?.rate || ''}
-                          onChange={(e) => handleLineItemChange(index, 'rate', e.target.value)}
-                          placeholder="Rate"
-                        />
-                        
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => handleRemoveLineItem(index)}
-                          className="text-red-600 hover:text-red-700"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                
-                  <Button variant="outline" className="w-full" onClick={handleAddLineItem}>
-                    <Plus className="w-4 h-4 mr-2" /> Add Item
-                  </Button>
-                
-                <div className="pt-3 border-t">
-                    <div className="flex justify-between items-center mb-4">
-                      <span className="font-bold">Total:</span>
-                      <span className="text-xl font-bold">${totalFee.toFixed(2)}</span>
-                    </div>
-                    
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="flex-1 gap-2">
-                        <Settings className="w-4 h-4" />
-                        Manage Invoice
-                      </Button>
-                      <Button variant="outline" size="sm" className="flex-1 gap-2">
-                        <Mail className="w-4 h-4" />
-                        Email Invoice
-                      </Button>
-                    </div>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Notes Section */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -1800,31 +2029,36 @@ export default function JobDetailsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4 text-sm">
-                  {Array.isArray(job?.activity_log) && job.activity_log.length > 0 ? (
-                    job.activity_log.slice().reverse().map((log, index, array) => {
-                      if (!log) return null;
-                      return (
-                        <div key={index} className="flex gap-3 relative">
-                          <div className="absolute left-0 top-1.5 h-full">
-                             {/* Render vertical line for all but the last item (oldest chronological) */}
-                             {index < array.length - 1 && 
-                              <div className="w-px h-full bg-slate-200 ml-[5.5px] mt-1"></div>
-                             }
+                <div className="relative">
+                  <div className="max-h-96 overflow-y-auto space-y-4 text-sm pr-2">
+                    {Array.isArray(job?.activity_log) && job.activity_log.length > 0 ? (
+                      job.activity_log.slice().reverse().map((log, index, array) => {
+                        if (!log) return null;
+                        const config = eventTypeConfig[log.event_type] || { color: 'bg-slate-300' };
+                        return (
+                          <div key={index} className="flex gap-3 relative">
+                            <div className="absolute left-0 top-1.5 h-full">
+                               {index < array.length - 1 && 
+                                <div className="w-px h-full bg-slate-200 ml-[5.5px] mt-1"></div>
+                               }
+                            </div>
+                            <div className={`w-3 h-3 rounded-full ${config.color} mt-1 flex-shrink-0 z-10 ring-4 ring-white`}></div>
+                            <div>
+                              <p className="font-medium text-slate-800">{log.description}</p>
+                              <p className="text-slate-500 text-xs">
+                                {log.timestamp ? format(new Date(log.timestamp), 'MMM d, yyyy h:mm a') : ''}
+                                {log.user_name && ` by ${log.user_name}`}
+                              </p>
+                            </div>
                           </div>
-                          <div className="w-3 h-3 rounded-full bg-slate-300 mt-1.5 flex-shrink-0 z-10"></div>
-                          <div>
-                            <p className="font-medium text-slate-800">{log.description}</p>
-                            <p className="text-slate-500 text-xs">
-                              {log.timestamp ? format(new Date(log.timestamp), 'MMM d, yyyy h:mm a') : ''}
-                              {log.user_name && ` by ${log.user_name}`}
-                            </p>
-                          </div>
-                        </div>
-                      )
-                    })
-                  ) : (
-                    <p className="text-slate-500">No activity to display.</p>
+                        )
+                      })
+                    ) : (
+                      <p className="text-slate-500">No activity to display.</p>
+                    )}
+                  </div>
+                  {job?.activity_log?.length > 10 && (
+                    <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
                   )}
                 </div>
               </CardContent>

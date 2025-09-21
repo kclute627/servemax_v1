@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { User } from "@/api/entities";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Bell, Mail, Save, Loader2, UserCircle, Map, Target } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import AddressAutocomplete from "../jobs/AddressAutocomplete";
+import ESignatureSection from "./ESignatureSection";
 
 export default function UserSettingsPanel() {
   const [user, setUser] = useState(null);
@@ -198,6 +200,9 @@ export default function UserSettingsPanel() {
             <p className="text-xs text-slate-500 mt-2">Separate multiple areas with a comma.</p>
         </CardContent>
       </Card>
+
+      {/* E-Signature Section */}
+      <ESignatureSection user={user} onUserUpdate={() => setUser({...user})} />
 
       <Card>
         <CardHeader>

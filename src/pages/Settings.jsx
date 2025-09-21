@@ -1,10 +1,12 @@
+
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Building, User as UserIcon, CreditCard } from "lucide-react";
+import { Building, User as UserIcon, CreditCard, ListChecks } from "lucide-react";
 import { User } from "@/api/entities";
 import CompanySettingsPanel from "../components/settings/CompanySettingsPanel";
 import UserSettingsPanel from "../components/settings/UserSettingsPanel";
 import BillingPanel from "../components/settings/BillingPanel";
+import ServiceSettingsPanel from "../components/settings/ServiceSettingsPanel";
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('company');
@@ -45,6 +47,10 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
       <div className="p-6 md:p-8">
         <div className="w-full">
           {/* Header */}
@@ -55,9 +61,10 @@ export default function SettingsPage() {
           
           {/* Tab Navigation */}
           <div className="border-b border-slate-200 mb-8">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap py-2 no-scrollbar">
                 <TabButton tabName="company" label="Company" icon={Building} />
                 <TabButton tabName="user" label="My Settings" icon={UserIcon} />
+                <TabButton tabName="service" label="Service" icon={ListChecks} />
                 {isAdmin && (
                   <TabButton tabName="billing" label="Billing" icon={CreditCard} />
                 )}
@@ -68,6 +75,7 @@ export default function SettingsPage() {
           <div>
             {activeTab === 'company' && <CompanySettingsPanel />}
             {activeTab === 'user' && <UserSettingsPanel />}
+            {activeTab === 'service' && <ServiceSettingsPanel />}
             {activeTab === 'billing' && isAdmin && <BillingPanel />}
           </div>
         </div>

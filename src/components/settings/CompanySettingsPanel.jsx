@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { CompanySettings } from "@/api/entities";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Save, Settings, Share2, Receipt } from "lucide-react";
+import { Plus, Trash2, Save, Settings, Share2, Receipt, Columns, GripVertical } from "lucide-react";
 
 export default function CompanySettingsPanel() {
   const [priorities, setPriorities] = useState([
@@ -22,6 +23,13 @@ export default function CompanySettingsPanel() {
     { description: "Rush Fee", rate: 25.00 },
     { description: "Mileage", rate: 0.65 }
   ]);
+  const [kanbanColumns, setKanbanColumns] = useState([
+    { id: "backlog", title: "Backlog", associated_statuses: ["pending"], order: 1 },
+    { id: "assigned", title: "Assigned", associated_statuses: ["assigned"], order: 2 },
+    { id: "in_progress", title: "In Progress", associated_statuses: ["in_progress"], order: 3 },
+    { id: "completed", title: "Completed", associated_statuses: ["served"], order: 4 },
+    { id: "unable", title: "Unable to Serve", associated_statuses: ["unable_to_serve", "cancelled"], order: 5 }
+  ]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -32,15 +40,18 @@ export default function CompanySettingsPanel() {
   const loadSettings = async () => {
     setIsLoading(true);
     try {
-      const [prioritySettings, jobSharingSettings, invoiceSettings] = await Promise.all([
+      const [prioritySettings, jobSharingSettings, invoiceSettings, kanbanSettings] = await Promise.all([
         CompanySettings.filter({ setting_key: "job_priorities" }),
         CompanySettings.filter({ setting_key: "job_sharing" }),
-        CompanySettings.filter({ setting_key: "invoice_settings" })
+        CompanySettings.filter({ setting_key: "invoice_settings" }),
+        CompanySettings.filter({ setting_key: "kanban_settings" })
       ]);
       
       if (prioritySettings.length > 0) {
         const loadedPriorities = prioritySettings[0].setting_value.priorities.map(p => ({
           ...p,
+          // Ensure 'name' field exists, even if not directly editable in UI
+          name: p.name || "", 
           first_attempt_days: p.first_attempt_days !== undefined ? p.first_attempt_days : 0
         }));
         setPriorities(loadedPriorities);
@@ -57,6 +68,10 @@ export default function CompanySettingsPanel() {
         if (Array.isArray(settingsValue.presets) && settingsValue.presets.length > 0) {
           setInvoicePresets(settingsValue.presets);
         }
+      }
+
+      if (kanbanSettings.length > 0 && kanbanSettings[0].setting_value.columns) {
+        setKanbanColumns(kanbanSettings[0].setting_value.columns);
       }
     } catch (error) {
       console.error("Error loading settings:", error);
@@ -89,6 +104,14 @@ export default function CompanySettingsPanel() {
         await CompanySettings.create({ setting_key: "invoice_settings", setting_value: invoiceSettingsValue });
       }
 
+      const existingKanbanSettings = await CompanySettings.filter({ setting_key: "kanban_settings" });
+      const kanbanSettingsValue = { columns: kanbanColumns };
+      if (existingKanbanSettings.length > 0) {
+        await CompanySettings.update(existingKanbanSettings[0].id, { setting_value: kanbanSettingsValue });
+      } else {
+        await CompanySettings.create({ setting_key: "kanban_settings", setting_value: kanbanSettingsValue });
+      }
+
       alert("Settings saved successfully!");
     } catch (error) {
       console.error("Error saving settings:", error);
@@ -97,6 +120,10 @@ export default function CompanySettingsPanel() {
     setIsSaving(false);
   };
 
+  // When adding a new priority, 'name' is initialized as an empty string.
+  // This 'name' field is meant for internal system identification and is not exposed to the user for editing.
+  // The system itself should manage assigning a unique internal 'name' if necessary
+  // or use the 'label' as the internal identifier if 'name' is not strictly required to be unique and different.
   const addPriority = () => setPriorities([...priorities, { name: "", label: "", days_offset: 7, first_attempt_days: 2 }]);
   const removePriority = (index) => setPriorities(priorities.filter((_, i) => i !== index));
   const updatePriority = (index, field, value) => {
@@ -112,6 +139,36 @@ export default function CompanySettingsPanel() {
     updated[index][field] = field === 'rate' ? parseFloat(value) || 0 : value;
     setInvoicePresets(updated);
   };
+
+  // Kanban column management functions
+  const addKanbanColumn = () => {
+    const newColumn = {
+      id: `column_${Date.now()}`,
+      title: "New Column",
+      associated_statuses: ["pending"],
+      order: kanbanColumns.length + 1
+    };
+    setKanbanColumns([...kanbanColumns, newColumn]);
+  };
+
+  const updateKanbanColumn = (index, field, value) => {
+    const updated = [...kanbanColumns];
+    updated[index][field] = value;
+    setKanbanColumns(updated);
+  };
+
+  const removeKanbanColumn = (index) => {
+    setKanbanColumns(kanbanColumns.filter((_, i) => i !== index));
+  };
+
+  const availableStatuses = [
+    { value: "pending", label: "Pending" },
+    { value: "assigned", label: "Assigned" },
+    { value: "in_progress", label: "In Progress" },
+    { value: "served", label: "Served" },
+    { value: "unable_to_serve", label: "Unable to Serve" },
+    { value: "cancelled", label: "Cancelled" }
+  ];
 
   if (isLoading) {
     return <div>Loading...</div>;
@@ -180,6 +237,74 @@ export default function CompanySettingsPanel() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Columns className="w-5 h-5" />Kanban Board Configuration</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-slate-600 mb-4">Configure columns for the Kanban board view on the Jobs page.</p>
+          
+          <div className="space-y-4">
+            {kanbanColumns.map((column, index) => (
+              <div key={column.id} className="p-4 border rounded-lg bg-slate-50">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                  <div>
+                    <Label>Column Title</Label>
+                    <Input 
+                      value={column.title} 
+                      onChange={(e) => updateKanbanColumn(index, 'title', e.target.value)} 
+                      placeholder="e.g., In Progress"
+                    />
+                  </div>
+                  <div>
+                    <Label>Associated Job Statuses</Label>
+                    <select
+                      multiple
+                      value={column.associated_statuses}
+                      onChange={(e) => {
+                        const selectedValues = Array.from(e.target.selectedOptions, option => option.value);
+                        updateKanbanColumn(index, 'associated_statuses', selectedValues);
+                      }}
+                      className="flex h-20 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {availableStatuses.map(status => (
+                        <option key={status.value} value={status.value}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+                  </div>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={() => removeKanbanColumn(index)} 
+                    className="text-red-600"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <Badge variant="outline">Order: {column.order}</Badge>
+                  <div className="flex gap-1 flex-wrap">
+                    {column.associated_statuses.map(status => (
+                      <Badge key={status} className="bg-blue-100 text-blue-700 text-xs">
+                        {availableStatuses.find(s => s.value === status)?.label}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <Button type="button" variant="outline" onClick={addKanbanColumn} className="gap-2 mt-4">
+            <Plus className="w-4 h-4" />Add Column
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="flex items-center gap-2"><Settings className="w-5 h-5" />Job Priorities</CardTitle>
         </CardHeader>
         <CardContent>
@@ -187,11 +312,19 @@ export default function CompanySettingsPanel() {
           <div className="space-y-4">
             {priorities.map((priority, index) => (
               <div key={index} className="p-4 border rounded-lg bg-slate-50">
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-                  <div><Label>System Name</Label><Input value={priority.name} onChange={(e) => updatePriority(index, 'name', e.target.value)} /></div>
-                  <div><Label>Display Label</Label><Input value={priority.label} onChange={(e) => updatePriority(index, 'label', e.target.value)} /></div>
-                  <div><Label>Final Due Days</Label><Input type="number" value={priority.days_offset} onChange={(e) => updatePriority(index, 'days_offset', e.target.value)} min="0" /></div>
-                  <div><Label>First Attempt Days</Label><Input type="number" value={priority.first_attempt_days} onChange={(e) => updatePriority(index, 'first_attempt_days', e.target.value)} min="0" /></div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <div>
+                    <Label>Display Label</Label>
+                    <Input value={priority.label} onChange={(e) => updatePriority(index, 'label', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>Final Due Days</Label>
+                    <Input type="number" value={priority.days_offset} onChange={(e) => updatePriority(index, 'days_offset', e.target.value)} min="0" />
+                  </div>
+                  <div>
+                    <Label>First Attempt Days</Label>
+                    <Input type="number" value={priority.first_attempt_days} onChange={(e) => updatePriority(index, 'first_attempt_days', e.target.value)} min="0" />
+                  </div>
                   <Button type="button" variant="outline" size="icon" onClick={() => removePriority(index)} className="text-red-600"><Trash2 className="w-4 h-4" /></Button>
                 </div>
                 <div className="mt-3 flex items-center gap-4">
