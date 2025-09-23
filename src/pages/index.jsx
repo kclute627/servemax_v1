@@ -6,10 +6,6 @@ import Jobs from "./Jobs";
 
 import Clients from "./Clients";
 
-import Invoicing from "./Invoicing";
-
-import Payments from "./Payments";
-
 import CreateJob from "./CreateJob";
 
 import Employees from "./Employees";
@@ -24,6 +20,8 @@ import LogAttempt from "./LogAttempt";
 
 import GenerateAffidavit from "./GenerateAffidavit";
 
+import Accounting from "./Accounting";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -33,10 +31,6 @@ const PAGES = {
     Jobs: Jobs,
     
     Clients: Clients,
-    
-    Invoicing: Invoicing,
-    
-    Payments: Payments,
     
     CreateJob: CreateJob,
     
@@ -51,6 +45,8 @@ const PAGES = {
     LogAttempt: LogAttempt,
     
     GenerateAffidavit: GenerateAffidavit,
+    
+    Accounting: Accounting,
     
 }
 
@@ -85,10 +81,6 @@ function PagesContent() {
                 
                 <Route path="/Clients" element={<Clients />} />
                 
-                <Route path="/Invoicing" element={<Invoicing />} />
-                
-                <Route path="/Payments" element={<Payments />} />
-                
                 <Route path="/CreateJob" element={<CreateJob />} />
                 
                 <Route path="/Employees" element={<Employees />} />
@@ -102,6 +94,8 @@ function PagesContent() {
                 <Route path="/LogAttempt" element={<LogAttempt />} />
                 
                 <Route path="/GenerateAffidavit" element={<GenerateAffidavit />} />
+                
+                <Route path="/Accounting" element={<Accounting />} />
                 
             </Routes>
         </Layout>

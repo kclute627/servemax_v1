@@ -2,15 +2,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { Job, Client, Employee, CourtCase, Attempt, Document } from '@/api/entities';
+import { Job, Client, Employee, CourtCase, Attempt, Document, CompanySettings } from '@/api/entities';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { ArrowLeft, Loader2, AlertTriangle, Printer, Pencil, Save, Camera } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import AffidavitPreview from '../components/affidavit/AffidavitPreview';
 import { generateAffidavit } from '@/api/functions';
 import PhotoModal from '../components/affidavit/PhotoModal';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { format } from 'date-fns';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 
 export default function GenerateAffidavitPage() {
   const [job, setJob] = useState(null);
@@ -26,6 +28,10 @@ export default function GenerateAffidavitPage() {
   const [selectedPhotos, setSelectedPhotos] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  const [includeNotary, setIncludeNotary] = useState(false);
+  const [includeCompanyInfo, setIncludeCompanyInfo] = useState(false);
+  const [companyInfo, setCompanyInfo] = useState(null); // Changed initial state to null
+  const [hasCompanyInfo, setHasCompanyInfo] = useState(false); // New state variable
 
   const location = useLocation();
 
@@ -57,14 +63,44 @@ export default function GenerateAffidavitPage() {
       console.error("Failed to load affidavit data:", e);
       setError(e.message);
     }
-    setIsLoading(false);
+    // setIsLoading(false); // Do not set loading to false here, wait for company info as well
   }, []);
+
+  const loadCompanyInfo = async () => {
+    try {
+      const companyInfoSettings = await CompanySettings.filter({ setting_key: "company_information" });
+      if (companyInfoSettings.length > 0 && companyInfoSettings[0].setting_value) {
+        const info = companyInfoSettings[0].setting_value;
+        // Check if company info has meaningful data to display
+        if (info.company_name || info.address1 || info.city || info.state || info.zip) {
+          // Format the object into a multiline string for the affidavit
+          let formattedInfo = info.company_name ? `${info.company_name}\n` : '';
+          formattedInfo += info.address1 ? `${info.address1}\n` : '';
+          if (info.address2) {
+            formattedInfo += `${info.address2}\n`;
+          }
+          formattedInfo += (info.city || info.state || info.zip) ? `${info.city ? info.city + ', ' : ''}${info.state || ''} ${info.zip || ''}` : '';
+          
+          setCompanyInfo(formattedInfo.trim());
+          setHasCompanyInfo(true);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading company info:", error);
+    } finally {
+      // Ensure loading state is turned off after all data is fetched
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const jobId = params.get('jobId');
     if (jobId) {
+      // Set loading to true explicitly before starting both loads
+      setIsLoading(true);
       loadData(jobId);
+      loadCompanyInfo();
     } else {
       setError("No Job ID provided.");
       setIsLoading(false);
@@ -73,7 +109,8 @@ export default function GenerateAffidavitPage() {
 
   // Auto-generate affidavit data when dependencies are loaded
   useEffect(() => {
-    if (!job || !courtCase || !attempts || !documents || !employees) return;
+    // Only proceed if job data is loaded AND companyInfo has been processed (either loaded or confirmed absent)
+    if (!job || !courtCase || !attempts || !documents || !employees || (companyInfo === null && hasCompanyInfo)) return;
     
     const servedAttempts = attempts.filter(attempt => attempt.status === 'served');
     const latestServedAttempt = servedAttempts.length > 0 
@@ -83,11 +120,13 @@ export default function GenerateAffidavitPage() {
     const serviceDocuments = documents.filter(doc => doc.document_category === 'to_be_served');
 
     let serverName = 'ServeMax Agent';
+    let serverLicense = '';
     if (latestServedAttempt) {
         if (latestServedAttempt.server_id) {
             const server = employees.find(e => e.id === latestServedAttempt.server_id);
             if (server) {
                 serverName = `${server.first_name} ${server.last_name}`;
+                serverLicense = server.license_number || '';
             } else {
                 serverName = latestServedAttempt.server_name_manual || 'Unknown Server';
             }
@@ -102,7 +141,7 @@ export default function GenerateAffidavitPage() {
     const data = {
       job: job,
       status: job.status,
-      document_title: defaultTitle, // Add document title field
+      document_title: defaultTitle,
       recipient_name: job.recipient?.name || '',
       court_name: courtCase?.court_name || '',
       court_county: courtCase?.court_county || '',
@@ -111,23 +150,27 @@ export default function GenerateAffidavitPage() {
       case_number: courtCase?.case_number || '',
       documents_served: serviceDocuments.map(doc => ({ title: doc.affidavit_text || doc.title })),
       service_date: latestServedAttempt?.attempt_date ? new Date(latestServedAttempt.attempt_date).toISOString().split('T')[0] : '',
-      service_time: latestServedAttempt?.attempt_date ? new Date(latestServedAttempt.attempt_date).toTimeString().split(' ')[0].substring(0, 5) : '',
+      service_time: latestServedAttempt?.attempt_date ? format(new Date(latestServedAttempt.attempt_date), 'h:mm a') : '',
       service_address: latestServedAttempt?.address_of_attempt || (job.addresses && job.addresses[0] ? `${job.addresses[0].address1}, ${job.addresses[0].city}, ${job.addresses[0].state} ${job.addresses[0].postal_code}` : ''),
       service_manner: latestServedAttempt?.service_type_detail ? (latestServedAttempt.service_type_detail.toLowerCase().includes('personal') ? 'personal' : latestServedAttempt.service_type_detail.toLowerCase().includes('substitute') ? 'substitute_abode' : latestServedAttempt.service_type_detail.toLowerCase().includes('corporate') ? 'corporate_agent' : 'other') : (job.status === 'served' ? 'personal' : 'non_service'),
       person_served_name: latestServedAttempt?.person_served_name || '',
       person_relationship: latestServedAttempt?.relationship_to_recipient || '',
       server_name: serverName,
+      server_license_number: serverLicense,
       selected_photos: selectedPhotos,
       person_sex: latestServedAttempt?.person_served_sex || '',
       person_age: latestServedAttempt?.person_served_age || '',
       person_height: latestServedAttempt?.person_served_height || '',
       person_weight: latestServedAttempt?.person_served_weight || '',
       person_hair: latestServedAttempt?.person_served_hair_color || '',
-      person_description_other: latestServedAttempt?.person_served_description || ''
+      person_description_other: latestServedAttempt?.person_served_description || '',
+      include_notary: includeNotary,
+      include_company_info: includeCompanyInfo,
+      company_info: companyInfo, // Now uses the state variable which is a formatted string
     };
     
     setAffidavitData(data);
-  }, [job, client, courtCase, attempts, documents, employees, selectedPhotos]);
+  }, [job, client, courtCase, attempts, documents, employees, selectedPhotos, includeNotary, includeCompanyInfo, companyInfo, hasCompanyInfo]);
   
   const handlePrint = async () => {
     if (isEditing) {
@@ -190,103 +233,149 @@ export default function GenerateAffidavitPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4 md:p-8">
-      <PhotoModal
-        open={isPhotoModalOpen}
-        onOpenChange={setIsPhotoModalOpen}
-        attempts={attempts}
-        selectedPhotos={selectedPhotos}
-        onPhotosChange={setSelectedPhotos}
-      />
+    <>
+      <meta name="viewport" content="width=device-width, initial-scale=0.5, user-scalable=yes" />
       
-      {/* Header */}
-      <div className="max-w-5xl mx-auto mb-6 sticky top-0 bg-slate-100/80 backdrop-blur-sm py-4 z-10 rounded-lg">
-        <div className="flex items-center justify-between gap-4 px-4">
-          <div className="flex items-center gap-4">
-            <Link to={job ? createPageUrl(`JobDetails?id=${job.id}`) : createPageUrl('Jobs')}>
-              <Button variant="outline" size="icon">
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">
-                Generate Affidavit
-              </h1>
-              <p className="text-slate-600">For Job #{job?.job_number}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                {/* The div wrapper enables the tooltip even when the button is disabled. */}
-                <div className="inline-block">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      if (allPhotosCount > 0) setIsPhotoModalOpen(true);
-                    }}
-                    disabled={allPhotosCount === 0}
-                    className="gap-2"
-                  >
-                    <Camera className="w-4 h-4" />
-                    Attach Photos
-                    {selectedPhotos.length > 0 && (
-                      <Badge variant="secondary" className="ml-2">{selectedPhotos.length}</Badge>
-                    )}
+      <div className="min-h-screen bg-slate-200">
+        <PhotoModal
+          open={isPhotoModalOpen}
+          onOpenChange={setIsPhotoModalOpen}
+          attempts={attempts}
+          selectedPhotos={selectedPhotos}
+          onPhotosChange={setSelectedPhotos}
+        />
+        
+        {/* Sticky Header */}
+        <div className="sticky top-0 bg-slate-100 border-b border-slate-300 p-4 z-10 shadow-sm">
+          <div className="max-w-4xl mx-auto space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <Link to={job ? createPageUrl(`JobDetails?id=${job.id}`) : createPageUrl('Jobs')}>
+                  <Button variant="outline" size="icon">
+                    <ArrowLeft className="w-4 h-4" />
                   </Button>
+                </Link>
+                <div>
+                  <h1 className="text-xl font-bold text-slate-900">Generate Affidavit</h1>
+                  <p className="text-sm text-slate-600">Job #{job?.job_number} - True WYSIWYG Preview</p>
                 </div>
-              </TooltipTrigger>
-              {allPhotosCount === 0 && (
-                <TooltipContent>
-                  <p>No photos available to attach.</p>
-                </TooltipContent>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="inline-block">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          if (allPhotosCount > 0) setIsPhotoModalOpen(true);
+                        }}
+                        disabled={allPhotosCount === 0}
+                        className="gap-2"
+                      >
+                        <Camera className="w-4 h-4" />
+                        Photos
+                        {selectedPhotos.length > 0 && (
+                          <Badge variant="secondary" className="ml-1">{selectedPhotos.length}</Badge>
+                        )}
+                      </Button>
+                    </div>
+                  </TooltipTrigger>
+                  {allPhotosCount === 0 && (
+                    <TooltipContent>
+                      <p>No photos available to attach.</p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+                <Button 
+                  variant="outline"
+                  onClick={() => setIsEditing(!isEditing)}
+                  className="gap-2"
+                >
+                  {isEditing ? <Save className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+                  {isEditing ? 'Save' : 'Edit'}
+                </Button>
+                <Button 
+                  onClick={handlePrint} 
+                  disabled={!affidavitData || isGenerating || isEditing}
+                  className="gap-2"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Printer className="w-4 h-4" />
+                      Print PDF
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+            
+            <div className="flex flex-wrap items-start gap-x-6 gap-y-4 pt-4 border-t w-full">
+               <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="include-notary"
+                  checked={includeNotary}
+                  onChange={(e) => setIncludeNotary(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                />
+                <label htmlFor="include-notary" className="text-sm font-medium text-slate-700 whitespace-nowrap">
+                  Include Notary Block
+                </label>
+              </div>
+
+              {hasCompanyInfo && ( // Only render if company info is available
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="include-company-info"
+                    checked={includeCompanyInfo}
+                    onChange={(e) => setIncludeCompanyInfo(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                  />
+                  <label htmlFor="include-company-info" className="text-sm font-medium text-slate-700 whitespace-nowrap">
+                    Include Company Info
+                  </label>
+                </div>
               )}
-            </Tooltip>
-            <Button 
-              variant="outline"
-              onClick={() => setIsEditing(!isEditing)}
-              className="gap-2"
-            >
-              {isEditing ? <Save className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
-              {isEditing ? 'Save' : 'Edit'}
-            </Button>
-            <Button 
-              onClick={handlePrint} 
-              disabled={!affidavitData || isGenerating || isEditing}
-              className="gap-2"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Printer className="w-4 h-4" />
-                  Print PDF
-                </>
-              )}
-            </Button>
+              
+              {/* The Textarea for editing company info is removed as it's now loaded from settings */}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Main Content - Affidavit Preview */}
-      <main className="flex justify-center">
-        <div className="w-full max-w-[8.5in] bg-white shadow-2xl rounded-lg aspect-[8.5/11]">
-          {affidavitData ? (
-            <AffidavitPreview 
-              affidavitData={affidavitData} 
-              isEditing={isEditing}
-              onDataChange={handleAffidavitDataChange}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full">
-               <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+        {/* Main Content - Actual Paper Size Preview */}
+        <main className="overflow-auto p-6">
+          <div className="flex justify-center">
+            {/* Exact PDF dimensions: 612pt x 792pt (8.5in x 11in at 72dpi) */}
+            <div 
+              className="bg-white shadow-2xl" 
+              style={{ 
+                width: '612pt', 
+                height: '792pt',
+                minWidth: '612pt',
+                minHeight: '792pt'
+              }}
+            >
+              {affidavitData ? (
+                <AffidavitPreview 
+                  affidavitData={affidavitData} 
+                  isEditing={isEditing}
+                  onDataChange={handleAffidavitDataChange}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </main>
-    </div>
+          </div>
+        </main>
+      </div>
+    </>
   );
 }

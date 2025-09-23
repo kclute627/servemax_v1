@@ -1,250 +1,218 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Job, Employee, Attempt, CompanySettings, User } from '@/api/entities';
+import { Job, Employee, Attempt, User, Client } from '@/api/entities'; // Client imported as per outline
 import { createPageUrl } from '@/utils';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   ArrowLeft,
   Clock,
   MapPin,
-  Calendar as CalendarIcon,
-  User as UserIcon, // Renamed to avoid conflict with imported User entity
-  FileText,
+  User as UserIcon,
   CheckCircle,
-  AlertCircle,
+  XCircle,
   Loader2,
-  Save,
-  Plus,
-  X
+  Save
 } from 'lucide-react';
-import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
-import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
-import { UploadFile } from '@/api/integrations';
+import DocumentUpload from '../components/jobs/DocumentUpload';
 
-// Note: attemptStatusOptions is no longer directly used for rendering the status buttons,
-// but it defines the possible values and their associated icons/colors, which might be
-// useful for other parts of the application or future expansions.
 const attemptStatusOptions = [
   { value: "served", label: "Successfully Served", icon: CheckCircle, color: "text-green-600" },
-  { value: "not_served", label: "Not Served", icon: AlertCircle, color: "text-red-600" },
+  { value: "not_served", label: "Not Served", icon: XCircle, color: "text-red-600" },
   { value: "contact_made", label: "Contact Made", icon: UserIcon, color: "text-blue-600" },
-  { value: "vacant", label: "Property Vacant", icon: AlertCircle, color: "text-orange-600" },
+  { value: "vacant", label: "Property Vacant", icon: XCircle, color: "text-orange-600" },
   { value: "bad_address", label: "Bad Address", icon: MapPin, color: "text-red-600" },
 ];
+
+const initialFormData = {
+  job_id: "", // Will be filled by loadJobData
+  server_id: "manual", // Default to manual selection
+  server_name_manual: "",
+  attempt_date: "", // Will be filled by loadJobData
+  attempt_time: "", // Will be filled by loadJobData
+  address_of_attempt: "", // Will be filled by loadJobData
+  notes: "",
+  status: "not_served", // Default status
+  service_type_detail: "No Answer", // Default service type
+  person_served_name: "",
+  person_served_description: "",
+  relationship_to_recipient: "",
+  person_served_age: "",
+  person_served_weight: "",
+  person_served_height: "",
+  person_served_hair_color: "",
+  person_served_sex: "",
+  gps_lat: null,
+  gps_lon: null,
+  // uploaded_files removed from formData to be managed by separate uploadedFiles state
+};
 
 export default function LogAttemptPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Get job ID from URL params
-  const [jobId, setJobId] = useState(null);
-
-  // State
+  // General Page State
   const [job, setJob] = useState(null);
+  const [client, setClient] = useState(null); // Added client state as per outline
   const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null); // Added error state
-  const [currentUser, setCurrentUser] = useState(null); // Add state for current user
+  const [error, setError] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
 
-  // Form state
-  const [serverId, setServerId] = useState('');
-  const [attemptDate, setAttemptDate] = useState(new Date());
-  const [attemptTime, setAttemptTime] = useState(format(new Date(), "HH:mm"));
-  const [status, setStatus] = useState('served'); // Changed default status to 'served'
-  const [serviceTypeDetail, setServiceTypeDetail] = useState('');
-  const [notes, setNotes] = useState('');
-  const [addressOfAttempt, setAddressOfAttempt] = useState('');
-  const [isAddingNewAddress, setIsAddingNewAddress] = useState(false);
-  const [newAddressDetails, setNewAddressDetails] = useState({
-    address1: '',
-    address2: '',
-    city: '',
-    state: '',
-    postal_code: ''
-  });
-  const [isAddressLoading, setIsAddressLoading] = useState(false);
-  const [gpsCoords, setGpsCoords] = useState(null);
-  const [isGettingLocation, setIsGettingLocation] = useState(false);
-  const [manualServerName, setManualServerName] = useState('');
+  // New state for edit mode and uploaded files
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingAttemptId, setEditingAttemptId] = useState(null); // Renamed from attemptId in original, to match outline
+  const [uploadedFiles, setUploadedFiles] = useState([]); // Separate state for uploaded files as per outline
 
-  // New state for served person details
-  const [personServedName, setPersonServedName] = useState('');
-  const [personServedAge, setPersonServedAge] = useState('');
-  const [personServedHeight, setPersonServedHeight] = useState('');
-  const [personServedWeight, setPersonServedWeight] = useState('');
-  const [personServedHairColor, setPersonServedHairColor] = useState('');
-  const [personServedSex, setPersonServedSex] = useState('');
-  const [personServedDescription, setPersonServedDescription] = useState('');
-  const [relationshipToRecipient, setRelationshipToRecipient] = useState('');
+  // Form state managed by formData
+  const [formData, setFormData] = useState(initialFormData);
 
-  // New state for toggling description buttons
-  // Note: The toggle button itself has been removed from the UI,
-  // but this state variable is still used to determine if the quick selectors
-  // for physical description fields should be visible, based on CompanySettings.
-  const [showDescriptionButtons, setShowDescriptionButtons] = useState(true);
+  // Generic handler for form field changes
+  const handleInputChange = useCallback((e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  }, []);
 
-  // Add new state for uploaded files
-  const [uploadedFiles, setUploadedFiles] = useState([]);
-  const [isUploadingFile, setIsUploadingFile] = useState(false);
-
-  // New state for custom service types from CompanySettings
-  const [serviceTypes, setServiceTypes] = useState({ successful: [], unsuccessful: [] });
-
-  // Effect to manage jobId extraction and persistence
+  // Effect to fetch current user and pre-fill server info (remains mostly same)
   useEffect(() => {
-    const urlParams = new URLSearchParams(location.search);
-    let idFromUrl = urlParams.get('jobId');
-
-    if (idFromUrl) {
-      sessionStorage.setItem('lastLogAttemptJobId', idFromUrl);
-      setJobId(idFromUrl);
-    } else {
-      const idFromSession = sessionStorage.getItem('lastLogAttemptJobId');
-      if (idFromSession) {
-        setJobId(idFromSession);
-      } else {
-        console.error("No job ID provided");
-        alert("No job ID found. Returning to the jobs list.");
-        navigate(createPageUrl("Jobs"));
-      }
-    }
-
-    // Fetch current user
     const fetchUser = async () => {
       try {
         const user = await User.me();
         setCurrentUser(user);
+        // Pre-fill server name if user is an employee and no server is set yet
+        // This logic needs to be careful not to overwrite existing server data when editing
+        if (!formData.server_id || formData.server_id === "manual" && !formData.server_name_manual) {
+          const employeeRecord = await Employee.filter({ email: user.email });
+          if (employeeRecord.length > 0) {
+            setFormData(prev => ({
+              ...prev,
+              server_name_manual: `${employeeRecord[0].first_name} ${employeeRecord[0].last_name}`,
+              server_id: employeeRecord[0].id
+            }));
+          } else {
+            setFormData(prev => ({
+              ...prev,
+              server_name_manual: user.full_name || ''
+            }));
+          }
+        }
       } catch (e) {
-        console.error("No user logged in for activity tracking.", e);
-        // It's not critical for the page to break if user can't be fetched,
-        // but activity log might show "System" as user.
+        console.error("Failed to fetch current user", e);
       }
     };
     fetchUser();
+  }, [formData.server_id, formData.server_name_manual]); // Added dependencies to re-run if server info changes
 
-  }, [location.search, navigate]);
-
-  const loadData = useCallback(async () => {
-    if (!jobId) return;
-
+  // Main data loading function (replaces loadInitialData)
+  const loadJobData = useCallback(async (jobId, attemptId = null) => {
     setIsLoading(true);
     try {
-      const [jobData, employeesData, companySettings] = await Promise.all([
+      const [jobData, employeesData] = await Promise.all([
         Job.get(jobId),
-        Employee.list(),
-        CompanySettings.filter({ setting_key: 'service_types' }), // Fetch service types from settings
+        Employee.list()
       ]);
 
       if (!jobData) {
         throw new Error("Job not found");
       }
 
+      const clientData = jobData.client_id ? await Client.get(jobData.client_id) : null;
+      
       setJob(jobData);
+      setClient(clientData); // Set client data
       setEmployees(employeesData || []);
 
-      // Process company settings for service types and description buttons toggle
-      const serviceTypeSetting = companySettings?.find(s => s.setting_key === 'service_types');
-      if (serviceTypeSetting && serviceTypeSetting.setting_value) {
-        setServiceTypes(serviceTypeSetting.setting_value);
-
-        // Set description buttons visibility - explicitly check the boolean value
-        const showButtons = serviceTypeSetting.setting_value.show_description_buttons;
-        setShowDescriptionButtons(showButtons === true); // Only true if explicitly true
-
-        console.log("Description buttons setting:", showButtons, "Will show buttons:", showButtons === true); // Debug log
+      if (attemptId) {
+        // Edit mode: load existing attempt data
+        try {
+          const attemptData = await Attempt.get(attemptId);
+          if (attemptData) {
+            const attemptDateTime = new Date(attemptData.attempt_date);
+            setFormData({
+              job_id: attemptData.job_id,
+              server_id: attemptData.server_id || "manual",
+              server_name_manual: attemptData.server_name_manual || "",
+              attempt_date: attemptDateTime.toISOString().split('T')[0], // For native date input
+              attempt_time: attemptDateTime.toTimeString().slice(0, 5), // For native time input
+              address_of_attempt: attemptData.address_of_attempt || "",
+              notes: attemptData.notes || "",
+              status: attemptData.status || "not_served",
+              service_type_detail: attemptData.service_type_detail || "",
+              person_served_name: attemptData.person_served_name || "",
+              person_served_description: attemptData.person_served_description || "",
+              relationship_to_recipient: attemptData.relationship_to_recipient || "",
+              person_served_age: attemptData.person_served_age || "",
+              person_served_weight: attemptData.person_served_weight || "",
+              person_served_height: attemptData.person_served_height || "",
+              person_served_hair_color: attemptData.person_served_hair_color || "",
+              person_served_sex: attemptData.person_served_sex || "",
+              gps_lat: attemptData.gps_lat || null,
+              gps_lon: attemptData.gps_lon || null,
+            });
+            setUploadedFiles(attemptData.uploaded_files || []); // Set separate uploadedFiles state
+          } else {
+            throw new Error("Attempt not found");
+          }
+        } catch (error) {
+          console.error("Error loading attempt data:", error);
+          setError("Failed to load attempt data: " + error.message);
+          alert("Error loading attempt data: " + error.message);
+          navigate(`${createPageUrl("JobDetails")}?id=${jobId}`); // Go back to job details if attempt not found
+        }
       } else {
-        // If no settings found, use default service types (empty arrays)
-        // and default to showing description buttons (which is the initial state).
-        setServiceTypes({ successful: [], unsuccessful: [] });
-        setShowDescriptionButtons(true);
-        console.log("No service type settings found. Defaulting service types and showing buttons.");
-      }
-
-      // Set defaults
-      if (jobData.assigned_server_id) {
-        setServerId(jobData.assigned_server_id);
-        setManualServerName('');
-      } else {
-        setServerId('');
-        setManualServerName('');
-      }
-
-      const primaryAddress = jobData.addresses?.find(a => a.primary) || jobData.addresses?.[0];
-      if (primaryAddress) {
-        const fullAddr = `${primaryAddress.address1}, ${primaryAddress.city}, ${primaryAddress.state}`;
-        setAddressOfAttempt(fullAddr);
+        // New attempt: Set default address and current date/time
+        const now = new Date();
+        let defaultAddress = "";
+        if (jobData.addresses?.length > 0) {
+          const primaryAddress = jobData.addresses.find(a => a.primary) || jobData.addresses[0];
+          defaultAddress = `${primaryAddress.address1}, ${primaryAddress.city}, ${primaryAddress.state} ${primaryAddress.postal_code}`;
+        }
+        setFormData(prev => ({
+          ...prev,
+          job_id: jobData.id,
+          attempt_date: now.toISOString().split('T')[0],
+          attempt_time: now.toTimeString().slice(0, 5),
+          address_of_attempt: defaultAddress,
+        }));
+        setUploadedFiles([]); // Ensure uploadedFiles is empty for new attempts
       }
 
     } catch (error) {
       console.error("Error loading data:", error);
       setError("Error loading job data: " + error.message);
-      alert("Error loading job data");
+      alert("Error loading job data: " + error.message);
       navigate(createPageUrl("Jobs"));
     }
     setIsLoading(false);
-  }, [jobId, navigate]);
+  }, []); // Changed dependency array from [navigate] to [] to fix warning. `navigate` is stable from `useNavigate` and does not need to be a dependency.
 
+
+  // Consolidated data loading effect (replaces previous jobId and loadInitialData effects)
   useEffect(() => {
-    if (jobId) {
-      loadData();
-    }
-  }, [jobId, loadData]);
+    const params = new URLSearchParams(location.search);
+    const jobIdFromUrl = params.get('jobId');
+    const attemptIdFromUrl = params.get('attemptId');
 
-  // Effect to update serviceTypeDetail and person served name when status or serviceTypes change
-  useEffect(() => {
-    // Helper to clear person served details
-    const clearPersonServedDetails = () => {
-      setPersonServedName('');
-      setPersonServedAge('');
-      setPersonServedHeight('');
-      setPersonServedWeight('');
-      setPersonServedHairColor('');
-      setPersonServedSex('');
-      setPersonServedDescription('');
-      setRelationshipToRecipient('');
-    };
-
-    if (status === 'served') {
-      const successfulTypes = serviceTypes.successful;
-      if (successfulTypes && successfulTypes.length > 0) {
-        const defaultType = successfulTypes[0].label;
-        setServiceTypeDetail(defaultType);
-
-        // If it's personal service and we have a job recipient, pre-populate the name
-        const isPersonalService = defaultType.toLowerCase().includes('personal') || defaultType.toLowerCase().includes('individual');
-        if (isPersonalService && job?.recipient?.name) {
-          setPersonServedName(job.recipient.name);
-        } else {
-          setPersonServedName(''); // Clear if not personal or no recipient
-        }
-      } else {
-        setServiceTypeDetail('');
-        clearPersonServedDetails();
-      }
-    } else if (status === 'not_served') {
-      const unsuccessfulTypes = serviceTypes.unsuccessful;
-      if (unsuccessfulTypes && unsuccessfulTypes.length > 0) {
-        setServiceTypeDetail(unsuccessfulTypes[0].label);
-      } else {
-        setServiceTypeDetail('');
-      }
-      // Clear served person details when not served
-      clearPersonServedDetails();
+    if (jobIdFromUrl) {
+      // No sessionStorage persistence for jobId as per outline
+      setIsEditMode(!!attemptIdFromUrl);
+      setEditingAttemptId(attemptIdFromUrl);
+      loadJobData(jobIdFromUrl, attemptIdFromUrl);
     } else {
-      setServiceTypeDetail(''); // Clear if no specific type is available or status is not 'served'/'not_served'
-      clearPersonServedDetails(); // Also clear if status is neither served nor not_served
+      setError("No Job ID provided");
+      setIsLoading(false);
+      alert("No job ID found. Returning to the jobs list.");
+      navigate(createPageUrl("Jobs"));
     }
-  }, [status, serviceTypes, job]);
+  }, [location.search, navigate, loadJobData]); // Added loadJobData to dependencies, as it's now a stable function
+
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
@@ -252,262 +220,158 @@ export default function LogAttemptPage() {
       return;
     }
 
-    setIsGettingLocation(true);
+    setIsLoading(true); // Using isLoading for location fetching, could be separate
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setGpsCoords({
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-        });
-        setIsGettingLocation(false);
+        setFormData(prev => ({
+          ...prev,
+          gps_lat: position.coords.latitude,
+          gps_lon: position.coords.longitude,
+        }));
+        setIsLoading(false);
       },
       (error) => {
         console.error("Error getting location:", error);
         alert("Unable to retrieve your location.");
-        setIsGettingLocation(false);
+        setIsLoading(false);
       }
     );
   };
 
-  const handleFileUpload = async (files) => {
-    if (!files || files.length === 0) return;
+  const handleDocumentUploadSuccess = useCallback((uploadedDocs) => {
+    setUploadedFiles(prev => [...prev, ...uploadedDocs]);
+  }, []);
 
-    setIsUploadingFile(true);
-    try {
-      const uploadPromises = Array.from(files).map(async (file) => {
-        // Here we assume UploadFile is a utility that handles the actual upload
-        // and returns a file_url. It should also handle max file size limits if needed.
-        const { file_url } = await UploadFile({ file });
-        return {
-          id: `upload-${Date.now()}-${Math.random()}`, // Unique ID for React key and removal
-          name: file.name,
-          file_url: file_url,
-          file_size: file.size,
-          content_type: file.type,
-          upload_date: new Date().toISOString()
-        };
-      });
-
-      const newFiles = await Promise.all(uploadPromises);
-      setUploadedFiles(prev => [...prev, ...newFiles]);
-    } catch (error) {
-      console.error("Error uploading files:", error);
-      alert("Error uploading files: " + error.message);
-    }
-    setIsUploadingFile(false);
-  };
-
-  const handleRemoveFile = (fileId) => {
-    setUploadedFiles(prev => prev.filter(file => file.id !== fileId));
-  };
+  const handleRemoveUploadedFile = useCallback((fileToRemoveId) => {
+    setUploadedFiles(prev => prev.filter(file => file.id !== fileToRemoveId));
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.attempt_date || !formData.attempt_time) {
+      alert("Please enter both a date and time for the attempt.");
+      return;
+    }
+
     setIsSubmitting(true);
 
-    if (!serverId && !manualServerName.trim()) {
+    if (formData.server_id === 'manual' && !formData.server_name_manual.trim()) {
       alert("Please select or manually enter a process server");
       setIsSubmitting(false);
       return;
     }
 
     // Validation for served attempts
-    if (status === 'served') {
-      if (!personServedName.trim()) {
+    if (formData.status === 'served') {
+      if (!formData.person_served_name.trim()) {
         alert("Person served name is required for successful service.");
         setIsSubmitting(false);
         return;
       }
       // Check if relationship is required (for non-personal service)
-      const isPersonalService = serviceTypeDetail.toLowerCase().includes('personal') || serviceTypeDetail.toLowerCase().includes('individual');
-      if (!isPersonalService && !relationshipToRecipient.trim()) {
+      const serviceTypeLower = formData.service_type_detail.toLowerCase();
+      const isPersonalService = serviceTypeLower.includes('personal') || serviceTypeLower.includes('individual');
+      if (!isPersonalService && !formData.relationship_to_recipient.trim()) {
         alert("Relationship to recipient is required for non-personal service.");
         setIsSubmitting(false);
         return;
       }
     }
 
-    let finalAddress;
-    if (isAddingNewAddress) {
-      const addressParts = [
-        newAddressDetails.address1,
-        newAddressDetails.address2,
-        newAddressDetails.city,
-        newAddressDetails.state,
-        newAddressDetails.postal_code
-      ].filter(part => part && part.trim());
-
-      finalAddress = addressParts.join(', ');
-    } else {
-      finalAddress = addressOfAttempt;
-    }
-
-    if (!finalAddress || !finalAddress.trim()) {
-      alert("Please select or enter an address for the attempt");
+    if (!formData.address_of_attempt || !formData.address_of_attempt.trim()) {
+      alert("Please enter an address for the attempt");
       setIsSubmitting(false);
       return;
     }
 
     try {
-      const [hours, minutes] = attemptTime.split(':');
-      const finalAttemptDate = new Date(attemptDate);
-      finalAttemptDate.setHours(parseInt(hours, 10));
-      finalAttemptDate.setMinutes(parseInt(minutes, 10));
+      const combinedDateTime = new Date(`${formData.attempt_date}T${formData.attempt_time}`);
 
-      const attemptData = {
+      const serverData = formData.server_id === 'manual'
+        ? { server_name_manual: formData.server_name_manual.trim(), server_id: null }
+        : { server_id: formData.server_id, server_name_manual: employees.find(emp => emp.id === formData.server_id)?.first_name + ' ' + employees.find(emp => emp.id === formData.server_id)?.last_name };
+
+      const attemptData = { // Renamed from finalData for clarity
         job_id: job.id,
-        server_id: serverId !== 'manual' ? serverId : null,
-        server_name_manual: serverId === 'manual' ? manualServerName.trim() : null,
-        attempt_date: finalAttemptDate.toISOString(),
-        address_of_attempt: finalAddress,
-        status: status,
-        service_type_detail: serviceTypeDetail, // Using new serviceTypeDetail
-        notes: notes,
-        gps_lat: gpsCoords?.lat,
-        gps_lon: gpsCoords?.lon,
-        uploaded_files: uploadedFiles // Add uploaded files to attempt data
+        ...serverData,
+        attempt_date: combinedDateTime.toISOString(),
+        address_of_attempt: formData.address_of_attempt,
+        notes: formData.notes,
+        status: formData.status,
+        service_type_detail: formData.service_type_detail,
+        person_served_name: formData.person_served_name,
+        person_served_age: formData.person_served_age,
+        person_served_height: formData.person_served_height,
+        person_served_weight: formData.person_served_weight,
+        person_served_hair_color: formData.person_served_hair_color,
+        person_served_sex: formData.person_served_sex,
+        person_served_description: formData.person_served_description,
+        relationship_to_recipient: formData.relationship_to_recipient,
+        gps_lat: formData.gps_lat,
+        gps_lon: formData.gps_lon,
+        uploaded_files: uploadedFiles // Use the separate uploadedFiles state
       };
 
-      // Add served person details if status is served
-      if (status === 'served') {
-        attemptData.person_served_name = personServedName.trim();
-        attemptData.person_served_age = personServedAge.trim();
-        attemptData.person_served_height = personServedHeight.trim();
-        attemptData.person_served_weight = personServedWeight.trim();
-        attemptData.person_served_hair_color = personServedHairColor.trim();
-        attemptData.person_served_sex = personServedSex;
-        attemptData.person_served_description = personServedDescription.trim();
-        attemptData.relationship_to_recipient = relationshipToRecipient.trim();
-      }
-
-      const createdAttempt = await Attempt.create(attemptData);
-      console.log("Attempt created:", createdAttempt);
-
-      // If a new address was entered for the attempt, add it to the job record.
-      if (isAddingNewAddress && newAddressDetails.address1) {
-        const currentAddresses = Array.isArray(job.addresses) ? job.addresses : [];
-        const alreadyExists = currentAddresses.some(addr =>
-          (addr.address1 || '').toLowerCase().trim() === (newAddressDetails.address1 || '').toLowerCase().trim() &&
-          (addr.city || '').toLowerCase().trim() === (newAddressDetails.city || '').trim()
-        );
-        if (!alreadyExists) {
-          const newAddressObject = {
-            label: "Other", // Default label for a newly discovered address
-            address1: newAddressDetails.address1,
-            address2: newAddressDetails.address2,
-            city: newAddressDetails.city,
-            state: newAddressDetails.state,
-            postal_code: newAddressDetails.postal_code,
-            primary: false
-          };
-          await Job.update(job.id, { addresses: [...currentAddresses, newAddressObject] });
-        }
-      }
-
-      // --- UPDATE JOB STATUS AND ACTIVITY LOG ---
-      const jobToUpdate = await Job.get(job.id); // Fetch the latest job data to ensure current state
-      let jobUpdateData = {};
-      let needsJobUpdate = false;
-
-      if (status === 'served') {
-        if (jobToUpdate.status !== 'served') {
-          jobUpdateData.status = 'served';
-          jobUpdateData.service_date = finalAttemptDate.toISOString();
-          // Map service type detail to a predefined service method
-          let serviceMethod = 'personal'; // Default
-          if (serviceTypeDetail) {
-            const lowerCaseDetail = serviceTypeDetail.toLowerCase();
-            if (lowerCaseDetail.includes('personal') || lowerCaseDetail.includes('individual')) {
-              serviceMethod = 'personal';
-            } else if (lowerCaseDetail.includes('substitute')) {
-              serviceMethod = 'substituted';
-            } else if (lowerCaseDetail.includes('posted')) {
-              serviceMethod = 'posted';
-            } else if (lowerCaseDetail.includes('mail')) {
-              serviceMethod = 'certified_mail';
-            }
-          }
-          jobUpdateData.service_method = serviceMethod;
-          needsJobUpdate = true;
-        }
+      if (isEditMode && editingAttemptId) {
+        await Attempt.update(editingAttemptId, attemptData);
       } else {
-        if (jobToUpdate.status === 'pending' || jobToUpdate.status === 'assigned') {
-          jobUpdateData.status = 'in_progress';
-          needsJobUpdate = true;
-        }
+        await Attempt.create(attemptData);
       }
 
+      // --- UPDATE JOB STATUS ---
+      const allAttempts = await Attempt.filter({ job_id: job.id });
+      const hasServedAttempt = allAttempts.some(a => a.status === 'served');
+
+      let newJobStatus;
+      let serviceDate = null;
+      let serviceMethod = null;
+
+      if (hasServedAttempt) {
+        newJobStatus = 'served';
+        const servedAttempt = allAttempts.find(a => a.status === 'served');
+        serviceDate = servedAttempt ? servedAttempt.attempt_date : null;
+        const serviceTypeLower = servedAttempt?.service_type_detail?.toLowerCase() || '';
+        serviceMethod = serviceTypeLower.includes('personal') ? 'personal' :
+                        serviceTypeLower.includes('substitute') ? 'substituted' : 'other';
+      } else if (allAttempts.length > 0) {
+        newJobStatus = 'in_progress';
+      } else if (job.assigned_server_id && job.assigned_server_id !== 'unassigned') {
+        newJobStatus = 'assigned';
+      } else {
+        newJobStatus = 'pending';
+      }
+
+      // Add activity log entry
       const newLogEntry = {
         timestamp: new Date().toISOString(),
         user_name: currentUser?.full_name || "System",
-        event_type: "attempt_logged",
-        description: `Service attempt logged: ${status === 'served' ? 'Successfully served' : serviceTypeDetail}`
+        event_type: isEditMode ? "attempt_updated" : "attempt_logged",
+        description: `Service attempt ${isEditMode ? 'updated' : 'logged'}: ${formData.status === 'served' ? 'Successfully served' : formData.service_type_detail}`
       };
 
+      const jobToUpdate = await Job.get(job.id); // Fetch latest job data for activity log
       const currentActivityLog = Array.isArray(jobToUpdate?.activity_log) ? jobToUpdate.activity_log : [];
-      jobUpdateData.activity_log = [...currentActivityLog, newLogEntry];
-      // Activity log always updates, so we always need a job update here.
-      needsJobUpdate = true;
 
-      if (needsJobUpdate) {
-        await Job.update(job.id, jobUpdateData);
-        console.log("Job updated with new status and activity log");
-      }
+      const jobUpdatePayload = {
+        status: newJobStatus,
+        activity_log: [...currentActivityLog, newLogEntry],
+      };
+
+      if (serviceDate) jobUpdatePayload.service_date = serviceDate;
+      if (serviceMethod) jobUpdatePayload.service_method = serviceMethod;
+
+      await Job.update(job.id, jobUpdatePayload);
       // --- END JOB UPDATE ---
 
-      // Navigate back to job details with success message in URL params
-      navigate(`${createPageUrl("JobDetails")}?id=${job.id}&success=attempt_saved`);
+      navigate(`${createPageUrl('JobDetails')}?id=${job.id}&success=attempt_saved`);
 
-    } catch (error) {
-      console.error("Error saving attempt:", error);
-      setError("Failed to save attempt: " + error.message);
-      alert("Failed to save attempt: " + error.message);
+    } catch (e) {
+      setError(e.message);
+      console.error("Submission failed:", e);
+      alert("Failed to save attempt: " + e.message);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setIsSubmitting(false);
-  };
-
-  const handleAddressSelectChange = (value) => {
-    if (value === 'new_address') {
-      setIsAddingNewAddress(true);
-      setAddressOfAttempt('');
-      setNewAddressDetails({
-        address1: '',
-        address2: '',
-        city: '',
-        state: '',
-        postal_code: ''
-      });
-    } else {
-      setIsAddingNewAddress(false);
-      setAddressOfAttempt(value);
-      setNewAddressDetails({
-        address1: '',
-        address2: '',
-        city: '',
-        state: '',
-        postal_code: ''
-      });
-    }
-  };
-
-  // This function now properly updates all fields when autocomplete selects an address
-  const handleNewAddressSelected = (addressDetails) => {
-    // Update all fields at once with the selected address details
-    setNewAddressDetails({
-      address1: addressDetails.address1 || '',
-      address2: addressDetails.address2 || '', // This might come from the autocomplete or stay empty
-      city: addressDetails.city || '',
-      state: addressDetails.state || '',
-      postal_code: addressDetails.postal_code || ''
-    });
-  };
-
-  const handleAddressFieldChange = (field, value) => {
-    setNewAddressDetails(prev => ({
-      ...prev,
-      [field]: value
-    }));
   };
 
   if (isLoading) {
@@ -525,7 +389,7 @@ export default function LogAttemptPage() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
+          <XCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
           <h2 className="text-xl font-semibold mb-2">Job Not Found</h2>
           <p className="text-slate-600 mb-4">The job you're trying to log an attempt for could not be found.</p>
           <Link to={createPageUrl("Jobs")}>
@@ -538,7 +402,7 @@ export default function LogAttemptPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="p-6 md:p-8 max-w-7xl mx-auto">
+      <div className="p-6 md:p-8 max-w-4xl mx-auto"> {/* Max-width changed to 4xl as per outline */}
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
           <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`}>
@@ -547,10 +411,19 @@ export default function LogAttemptPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Log Service Attempt</h1>
+            <h1 className="text-3xl font-bold text-slate-900">
+              {isEditMode ? 'Edit Service Attempt' : 'Log Service Attempt'}
+            </h1>
             <p className="text-slate-600 mt-1">Job #{job.job_number} - {job.recipient?.name}</p>
           </div>
         </div>
+
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6" role="alert">
+            <strong className="font-bold">Error:</strong>
+            <span className="block sm:inline"> {error}</span>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* Attempt Details */}
@@ -566,11 +439,11 @@ export default function LogAttemptPage() {
               <div>
                 <Label htmlFor="server">Process Server</Label>
                 <Select
-                  value={serverId}
+                  value={formData.server_id}
                   onValueChange={(value) => {
-                    setServerId(value);
+                    setFormData(prev => ({ ...prev, server_id: value }));
                     if (value !== 'manual') {
-                      setManualServerName('');
+                      setFormData(prev => ({ ...prev, server_name_manual: '' }));
                     }
                   }}
                 >
@@ -588,13 +461,14 @@ export default function LogAttemptPage() {
                   </SelectContent>
                 </Select>
 
-                {serverId === 'manual' && (
+                {formData.server_id === 'manual' && (
                   <div className="mt-2">
                     <Input
                       type="text"
+                      name="server_name_manual"
                       placeholder="Enter server's full name"
-                      value={manualServerName}
-                      onChange={(e) => setManualServerName(e.target.value)}
+                      value={formData.server_name_manual}
+                      onChange={handleInputChange}
                       required
                       className="h-12"
                     />
@@ -606,26 +480,18 @@ export default function LogAttemptPage() {
               <div>
                 <Label>Date & Time of Attempt</Label>
                 <div className="flex items-center gap-4 mt-1">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-[240px] justify-start text-left font-normal h-12">
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {attemptDate ? format(attemptDate, 'PPP') : <span>Pick a date</span>}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={attemptDate}
-                        onSelect={setAttemptDate}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+                  <Input
+                    type="date"
+                    name="attempt_date"
+                    value={formData.attempt_date}
+                    onChange={handleInputChange}
+                    className="w-[240px] h-12"
+                  />
                   <Input
                     type="time"
-                    value={attemptTime}
-                    onChange={(e) => setAttemptTime(e.target.value)}
+                    name="attempt_time"
+                    value={formData.attempt_time}
+                    onChange={handleInputChange}
                     className="w-[140px] h-12"
                   />
                 </div>
@@ -637,10 +503,10 @@ export default function LogAttemptPage() {
                 <div className="flex gap-4 mt-2">
                   <Button
                     type="button"
-                    variant={status === 'served' ? 'default' : 'outline'}
-                    onClick={() => setStatus('served')}
+                    variant={formData.status === 'served' ? 'default' : 'outline'}
+                    onClick={() => setFormData(prev => ({ ...prev, status: 'served', service_type_detail: '' }))} // Clear detail on status change
                     className={`flex-1 h-12 gap-2 ${
-                      status === 'served'
+                      formData.status === 'served'
                         ? 'bg-green-600 hover:bg-green-700 text-white'
                         : 'border-green-200 text-green-700 hover:bg-green-50'
                     }`}
@@ -650,62 +516,36 @@ export default function LogAttemptPage() {
                   </Button>
                   <Button
                     type="button"
-                    variant={status === 'not_served' ? 'default' : 'outline'}
-                    onClick={() => setStatus('not_served')}
+                    variant={formData.status === 'not_served' ? 'default' : 'outline'}
+                    onClick={() => setFormData(prev => ({ ...prev, status: 'not_served', service_type_detail: 'No Answer' }))} // Default to 'No Answer' for not served
                     className={`flex-1 h-12 gap-2 ${
-                      status === 'not_served'
+                      formData.status === 'not_served'
                         ? 'bg-red-600 hover:bg-red-700 text-white'
                         : 'border-red-200 text-red-700 hover:bg-red-50'
                     }`}
                   >
-                    <AlertCircle className="w-4 h-4" />
+                    <XCircle className="w-4 h-4" />
                     Not Served
                   </Button>
                 </div>
               </div>
 
-              {/* Service Type Detail Dropdown */}
-              {((status === 'served' && serviceTypes.successful.length > 0) || (status === 'not_served' && serviceTypes.unsuccessful.length > 0)) && (
-                <div>
-                  <Label htmlFor="service-type-detail">Service Type</Label>
-                  <Select
-                    value={serviceTypeDetail}
-                    onValueChange={(value) => {
-                      const newServiceTypeDetail = value;
-                      setServiceTypeDetail(newServiceTypeDetail);
-                      // Auto-populate person served name for personal service
-                      if (status === 'served') {
-                        const isPersonalService = newServiceTypeDetail.toLowerCase().includes('personal') || newServiceTypeDetail.toLowerCase().includes('individual');
-                        if (isPersonalService && job?.recipient?.name) {
-                          setPersonServedName(job.recipient.name);
-                        } else {
-                          setPersonServedName('');
-                        }
-                      }
-                    }}
-                  >
-                    <SelectTrigger id="service-type-detail" className="w-full mt-1 h-12">
-                      <SelectValue placeholder="Select service type..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {status === 'served'
-                        ? serviceTypes.successful.map(type => (
-                            <SelectItem key={type.id || type.label} value={type.label}>
-                              {type.label}
-                            </SelectItem>
-                          ))
-                        : serviceTypes.unsuccessful.map(type => (
-                            <SelectItem key={type.id || type.label} value={type.label}>
-                              {type.label}
-                            </SelectItem>
-                          ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              {/* Service Type Detail Input (Simplified, no dynamic options from CompanySettings) */}
+              <div>
+                <Label htmlFor="service-type-detail">Service Type Detail</Label>
+                <Input
+                  id="service-type-detail"
+                  name="service_type_detail"
+                  value={formData.service_type_detail}
+                  onChange={handleInputChange}
+                  placeholder={formData.status === 'served' ? "e.g., Personal Service, Substitute Service" : "e.g., No Answer, Vacant, Not Found"}
+                  className="mt-1 h-12"
+                  required={formData.status === 'served'}
+                />
+              </div>
 
               {/* Served Person Details - Only show when status is 'served' */}
-              {status === 'served' && (
+              {formData.status === 'served' && (
                 <Card className="bg-green-50 border-green-200">
                   <CardHeader>
                     <CardTitle className="text-lg text-green-800">Person Served Details</CardTitle>
@@ -716,109 +556,88 @@ export default function LogAttemptPage() {
                       <Label htmlFor="person-served-name">Full Name of Person Served *</Label>
                       <Input
                         id="person-served-name"
-                        value={personServedName}
-                        onChange={(e) => setPersonServedName(e.target.value)}
+                        name="person_served_name"
+                        value={formData.person_served_name}
+                        onChange={handleInputChange}
                         placeholder="Enter the full name of the person served"
-                        required={status === 'served'}
+                        required
                         className="mt-1"
                       />
                     </div>
 
                     {/* Relationship (only show for non-personal service) */}
-                    {!serviceTypeDetail.toLowerCase().includes('personal') && !serviceTypeDetail.toLowerCase().includes('individual') && (
+                    {!formData.service_type_detail.toLowerCase().includes('personal') && !formData.service_type_detail.toLowerCase().includes('individual') && (
                       <div>
                         <Label htmlFor="relationship">Relationship to Recipient *</Label>
                         <Input
                           id="relationship"
-                          value={relationshipToRecipient}
-                          onChange={(e) => setRelationshipToRecipient(e.target.value)}
+                          name="relationship_to_recipient"
+                          value={formData.relationship_to_recipient}
+                          onChange={handleInputChange}
                           placeholder="e.g., Spouse, Employee, Authorized Agent, etc."
-                          required={status === 'served'}
+                          required={formData.status === 'served'}
                           className="mt-1"
                         />
                       </div>
                     )}
 
-                    {/* Physical Description Fields with Quick Selectors */}
-                    <div className="space-y-6 pt-4">
+                    {/* Physical Description Fields (quick selectors removed) */}
+                    <div className="space-y-4 pt-4">
                       <div>
                         <Label htmlFor="person-age">Approximate Age</Label>
                         <Input
                           id="person-age"
-                          value={personServedAge}
-                          onChange={(e) => setPersonServedAge(e.target.value)}
+                          name="person_served_age"
+                          value={formData.person_served_age}
+                          onChange={handleInputChange}
                           placeholder="e.g., 35-40"
                           className="mt-1"
                         />
-                        {showDescriptionButtons && (
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {['<18', '18-27', '28-38', '39-48', '49-55', '56-65', '66-75', '>75'].map(age => (
-                              <Button key={age} type="button" size="sm" variant={personServedAge === age ? "secondary" : "outline"} onClick={() => setPersonServedAge(age)}>{age}</Button>
-                            ))}
-                          </div>
-                        )}
                       </div>
 
                       <div>
                         <Label htmlFor="person-height">Height</Label>
                         <Input
                           id="person-height"
-                          value={personServedHeight}
-                          onChange={(e) => setPersonServedHeight(e.target.value)}
+                          name="person_served_height"
+                          value={formData.person_served_height}
+                          onChange={handleInputChange}
                           placeholder="e.g., 5 feet 8 inches"
                           className="mt-1"
                         />
-                        {showDescriptionButtons && (
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {["< 5'", "5'0\"-5'3\"", "5'4\"-5'7\"", "5'8\"-5'11\"", "6'0\"-6'3\"", "> 6'3\""].map(height => (
-                              <Button key={height} type="button" size="sm" variant={personServedHeight === height ? "secondary" : "outline"} onClick={() => setPersonServedHeight(height)}>{height}</Button>
-                            ))}
-                          </div>
-                        )}
                       </div>
 
                       <div>
                         <Label htmlFor="person-weight">Weight</Label>
                         <Input
                           id="person-weight"
-                          value={personServedWeight}
-                          onChange={(e) => setPersonServedWeight(e.target.value)}
+                          name="person_served_weight"
+                          value={formData.person_served_weight}
+                          onChange={handleInputChange}
                           placeholder="e.g., 150-160 lbs"
                           className="mt-1"
                         />
-                        {showDescriptionButtons && (
-                           <div className="flex flex-wrap gap-2 mt-2">
-                            {["< 120", "120-150", "151-180", "181-210", "211-240", "> 240"].map(weight => (
-                              <Button key={weight} type="button" size="sm" variant={personServedWeight.startsWith(weight) ? "secondary" : "outline"} onClick={() => setPersonServedWeight(`${weight} lbs`)}>{weight} lbs</Button>
-                            ))}
-                          </div>
-                        )}
                       </div>
 
                       <div>
                         <Label htmlFor="person-hair">Hair Color</Label>
                         <Input
                           id="person-hair"
-                          value={personServedHairColor}
-                          onChange={(e) => setPersonServedHairColor(e.target.value)}
+                          name="person_served_hair_color"
+                          value={formData.person_served_hair_color}
+                          onChange={handleInputChange}
                           placeholder="e.g., Brown, Blonde, Black"
                           className="mt-1"
                         />
-                        {showDescriptionButtons && (
-                           <div className="flex flex-wrap gap-2 mt-2">
-                            {['Black', 'Brown', 'Blonde', 'Red', 'Gray', 'White', 'Bald'].map(hair => (
-                              <Button key={hair} type="button" size="sm" variant={personServedHairColor === hair ? "secondary" : "outline"} onClick={() => setPersonServedHairColor(hair)}>{hair}</Button>
-                            ))}
-                          </div>
-                        )}
                       </div>
 
                       <div>
                         <Label htmlFor="person-sex">Sex</Label>
                         <select
                           id="person-sex"
-                          value={personServedSex}
-                          onChange={(e) => setPersonServedSex(e.target.value)}
+                          name="person_served_sex"
+                          value={formData.person_served_sex}
+                          onChange={handleInputChange}
                           className="w-full mt-1 h-12 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">Select...</option>
@@ -827,13 +646,6 @@ export default function LogAttemptPage() {
                           <option value="Non-binary">Non-binary</option>
                           <option value="Other">Other</option>
                         </select>
-                        {showDescriptionButtons && (
-                           <div className="flex flex-wrap gap-2 mt-2">
-                            <Button type="button" size="sm" variant={personServedSex === 'Male' ? "secondary" : "outline"} onClick={() => setPersonServedSex('Male')}>Male</Button>
-                            <Button type="button" size="sm" variant={personServedSex === 'Female' ? "secondary" : "outline"} onClick={() => setPersonServedSex('Female')}>Female</Button>
-                            <Button type="button" size="sm" variant={personServedSex === 'Non-binary' ? "secondary" : "outline"} onClick={() => setPersonServedSex('Non-binary')}>Non-binary</Button>
-                          </div>
-                        )}
                       </div>
                     </div>
 
@@ -842,8 +654,9 @@ export default function LogAttemptPage() {
                       <Label htmlFor="person-description">Additional Physical Description</Label>
                       <Textarea
                         id="person-description"
-                        value={personServedDescription}
-                        onChange={(e) => setPersonServedDescription(e.target.value)}
+                        name="person_served_description"
+                        value={formData.person_served_description}
+                        onChange={handleInputChange}
                         rows={3}
                         className="mt-1 resize-none"
                         placeholder="Additional distinguishing features, clothing description, etc."
@@ -853,122 +666,28 @@ export default function LogAttemptPage() {
                 </Card>
               )}
 
-              {/* Address Selection */}
+              {/* Address Input (Simplified, no autocomplete or multiple address selection) */}
               <div>
-                <Label htmlFor="address">Address of Attempt</Label>
-                <Select
-                  value={isAddingNewAddress ? 'new_address' : addressOfAttempt}
-                  onValueChange={handleAddressSelectChange}
-                >
-                  <SelectTrigger id="address" className="w-full mt-1 h-12">
-                    <SelectValue placeholder="Select an address..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {job.addresses?.map((addr, idx) => {
-                      const fullAddr = `${addr.address1}, ${addr.city}, ${addr.state}`;
-                      return (
-                        <SelectItem key={idx} value={fullAddr}>
-                          {fullAddr} {addr.primary && '(Primary)'}
-                        </SelectItem>
-                      );
-                    })}
-                    <SelectSeparator />
-                    <SelectItem value="new_address" className="font-semibold text-blue-600">
-                      <span className="flex items-center gap-2">
-                        <Plus className="w-4 h-4" />
-                        Enter a new address
-                      </span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="address-of-attempt">Address of Attempt</Label>
+                <Input
+                  id="address-of-attempt"
+                  name="address_of_attempt"
+                  value={formData.address_of_attempt}
+                  onChange={handleInputChange}
+                  placeholder="Enter the full address of the attempt"
+                  required
+                  className="mt-1 h-12"
+                />
               </div>
-
-              {/* New Address Form */}
-              {isAddingNewAddress && (
-                <div className="p-4 border rounded-lg bg-slate-50 space-y-4">
-                  <Label className="font-semibold">Enter New Address</Label>
-
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="col-span-2">
-                        <Label htmlFor="new-address1">Street Address *</Label>
-                        <AddressAutocomplete
-                          id="new-address1"
-                          value={newAddressDetails.address1}
-                          onChange={(value) => {
-                            // Only update address1 field when typing
-                            handleAddressFieldChange('address1', value);
-                          }}
-                          onAddressSelect={(addressData) => {
-                            // Update ALL fields when an address is selected from autocomplete
-                            handleNewAddressSelected(addressData);
-                          }}
-                          onLoadingChange={setIsAddressLoading}
-                          placeholder="Start typing an address..."
-                          required
-                        />
-                      </div>
-
-                      <div className="col-span-1">
-                        <Label htmlFor="new-address2">Suite/Apt</Label>
-                        <Input
-                          id="new-address2"
-                          value={newAddressDetails.address2}
-                          onChange={(e) => handleAddressFieldChange('address2', e.target.value)}
-                          placeholder="Apt 2B"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <Label htmlFor="new-city">City *</Label>
-                        <Input
-                          id="new-city"
-                          value={newAddressDetails.city}
-                          onChange={(e) => handleAddressFieldChange('city', e.target.value)}
-                          placeholder="City"
-                          required
-                          disabled={isAddressLoading}
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="new-state">State *</Label>
-                        <Input
-                          id="new-state"
-                          value={newAddressDetails.state}
-                          onChange={(e) => handleAddressFieldChange('state', e.target.value)}
-                          placeholder="CA"
-                          maxLength={2}
-                          required
-                          disabled={isAddressLoading}
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="new-zip">ZIP Code *</Label>
-                        <Input
-                          id="new-zip"
-                          value={newAddressDetails.postal_code}
-                          onChange={(e) => handleAddressFieldChange('postal_code', e.target.value)}
-                          placeholder="90210"
-                          required
-                          disabled={isAddressLoading}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Notes */}
               <div>
                 <Label htmlFor="notes">Detailed Notes</Label>
                 <Textarea
                   id="notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
+                  name="notes"
+                  value={formData.notes}
+                  onChange={handleInputChange}
                   rows={6}
                   className="mt-1 resize-none"
                   placeholder="Provide detailed notes about the attempt including:
@@ -988,122 +707,61 @@ export default function LogAttemptPage() {
                     type="button"
                     variant="outline"
                     onClick={handleGetLocation}
-                    disabled={isGettingLocation}
+                    disabled={isLoading}
                     className="gap-2"
                   >
-                    {isGettingLocation ? (
+                    {isLoading ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
                       <MapPin className="w-4 h-4" />
                     )}
                     Capture Current Location
                   </Button>
-                  {gpsCoords && (
+                  {formData.gps_lat && formData.gps_lon && (
                     <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded-lg">
-                      ✓ Location captured: {gpsCoords.lat.toFixed(4)}, {gpsCoords.lon.toFixed(4)}
+                      ✓ Location captured: {formData.gps_lat.toFixed(4)}, {formData.gps_lon.toFixed(4)}
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* File Upload Section */}
+              {/* File Upload Section - Using DocumentUpload component */}
               <div>
                 <Label>Photos & Videos</Label>
-                <p className="text-sm text-slate-600 mb-3">Upload photos, videos, or other documentation from this attempt</p>
-
-                <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-slate-400 transition-colors">
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*,video/*,.pdf,.doc,.docx"
-                    onChange={(e) => handleFileUpload(e.target.files)}
-                    className="hidden"
-                    id="file-upload"
-                    disabled={isUploadingFile}
-                  />
-                  <label htmlFor="file-upload" className="cursor-pointer">
-                    <div className="flex flex-col items-center">
-                      {isUploadingFile ? (
-                        <Loader2 className="w-10 h-10 text-slate-400 animate-spin mb-4" />
-                      ) : (
-                        <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center mb-4">
-                          <Plus className="w-6 h-6 text-slate-600" />
-                        </div>
-                      )}
-                      <p className="text-slate-600 font-medium mb-2">
-                        {isUploadingFile ? 'Uploading files...' : 'Click to upload or drag and drop'}
-                      </p>
-                      <p className="text-sm text-slate-500">
-                        Photos, videos, PDFs, and documents up to 10MB each
-                      </p>
-                    </div>
-                  </label>
-                </div>
-
-                {/* Display uploaded files */}
-                {uploadedFiles.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <Label className="text-sm font-medium">Uploaded Files ({uploadedFiles.length})</Label>
-                    {uploadedFiles.map((file) => (
-                      <div key={file.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border">
-                        <div className="flex items-center gap-3">
-                          {file.content_type?.startsWith('image/') && (
-                            <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
-                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                              </svg>
-                            </div>
-                          )}
-                          {file.content_type?.startsWith('video/') && (
-                            <div className="w-8 h-8 bg-purple-100 rounded flex items-center justify-center">
-                              <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                              </svg>
-                            </div>
-                          )}
-                          {!file.content_type?.startsWith('image/') && !file.content_type?.startsWith('video/') && (
-                            <div className="w-8 h-8 bg-slate-100 rounded flex items-center justify-center">
-                              <FileText className="w-4 h-4 text-slate-600" />
-                            </div>
-                          )}
-                          <div>
-                            <p className="font-medium text-sm">{file.name}</p>
-                            <p className="text-xs text-slate-500">
-                              {(file.file_size / 1024 / 1024).toFixed(1)} MB
-                            </p>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleRemoveFile(file.id)}
-                          className="text-slate-400 hover:text-red-600"
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <CardDescription className="mb-3">Upload photos, videos, or other documentation from this attempt</CardDescription>
+                <DocumentUpload
+                  jobId={job.id} // Assuming DocumentUpload needs jobId to associate files
+                  onUploadSuccess={handleDocumentUploadSuccess}
+                  existingFiles={uploadedFiles} // Use separate uploadedFiles state
+                  onRemoveFile={handleRemoveUploadedFile}
+                />
               </div>
             </CardContent>
           </Card>
 
-          {/* Submit Button */}
-          <div className="flex justify-end gap-4">
+          {/* Form Actions */}
+          <div className="flex justify-end gap-3 pt-6 border-t">
             <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`}>
               <Button type="button" variant="outline" disabled={isSubmitting}>
                 Cancel
               </Button>
             </Link>
-            <Button type="submit" disabled={isSubmitting} className="gap-2 px-8">
+            <Button 
+              type="submit" 
+              disabled={isSubmitting}
+              className="bg-slate-900 hover:bg-slate-800" // Button styles from outline
+            >
               {isSubmitting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {isEditMode ? 'Updating...' : 'Saving...'}
+                </>
               ) : (
-                <Save className="w-4 h-4" />
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  {isEditMode ? 'Update Attempt' : 'Save Attempt'}
+                </>
               )}
-              {isSubmitting ? 'Saving...' : 'Save Attempt'}
             </Button>
           </div>
         </form>

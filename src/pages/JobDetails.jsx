@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   ArrowLeft,
   Building2,
@@ -41,16 +42,26 @@ import {
   UserPlus,
   FileEdit,
   FileX,
-  Download, // NEW: Import Download icon
-  QrCode, // NEW: Import QrCode icon
-  FileClock // Added for field sheet history
+  Download,
+  QrCode,
+  FileClock,
+  Edit,
+  PlusCircle, // New icon for expanding details
+  MinusCircle, // New icon for collapsing details
+  Camera, // New icon for attached files
+  UserSquare, // New icon for person served details
+  Hash, // New icon for age
+  Ruler, // New icon for height
+  Weight, // New icon for weight
+  Scissors // New icon for hair color
 } from 'lucide-react';
 import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
 import NewContactDialog from '../components/jobs/NewContactDialog';
 import ContractorSearchInput from '../components/jobs/ContractorSearchInput';
-import { generateFieldSheet } from "@/api/functions"; // NEW: Import generateFieldSheet
-import { UploadFile } from "@/api/integrations"; // Added for upload
+import { generateFieldSheet } from "@/api/functions";
+import { UploadFile } from "@/api/integrations";
+import { motion, AnimatePresence } from 'framer-motion';
 
 const statusConfig = {
   pending: { color: "bg-slate-100 text-slate-700", label: "Pending" },
@@ -72,7 +83,7 @@ const eventTypeConfig = {
   job_reopened: { color: 'bg-green-500', icon: Unlock },
   invoice_generated: { color: 'bg-green-500', icon: Receipt },
   affidavit_generated: { color: 'bg-green-500', icon: FileText },
-  
+
   job_closed: { color: 'bg-red-500', icon: Lock },
   document_deleted: { color: 'bg-red-500', icon: FileX },
 
@@ -94,6 +105,18 @@ const useDebounce = (value, delay) => {
   return debouncedValue;
 };
 
+const DetailItem = ({ icon, label, value }) => {
+    if (!value) return null;
+    const Icon = icon;
+    return (
+        <div>
+            <h5 className="text-xs text-slate-500 font-semibold flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" /> {label}</h5>
+            <p className="text-slate-800 mt-0.5 ml-5 break-words">{value}</p>
+        </div>
+    );
+};
+
+
 export default function JobDetailsPage() {
   const [job, setJob] = useState(null);
   const [client, setClient] = useState(null);
@@ -107,7 +130,7 @@ export default function JobDetailsPage() {
   const [jobNotes, setJobNotes] = useState('');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  
+
   const [isEditingJobDetails, setIsEditingJobDetails] = useState(false);
   const [isEditingAssignment, setIsEditingAssignment] = useState(false);
   const [isEditingCaseInfo, setIsEditingCaseInfo] = useState(false);
@@ -115,20 +138,21 @@ export default function JobDetailsPage() {
   const [isNewContactDialogOpen, setIsNewContactDialogOpen] = useState(false);
   const [selectedContractor, setSelectedContractor] = useState(null);
   const [contractorSearchValue, setContractorSearchValue] = useState("");
-  
+
   const [lineItems, setLineItems] = useState([]);
   const [invoicePresets, setInvoicePresets] = useState([]);
   const [customItem, setCustomItem] = useState(null);
   const [invoiceSaved, setInvoiceSaved] = useState(false);
-  
+
   const [editFormData, setEditFormData] = useState({});
   const [addressLoadingStates, setAddressLoadingStates] = useState([]);
 
   const [allEmployees, setAllEmployees] = useState([]);
   const [allClients, setAllClients] = useState([]);
 
-  const [isGeneratingFieldSheet, setIsGeneratingFieldSheet] = useState(false); // NEW: State for field sheet generation
-  
+  const [isGeneratingFieldSheet, setIsGeneratingFieldSheet] = useState(false);
+  const [expandedAttemptId, setExpandedAttemptId] = useState(null); // State to track which attempt is expanded
+
   const location = useLocation();
 
   const isAssignmentDirty = useMemo(() => {
@@ -219,35 +243,35 @@ export default function JobDetailsPage() {
   const validateJobStatus = async (jobData, attempts) => {
     const servedAttempts = attempts.filter(attempt => attempt.status === 'served');
     const hasValidServedAttempt = servedAttempts.length > 0;
-    
+
     let updatedJobData = { ...jobData };
     let needsUpdate = false;
     let updatePayload = {};
 
     if (updatedJobData.status === 'served' && !hasValidServedAttempt) {
       console.warn(`Job ${updatedJobData.job_number} marked as served but has no successful attempts. Correcting status.`);
-      
+
       let correctStatus = 'pending';
       if (attempts.length > 0) {
         correctStatus = 'in_progress';
       } else if (updatedJobData.assigned_server_id && updatedJobData.assigned_server_id !== 'unassigned') {
         correctStatus = 'assigned';
       }
-      
-      updatePayload = { 
+
+      updatePayload = {
         status: correctStatus,
         service_date: null,
         service_method: null
       };
       needsUpdate = true;
     }
-    
+
     if (updatedJobData.status !== 'served' && hasValidServedAttempt) {
       console.warn(`Job ${updatedJobData.job_number} has successful attempts but not marked as served. Correcting status.`);
-      
+
       const latestServedAttempt = servedAttempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))[0];
-      
-      updatePayload = { 
+
+      updatePayload = {
         status: 'served',
         service_date: latestServedAttempt.attempt_date
       };
@@ -256,16 +280,16 @@ export default function JobDetailsPage() {
 
     if (needsUpdate) {
       await Job.update(updatedJobData.id, updatePayload);
-      
+
       return {
         ...updatedJobData,
         ...updatePayload
       };
     }
-    
+
     return updatedJobData;
   };
-  
+
   const loadJobDetails = useCallback(async (jobId) => {
     setIsLoading(true);
     setError(null);
@@ -296,10 +320,10 @@ export default function JobDetailsPage() {
       ]);
 
       const validatedJobData = await validateJobStatus(jobData, Array.isArray(attemptsData) ? attemptsData : []);
-      
+
       setJob(validatedJobData);
       setJobNotes(validatedJobData.notes || '');
-      
+
       setClient(clientData);
       setCourtCase(courtCaseData);
       setDocuments(Array.isArray(documentsData) ? documentsData : []);
@@ -334,7 +358,7 @@ export default function JobDetailsPage() {
       } else {
         setInvoicePresets([]);
       }
-      
+
       if (validatedJobData.line_items && Array.isArray(validatedJobData.line_items) && validatedJobData.line_items.length > 0) {
         setLineItems(validatedJobData.line_items);
       } else {
@@ -344,7 +368,7 @@ export default function JobDetailsPage() {
         if (validatedJobData.mileage_fee) migratedItems.push({ description: "Mileage Fee", quantity: 1, rate: validatedJobData.mileage_fee });
         setLineItems(migratedItems.length > 0 ? migratedItems : [{ description: '', quantity: 1, rate: 0 }]);
       }
-      
+
       if (validatedJobData.assigned_server_id && validatedJobData.assigned_server_id !== "unassigned") {
         try {
           const employee = Array.isArray(employeesList) ? employeesList.find(e => e.id === validatedJobData.assigned_server_id) : null;
@@ -373,7 +397,7 @@ export default function JobDetailsPage() {
     }
     setIsLoading(false);
   }, []);
-  
+
   useEffect(() => {
     const fetchUser = async () => {
       try {
@@ -384,10 +408,10 @@ export default function JobDetailsPage() {
       }
     };
     fetchUser();
-    
+
     const urlParams = new URLSearchParams(location.search);
     let jobId = urlParams.get('id');
-    
+
     // Check for success message
     const successType = urlParams.get('success');
     if (successType === 'attempt_saved') {
@@ -397,16 +421,16 @@ export default function JobDetailsPage() {
         alertDiv.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-right-2';
         alertDiv.textContent = 'Attempt saved successfully';
         document.body.appendChild(alertDiv);
-        
+
         // Remove after 3 seconds
         setTimeout(() => {
           alertDiv.remove();
         }, 3000);
-        
+
         // Clean up URL
-        const newUrl = new URL(window.location.href); // Use window.location.href for a full URL
+        const newUrl = new URL(window.location.href);
         newUrl.searchParams.delete('success');
-        window.history.replaceState({}, '', newUrl.toString()); // Convert URL object back to string
+        window.history.replaceState({}, '', newUrl.toString());
       }, 100);
     }
 
@@ -415,7 +439,7 @@ export default function JobDetailsPage() {
     } else {
       jobId = sessionStorage.getItem('lastViewedJobId');
     }
-    
+
     if (jobId) {
       loadJobDetails(jobId);
     } else {
@@ -429,28 +453,28 @@ export default function JobDetailsPage() {
     try {
         const newClosedStatus = !job.is_closed;
         const actionText = newClosedStatus ? 'closed' : 'reopened';
-        
+
         const newLogEntry = {
             timestamp: new Date().toISOString(),
             user_name: currentUser?.full_name || "System",
             event_type: newClosedStatus ? "job_closed" : "job_reopened",
             description: `Job ${actionText} by ${currentUser?.full_name || 'user'}.`
         };
-        
+
         const currentActivityLog = Array.isArray(job?.activity_log) ? job.activity_log : [];
         const updatedActivityLog = [...currentActivityLog, newLogEntry];
 
-        await Job.update(job.id, { 
+        await Job.update(job.id, {
             is_closed: newClosedStatus,
-            activity_log: updatedActivityLog 
+            activity_log: updatedActivityLog
         });
-        
+
         setJob(prevJob => ({
             ...prevJob,
             is_closed: newClosedStatus,
             activity_log: updatedActivityLog
         }));
-        
+
     } catch (error) {
         console.error("Error toggling job closed status:", error);
         alert("Failed to update job status.");
@@ -464,10 +488,10 @@ export default function JobDetailsPage() {
         const initialAddresses = currentAddresses.length > 0
           ? JSON.parse(JSON.stringify(currentAddresses))
           : [{ label: 'Primary', address1: '', address2: '', city: '', state: '', postal_code: '', primary: true }];
-        
+
         setEditFormData({
           recipient_name: job?.recipient?.name || '',
-          addresses: initialAddresses, 
+          addresses: initialAddresses,
           service_instructions: job?.service_instructions || ''
         });
         setIsEditingJobDetails(true);
@@ -488,7 +512,7 @@ export default function JobDetailsPage() {
             setContractorSearchValue("");
           }
         };
-        
+
         loadSelectedContractor();
 
         setEditFormData({
@@ -524,7 +548,7 @@ export default function JobDetailsPage() {
     setAddressLoadingStates([]);
     setSelectedContractor(null);
     setContractorSearchValue("");
-    
+
     switch(section) {
       case 'jobDetails':
         setIsEditingJobDetails(false);
@@ -548,7 +572,7 @@ export default function JobDetailsPage() {
 
       const currentJob = job;
       const currentRecipient = currentJob?.recipient || {};
-      
+
       switch(section) {
         case 'jobDetails':
           const currentAddresses = Array.isArray(editFormData.addresses) ? editFormData.addresses : [];
@@ -560,7 +584,7 @@ export default function JobDetailsPage() {
               primary: idx === 0
             }));
           }
-          
+
           updateData = {
             recipient: {
               ...currentRecipient,
@@ -624,7 +648,7 @@ export default function JobDetailsPage() {
 
         await Job.update(job.id, updateData);
         console.log(`✅ Successfully saved ${section}:`, updateData);
-        
+
         setJob(prevJob => ({
           ...prevJob,
           ...updateData
@@ -699,7 +723,7 @@ export default function JobDetailsPage() {
         return { ...prev, addresses: newAddresses };
     });
   };
-  
+
   const handleAddressLoadingChange = (index, isLoading) => {
     setAddressLoadingStates(prev => {
         const currentStates = Array.isArray(prev) ? prev : [];
@@ -725,7 +749,7 @@ export default function JobDetailsPage() {
       return { ...prev, addresses: newAddresses };
     });
   };
-  
+
   const handleRemoveAddress = (indexToRemove) => {
     setEditFormData(prev => {
       const currentAddresses = Array.isArray(prev.addresses) ? prev.addresses : [];
@@ -733,9 +757,9 @@ export default function JobDetailsPage() {
         alert("A job must have at least one service address.");
         return prev;
       }
-      
+
       let newAddresses = currentAddresses.filter((_, index) => index !== indexToRemove);
-      
+
       if (!newAddresses.some(addr => addr.primary) && newAddresses.length > 0) {
         newAddresses[0] = { ...newAddresses[0], primary: true };
       }
@@ -763,23 +787,23 @@ export default function JobDetailsPage() {
         event_type: "notes_updated",
         description: "Job notes were updated."
       };
-      
+
       const currentActivityLog = Array.isArray(job?.activity_log) ? job.activity_log : [];
       const updatedActivityLog = [...currentActivityLog, newLogEntry];
-      
-      const updateData = { 
+
+      const updateData = {
         notes: jobNotes,
-        activity_log: updatedActivityLog 
+        activity_log: updatedActivityLog
       };
 
       await Job.update(job.id, updateData);
       console.log("✅ Successfully saved notes:", updateData);
-      
+
       setJob(prevJob => ({
         ...prevJob,
         ...updateData
       }));
-      
+
       setIsEditingNotes(false);
     } catch (error) {
       console.error("❌ Error saving notes:", error);
@@ -795,24 +819,24 @@ export default function JobDetailsPage() {
   const serviceDocuments = getDocumentsByCategory('to_be_served');
   const affidavitDocuments = getDocumentsByCategory('affidavit');
   const photoDocuments = getDocumentsByCategory('photo');
-  const fieldSheetDocuments = getDocumentsByCategory('field_sheet'); // Added this line
+  const fieldSheetDocuments = getDocumentsByCategory('field_sheet');
 
   const isOverdue = job && job.due_date && new Date(job.due_date) < new Date() && job.status !== 'served';
-  
+
   const handleLineItemChange = (index, field, value) => {
     setLineItems(prev => {
         const currentItems = Array.isArray(prev) ? prev : [];
         const updatedLineItems = [...currentItems];
-        
+
         if (!updatedLineItems[index]) {
           updatedLineItems[index] = { description: '', quantity: 1, rate: 0 };
         }
-        
+
         updatedLineItems[index] = {
           ...updatedLineItems[index],
           [field]: value
         };
-        
+
         return updatedLineItems;
     });
   };
@@ -841,24 +865,24 @@ export default function JobDetailsPage() {
   const handlePresetSelect = (index, presetDescription) => {
     const preset = invoicePresets.find(p => p.description === presetDescription);
     if (!preset) return;
-    
+
     setLineItems(prev => {
         const currentItems = Array.isArray(prev) ? prev : [];
         const updated = [...currentItems];
-        
+
         if (!updated[index]) {
             updated[index] = { description: '', quantity: 1, rate: 0 };
         }
-        
+
         updated[index] = {
           ...updated[index],
           description: preset.description,
           rate: preset.rate || 0
         };
-        
+
         return updated;
     });
-    setCustomItem(null); 
+    setCustomItem(null);
   };
 
   const totalFee = useMemo(() => {
@@ -869,13 +893,13 @@ export default function JobDetailsPage() {
       return acc + (quantity * rate);
     }, 0);
   }, [lineItems]);
-  
+
   const saveInvoiceItems = async () => {
     if (!job?.id || !Array.isArray(lineItems)) {
       console.warn("⚠️ Cannot save invoice items: missing job ID or invalid line items");
       return;
     }
-    
+
     try {
       const total = totalFee;
       const updateData = {
@@ -885,18 +909,18 @@ export default function JobDetailsPage() {
 
       await Job.update(job.id, updateData);
       console.log("✅ Successfully saved invoice items:", updateData);
-      
+
       setJob(prevJob => ({
         ...prevJob,
         ...updateData
       }));
-      
+
       setInvoiceSaved(true);
-      
+
       setTimeout(() => {
         setInvoiceSaved(false);
       }, 3000);
-      
+
     } catch (error) {
       console.error("❌ Failed to save invoice items:", error);
       alert('Failed to save invoice items: ' + error.message);
@@ -908,7 +932,7 @@ export default function JobDetailsPage() {
         ...prevClient,
         contacts: [...(prevClient.contacts || []), newContact]
     }));
-    
+
     handleEditInputChange('contact_email', newContact.email);
 
     setIsNewContactDialogOpen(false);
@@ -923,7 +947,6 @@ export default function JobDetailsPage() {
     }
   };
 
-  // NEW: handleGenerateFieldSheet function
   const handleGenerateFieldSheet = async () => {
     setIsGeneratingFieldSheet(true);
     try {
@@ -1021,10 +1044,10 @@ export default function JobDetailsPage() {
       </div>
     );
   }
-  
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="p-6 md:p-8 max-w-6xl mx-auto"> {/* Adjusted max-w-full to max-w-6xl */}
+      <div className="p-6 md:p-8 max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
           <div className="flex items-center gap-4">
@@ -1065,7 +1088,7 @@ export default function JobDetailsPage() {
                 {isOverdue && ' (Overdue)'}
               </Badge>
             )}
-            <Button 
+            <Button
               onClick={handleToggleJobClosed}
               className={`gap-2 ${job.is_closed ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-700 hover:bg-slate-800'}`}
             >
@@ -1088,7 +1111,7 @@ export default function JobDetailsPage() {
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Main Content - Left Side */}
           <div className="lg:col-span-2 space-y-6">
-            
+
             {/* Job Assignment */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -1120,7 +1143,7 @@ export default function JobDetailsPage() {
                         ))}
                       </select>
                     </div>
-                    
+
                     <div>
                       <Label htmlFor="edit-contact">Job Contact</Label>
                       <div className="flex items-center gap-2">
@@ -1138,10 +1161,10 @@ export default function JobDetailsPage() {
                             </option>
                           ))}
                         </select>
-                        <Button 
-                          type="button" 
-                          variant="outline" 
-                          size="sm" 
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
                           onClick={() => setIsNewContactDialogOpen(true)}
                           disabled={!client}
                           className="px-3 py-2 gap-1 whitespace-nowrap"
@@ -1240,10 +1263,10 @@ export default function JobDetailsPage() {
                         <Building2 className="w-4 h-4"/>
                         {client?.company_name || 'N/A'}
                       </p>
-                      
+
                       <div className="mt-3">
                         <Label className="text-xs text-slate-500">Job Contact</Label>
-                        
+
                         {(() => {
                           const contact = client?.contacts?.find(c => c.email === job.contact_email);
                           if (contact) {
@@ -1251,7 +1274,7 @@ export default function JobDetailsPage() {
                               <div className="mt-1">
                                 <p className="font-medium text-sm text-slate-800 flex items-center gap-2">
                                   <UserCircle className="w-4 h-4 text-slate-400"/>
-                                  {contact.first_name} {contact.last_name}
+                                  {contact.first_name} {contact.last_name} {contact.primary && '(Primary)'}
                                 </p>
                                 <p className="text-sm text-slate-600 flex items-center gap-2 mt-0.5">
                                   <Mail className="w-4 h-4 text-slate-400" />
@@ -1295,7 +1318,7 @@ export default function JobDetailsPage() {
                       <CardTitle>Field Sheet</CardTitle>
                     </div>
                   </div>
-                  <Button 
+                  <Button
                     onClick={handleGenerateFieldSheet}
                     disabled={isGeneratingFieldSheet}
                     className="gap-2"
@@ -1374,7 +1397,7 @@ export default function JobDetailsPage() {
                         placeholder="Name of person/entity to be served"
                       />
                     </div>
-                    
+
                     <div className="space-y-4">
                       {Array.isArray(editFormData.addresses) && editFormData.addresses.map((addr, index) => (
                         <div key={index} className="p-4 border border-slate-200 rounded-lg space-y-3 relative bg-slate-50/50">
@@ -1432,7 +1455,7 @@ export default function JobDetailsPage() {
                         </div>
                       ))}
                     </div>
-                    
+
                     {(!editFormData.addresses || editFormData.addresses.length < 4) && (
                       <Button type="button" variant="outline" onClick={handleAddAddress} className="gap-2 w-full border-dashed">
                         <Plus className="w-4 h-4"/> Add Another Address
@@ -1469,7 +1492,7 @@ export default function JobDetailsPage() {
                     <div className="border-t border-slate-200">
                       <Label className="text-xs text-slate-500">Recipient</Label>
                       <p className="font-medium text-slate-900 mb-2">{job?.recipient?.name}</p>
-                      
+
                       <Label className="text-xs text-slate-500">Service Addresses</Label>
                        {Array.isArray(job?.addresses) ? job.addresses.map((address, index) => (
                         <div key={index} className="flex items-start justify-between gap-3 text-slate-600 mt-2 py-2">
@@ -1603,25 +1626,124 @@ export default function JobDetailsPage() {
               <CardContent>
                 {Array.isArray(attempts) && attempts.length > 0 ? (
                   <div className="space-y-3">
-                    {attempts.map(attempt => (
-                      <div key={attempt.id} className="p-3 rounded-md bg-slate-50 border border-slate-200">
-                        <div className="flex justify-between items-start mb-2">
-                          <div className="flex items-center gap-2">
-                            {attempt.status === 'served' ? 
-                              <CheckCircle className="w-4 h-4 text-green-600" /> :
-                              <Clock className="w-4 h-4 text-amber-600" />
+                    {attempts.map(attempt => {
+                      const isExpanded = expandedAttemptId === attempt.id;
+
+                      let serverName = attempt.server_name_manual;
+                      if (attempt.server_id && Array.isArray(allEmployees)) {
+                        const serverEmployee = allEmployees.find(emp => emp.id === attempt.server_id);
+                        if (serverEmployee) {
+                          serverName = `${serverEmployee.first_name} ${serverEmployee.last_name}`;
+                        }
+                      }
+                      if (!serverName) serverName = 'N/A';
+
+                      return (
+                      <div key={attempt.id} className="p-3 rounded-lg bg-slate-50 border border-slate-200 transition-all">
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-2 pt-1">
+                            {attempt.status === 'served' ?
+                              <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" /> :
+                              <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
                             }
-                            <span className="font-medium capitalize">{attempt.status.replace('_', ' ')}</span>
+                            <div>
+                                <span className="font-medium capitalize">{attempt.status.replace(/_/g, ' ')}</span>
+                                <span className="text-sm text-slate-500">
+                                  {' - '} {format(new Date(attempt.attempt_date), 'MMM d, h:mm a')}
+                                </span>
+                                {attempt.notes && <p className="text-sm text-slate-600 truncate max-w-sm">{attempt.notes}</p>}
+                            </div>
                           </div>
-                          <span className="text-sm text-slate-500">
-                            {format(new Date(attempt.attempt_date), 'MMM d, yyyy h:mm a')}
-                          </span>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-800" onClick={() => setExpandedAttemptId(isExpanded ? null : attempt.id)}>
+                                        {isExpanded ? <MinusCircle className="w-5 h-5" /> : <PlusCircle className="w-5 h-5" />}
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>{isExpanded ? 'Collapse' : 'Expand'} Details</p>
+                                </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Link to={`${createPageUrl("LogAttempt")}?jobId=${job.id}&attemptId=${attempt.id}`}>
+                                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-800">
+                                        <Edit className="w-4 h-4" />
+                                      </Button>
+                                    </Link>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Edit Attempt</p>
+                                </TooltipContent>
+                            </Tooltip>
+                          </div>
                         </div>
-                        {attempt.notes && (
-                          <p className="text-sm text-slate-600">{attempt.notes}</p>
+                        <AnimatePresence>
+                        {isExpanded && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                transition={{ duration: 0.3, ease: "easeInOut" }}
+                                className="overflow-hidden"
+                            >
+                                <div className="pt-4 mt-3 border-t border-slate-200 space-y-4 text-sm">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <DetailItem icon={UserIcon} label="Server" value={serverName} />
+                                        <DetailItem icon={MapPin} label="Address of Attempt" value={attempt.address_of_attempt} />
+                                        <DetailItem icon={FileText} label="Service Outcome" value={attempt.service_type_detail} />
+                                    </div>
+
+                                    {attempt.status === 'served' && (
+                                        <div>
+                                            <h4 className="font-semibold text-slate-700 mb-2">Person Served Details</h4>
+                                            <div className="p-3 bg-slate-100 rounded-md grid grid-cols-2 md:grid-cols-3 gap-4">
+                                                <DetailItem icon={UserSquare} label="Relationship" value={attempt.relationship_to_recipient} />
+                                                <DetailItem icon={Hash} label="Age" value={attempt.person_served_age} />
+                                                <DetailItem icon={Ruler} label="Height" value={attempt.person_served_height} />
+                                                <DetailItem icon={Weight} label="Weight" value={attempt.person_served_weight} />
+                                                <DetailItem icon={Scissors} label="Hair" value={attempt.person_served_hair_color} />
+                                                <DetailItem icon={UserIcon} label="Sex" value={attempt.person_served_sex} />
+                                                 <div className="col-span-full">
+                                                   <DetailItem icon={FileText} label="Additional Description" value={attempt.person_served_description} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {Array.isArray(attempt.uploaded_files) && attempt.uploaded_files.length > 0 && (
+                                        <div>
+                                            <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                                                <Camera className="w-4 h-4" />
+                                                Attached Files
+                                            </h4>
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                                                {attempt.uploaded_files.map((file, index) => (
+                                                    <a key={index} href={file.file_url} target="_blank" rel="noopener noreferrer" className="block group">
+                                                        {file.content_type?.startsWith('image/') ? (
+                                                            <img
+                                                              src={file.file_url}
+                                                              alt={file.name}
+                                                              className="w-full h-24 object-cover rounded-md border-2 border-slate-200 group-hover:border-blue-500 transition-all"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full h-24 flex items-center justify-center bg-slate-200 rounded-md border-2 border-slate-200 group-hover:border-blue-500 transition-all">
+                                                                <FileText className="w-8 h-8 text-slate-500" />
+                                                            </div>
+                                                        )}
+                                                        <p className="text-xs text-slate-600 truncate mt-1 group-hover:text-blue-700">{file.name || 'File'}</p>
+                                                    </a>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </motion.div>
                         )}
+                        </AnimatePresence>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 ) : (
                   <p className="text-slate-500 text-center py-4">No service attempts recorded yet.</p>
@@ -1666,9 +1788,9 @@ export default function JobDetailsPage() {
                   Affidavits ({affidavitDocuments.length})
                 </CardTitle>
                 <Link to={createPageUrl(`GenerateAffidavit?jobId=${job.id}`)}>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="gap-2"
                     disabled={!attempts || attempts.length === 0}
                     title={!attempts || attempts.length === 0 ? "At least one service attempt is required to generate an affidavit" : "Generate affidavit based on service attempts"}
@@ -1725,7 +1847,7 @@ export default function JobDetailsPage() {
                         </Badge>
                       );
                     }
-                    
+
                     const invoiceStatusConfig = { // Renamed to avoid conflict with global statusConfig
                       draft: { color: "bg-slate-100 text-slate-700", label: "Draft" },
                       sent: { color: "bg-blue-100 text-blue-700", label: "Sent" },
@@ -1733,7 +1855,7 @@ export default function JobDetailsPage() {
                       overdue: { color: "bg-red-100 text-red-700", label: "Overdue" },
                       cancelled: { color: "bg-slate-100 text-slate-500", label: "Cancelled" }
                     };
-                    
+
                     const config = invoiceStatusConfig[jobInvoice.status] || invoiceStatusConfig.draft;
                     return (
                       <Badge className={config.color}>
@@ -1795,7 +1917,7 @@ export default function JobDetailsPage() {
                             />
                           )}
                         </div>
-                        
+
                         <div className="flex flex-col sm:flex-row items-end gap-2 mt-3">
                           <div className="flex-1 w-full">
                             <Label className="text-xs text-slate-500">Qty</Label>
@@ -1807,7 +1929,7 @@ export default function JobDetailsPage() {
                               className="mt-1"
                             />
                           </div>
-                          
+
                           <div className="flex-1 w-full">
                             <Label className="text-xs text-slate-500">Rate ($)</Label>
                             <Input
@@ -1819,18 +1941,18 @@ export default function JobDetailsPage() {
                               className="mt-1"
                             />
                           </div>
-                          
+
                           <div className="flex-1 w-full">
                             <Label className="text-xs text-slate-500">Total</Label>
                             <div className="mt-1 h-10 flex items-center px-3 bg-slate-100 rounded-md border font-medium text-slate-900">
                               ${((parseFloat(item?.quantity) || 0) * (parseFloat(item?.rate) || 0)).toFixed(2)}
                             </div>
                           </div>
-                          
+
                           <div>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               onClick={() => handleRemoveLineItem(index)}
                               className="text-red-600 hover:text-red-700 h-10 w-10"
                             >
@@ -1841,17 +1963,17 @@ export default function JobDetailsPage() {
                       </div>
                     ))}
                   </div>
-                
+
                   <Button variant="outline" className="w-full" onClick={handleAddLineItem}>
                     <Plus className="w-4 h-4 mr-2" /> Add Item
                   </Button>
-                
+
                 <div className="pt-3 border-t">
                     <div className="flex justify-between items-center mb-4">
                       <span className="font-bold">Total:</span>
                       <span className="text-xl font-bold">${totalFee.toFixed(2)}</span>
                     </div>
-                    
+
                     <div className="flex flex-col sm:flex-row gap-2">
                       <Button variant="outline" size="sm" className="flex-1 gap-2">
                         <Settings className="w-4 h-4" />
@@ -1866,10 +1988,10 @@ export default function JobDetailsPage() {
               </CardContent>
             </Card>
           </div>
-          
+
           {/* Right Sidebar */}
           <div className="space-y-6">
-            
+
             {/* Service Details */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -1886,7 +2008,7 @@ export default function JobDetailsPage() {
                   <>
                     <div>
                       <Label htmlFor="edit-priority">Priority</Label>
-                      <select 
+                      <select
                         id="edit-priority"
                         value={editFormData.priority || 'standard'}
                         onChange={(e) => handleEditInputChange('priority', e.target.value)}
@@ -2038,7 +2160,7 @@ export default function JobDetailsPage() {
                         return (
                           <div key={index} className="flex gap-3 relative">
                             <div className="absolute left-0 top-1.5 h-full">
-                               {index < array.length - 1 && 
+                               {index < array.length - 1 &&
                                 <div className="w-px h-full bg-slate-200 ml-[5.5px] mt-1"></div>
                                }
                             </div>

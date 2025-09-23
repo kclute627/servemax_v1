@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -48,14 +49,9 @@ const navigationItems = [
     icon: UserCheck
   },
   {
-    title: "Invoicing",
-    url: createPageUrl("Invoicing"),
+    title: "Accounting",
+    url: createPageUrl("Accounting"),
     icon: Receipt
-  },
-  {
-    title: "Payments",
-    url: createPageUrl("Payments"),
-    icon: CreditCard
   },
   {
     title: "Server Pay",
@@ -313,3 +309,4 @@ export default function Layout({ children }) {
     </TooltipProvider>
   );
 }
+
