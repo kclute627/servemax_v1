@@ -1,5 +1,16 @@
 
+// FIREBASE TRANSITION: This is a critical page with multiple database write operations.
+// - `handleSubmit`: This function needs to be carefully migrated.
+//   - `generateJobNumber`: Will need to query Firestore for the count of jobs to generate a new number.
+//   - `User.me()`: Replace with Firebase Auth.
+//   - `Court.filter`, `Court.create`, `Court.update`: Replace with Firestore queries (`where`), `addDoc`, and `updateDoc` on the 'courts' collection.
+//   - `CourtCase.create`: Replace with `addDoc` on the 'court_cases' collection.
+//   - `Job.create`: Replace with `addDoc` on the 'jobs' collection.
+//   - `Document.bulkCreate`: Replace with a Firestore `writeBatch` to add all documents atomically.
+//   - `generateFieldSheet`: Will be a call to your new Firebase Cloud Function.
+
 import React, { useState, useEffect } from "react";
+// FIREBASE TRANSITION: Replace with Firebase SDK imports.
 import { Job, Client, Employee, CourtCase, Document, Court, CompanySettings, User } from "@/api/entities"; // Added User import
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +48,7 @@ import AddressAutocomplete from "../components/jobs/AddressAutocomplete";
 import ServerPayItems from "../components/jobs/ServerPayItems";
 import CourtAutocomplete from "../components/jobs/CourtAutocomplete";
 import ContractorSearchInput from "../components/jobs/ContractorSearchInput";
+// FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { generateFieldSheet } from "@/api/functions"; // Added import for generateFieldSheet
 
 export default function CreateJobPage() {

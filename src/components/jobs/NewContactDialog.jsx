@@ -1,3 +1,7 @@
+
+// FIREBASE TRANSITION: This component performs a database update.
+// - `handleSubmit`: The logic of updating the client's contact list will be done with Firestore's `updateDoc`. You'll fetch the client doc, update the `contacts` array in your code, and then write the entire array back. For a more robust solution, you could use `arrayUnion`, but that can be tricky if you need to avoid duplicates.
+
 import React, { useState } from 'react';
 import {
   Dialog,
@@ -40,6 +44,7 @@ export default function NewContactDialog({ open, onOpenChange, client, onContact
       
       const updatedContacts = [...(client.contacts || []), newContact];
       
+      // FIREBASE TRANSITION: Replace this `Client.update` call with `updateDoc(doc(db, "clients", client.id), { contacts: updatedContacts });`
       await Client.update(client.id, { contacts: updatedContacts });
       
       onContactCreated(newContact);

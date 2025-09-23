@@ -1,6 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Invoice, Client, Payment } from '@/api/entities';
+import { collection, getDocs } from 'firebase/firestore'; // FIREBASE TRANSITION: Import Firestore functions
+import { db } from '@/lib/firebase'; // FIREBASE TRANSITION: Import Firestore database instance
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +17,7 @@ import AccountingStats from '../components/accounting/AccountingStats';
 import RevenueChart from '../components/accounting/RevenueChart';
 import InvoiceStatusChart from '../components/accounting/InvoiceStatusChart';
 
+// FIREBASE TRANSITION: Data display page.
 export default function AccountingPage() {
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -29,11 +32,22 @@ export default function AccountingPage() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [invoicesData, paymentsData, clientsData] = await Promise.all([
-        Invoice.list('-invoice_date'),
-        Payment.list('-payment_date'),
-        Client.list(),
+      // FIREBASE TRANSITION: Replace Invoice.list(), Payment.list(), Client.list() with getDocs calls.
+      const [invoicesSnapshot, paymentsSnapshot, clientsSnapshot] = await Promise.all([
+        getDocs(collection(db, 'invoices')),
+        getDocs(collection(db, 'payments')),
+        getDocs(collection(db, 'clients')),
       ]);
+
+      const invoicesData = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const paymentsData = paymentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const clientsData = clientsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      // Note: Ordering like '-invoice_date' needs to be handled with Firestore queries (orderBy)
+      // or client-side if not critical for initial load. For simplicity in this example,
+      // we're fetching all and then filtering/sorting if needed for display.
+      // E.g., const orderedInvoices = invoicesData.sort((a, b) => new Date(b.invoice_date) - new Date(a.invoice_date));
+
       setInvoices(invoicesData);
       setPayments(paymentsData);
       setClients(clientsData);
@@ -43,12 +57,13 @@ export default function AccountingPage() {
     setIsLoading(false);
   };
   
+  // The filteredInvoices and filteredPayments memos are frontend logic and will remain the same.
   const filteredInvoices = useMemo(() => {
     if (!searchTerm) return invoices;
     return invoices.filter(invoice => {
         const client = clients.find(c => c.id === invoice.client_id);
         return (
-            invoice.invoice_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            invoice.invoice_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             client?.company_name.toLowerCase().includes(searchTerm.toLowerCase())
         );
     });
@@ -67,6 +82,7 @@ export default function AccountingPage() {
     });
   }, [payments, clients, invoices, searchTerm]);
 
+  // All sub-components are for display and will just receive data as props.
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="p-6 md:p-8">

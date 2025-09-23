@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+// FIREBASE TRANSITION: You will replace these Base44 entity imports with your Firebase SDK/config and specific service imports (e.g., getFirestore, doc, getDoc, updateDoc, collection, query, where, getDocs).
 import { Job, Client, Employee, CourtCase, Document, Attempt, Invoice, CompanySettings, User } from '@/api/entities';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
@@ -59,10 +60,15 @@ import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
 import NewContactDialog from '../components/jobs/NewContactDialog';
 import ContractorSearchInput from '../components/jobs/ContractorSearchInput';
+// FIREBASE TRANSITION: This will become a call to a Firebase Cloud Function.
 import { generateFieldSheet } from "@/api/functions";
+// FIREBASE TRANSITION: This will be replaced with Firebase Storage's `uploadBytes` and `getDownloadURL`.
 import { UploadFile } from "@/api/integrations";
 import { motion, AnimatePresence } from 'framer-motion';
+import AttemptTimeIndicator from '../components/jobs/AttemptTimeIndicator';
 
+// --- Configuration Objects ---
+// These are UI-specific and will likely remain unchanged during migration.
 const statusConfig = {
   pending: { color: "bg-slate-100 text-slate-700", label: "Pending" },
   assigned: { color: "bg-blue-100 text-blue-700", label: "Assigned" },
@@ -92,6 +98,10 @@ const eventTypeConfig = {
   case_info_updated: { color: 'bg-slate-400', icon: Scale }
 };
 
+/**
+ * Custom hook for debouncing a value.
+ * This is a frontend utility and will not need changes for migration.
+ */
 const useDebounce = (value, delay) => {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -105,6 +115,10 @@ const useDebounce = (value, delay) => {
   return debouncedValue;
 };
 
+/**
+ * A small, reusable component for displaying a detail item with an icon and label.
+ * This is a UI component and will not need changes for migration.
+ */
 const DetailItem = ({ icon, label, value }) => {
     if (!value) return null;
     const Icon = icon;
@@ -118,43 +132,59 @@ const DetailItem = ({ icon, label, value }) => {
 
 
 export default function JobDetailsPage() {
-  const [job, setJob] = useState(null);
-  const [client, setClient] = useState(null);
-  const [server, setServer] = useState(null);
-  const [courtCase, setCourtCase] = useState(null);
-  const [documents, setDocuments] = useState([]);
-  const [attempts, setAttempts] = useState([]);
-  const [invoices, setInvoices] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [jobNotes, setJobNotes] = useState('');
-  const [isEditingNotes, setIsEditingNotes] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
+  // --- State Management ---
+  // This section defines all the pieces of data this component needs to keep track of.
+  // FIREBASE TRANSITION: The structure of these state variables (job, client, etc.) will likely remain the same.
+  // They will be populated by your Firebase data fetching logic instead of the Base44 SDK.
 
+  // Core data for the page
+  const [job, setJob] = useState(null); // Holds the main job object.
+  const [client, setClient] = useState(null); // Holds the associated client object.
+  const [server, setServer] = useState(null); // Holds the assigned server's name and type.
+  const [courtCase, setCourtCase] = useState(null); // Holds the associated court case object.
+  const [documents, setDocuments] = useState([]); // Array of documents for this job.
+  const [attempts, setAttempts] = useState([]); // Array of service attempts for this job.
+  const [invoices, setInvoices] = useState([]); // Array of invoices associated with this job.
+
+  // UI and loading states
+  const [isLoading, setIsLoading] = useState(true); // True while the initial data is being fetched.
+  const [error, setError] = useState(null); // Holds any error messages that occur during data fetching.
+  const [currentUser, setCurrentUser] = useState(null); // Holds the currently logged-in user for activity logging.
+
+  // State for inline editing of different sections
   const [isEditingJobDetails, setIsEditingJobDetails] = useState(false);
   const [isEditingAssignment, setIsEditingAssignment] = useState(false);
   const [isEditingCaseInfo, setIsEditingCaseInfo] = useState(false);
   const [isEditingServiceDetails, setIsEditingServiceDetails] = useState(false);
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [isNewContactDialogOpen, setIsNewContactDialogOpen] = useState(false);
-  const [selectedContractor, setSelectedContractor] = useState(null);
-  const [contractorSearchValue, setContractorSearchValue] = useState("");
 
+  // Form-specific state
+  const [editFormData, setEditFormData] = useState({}); // A temporary object to hold changes during an edit session.
+  const [jobNotes, setJobNotes] = useState(''); // State for the notes textarea.
+  const [selectedContractor, setSelectedContractor] = useState(null); // State for the contractor search component.
+  const [contractorSearchValue, setContractorSearchValue] = useState("");
+  const [addressLoadingStates, setAddressLoadingStates] = useState([]); // Tracks loading state for each address autocomplete.
+
+  // Invoice-specific state
   const [lineItems, setLineItems] = useState([]);
   const [invoicePresets, setInvoicePresets] = useState([]);
   const [customItem, setCustomItem] = useState(null);
   const [invoiceSaved, setInvoiceSaved] = useState(false);
 
-  const [editFormData, setEditFormData] = useState({});
-  const [addressLoadingStates, setAddressLoadingStates] = useState([]);
+  // Data for dropdowns/selects
+  const [allEmployees, setAllEmployees] = useState([]); // Cached list of all employees.
+  const [allClients, setAllClients] = useState([]); // Cached list of all clients.
 
-  const [allEmployees, setAllEmployees] = useState([]);
-  const [allClients, setAllClients] = useState([]);
-
-  const [isGeneratingFieldSheet, setIsGeneratingFieldSheet] = useState(false);
-  const [expandedAttemptId, setExpandedAttemptId] = useState(null); // State to track which attempt is expanded
+  // State for async operations
+  const [isGeneratingFieldSheet, setIsGeneratingFieldSheet] = useState(false); // Tracks status of field sheet generation.
+  const [expandedAttemptId, setExpandedAttemptId] = useState(null); // Tracks which attempt's details are expanded in the UI.
 
   const location = useLocation();
 
+  // --- "Dirty" State Checks ---
+  // These useMemo hooks compare the original data with the data in the edit form
+  // to see if there are any unsaved changes. This is pure frontend logic and will remain the same.
   const isAssignmentDirty = useMemo(() => {
     if (!isEditingAssignment || !job) return false;
     const original = {
@@ -240,6 +270,11 @@ export default function JobDetailsPage() {
     return JSON.stringify(normalizedCurrent) !== JSON.stringify(normalizedOriginal);
   }, [lineItems, job]);
 
+  /**
+   * Business logic to validate and correct job status based on its attempts.
+   * FIREBASE TRANSITION: This function contains a database update call. You will replace `Job.update`
+   * with a call to Firebase's `updateDoc` for the specific job document.
+   */
   const validateJobStatus = async (jobData, attempts) => {
     const servedAttempts = attempts.filter(attempt => attempt.status === 'served');
     const hasValidServedAttempt = servedAttempts.length > 0;
@@ -279,6 +314,7 @@ export default function JobDetailsPage() {
     }
 
     if (needsUpdate) {
+      // FIREBASE TRANSITION: Replace this with `updateDoc(doc(db, 'jobs', updatedJobData.id), updatePayload)`.
       await Job.update(updatedJobData.id, updatePayload);
 
       return {
@@ -290,15 +326,28 @@ export default function JobDetailsPage() {
     return updatedJobData;
   };
 
+  /**
+   * Main data fetching function. Loads all related data for the given job ID.
+   * FIREBASE TRANSITION: This is the most critical function to adapt. Each `await` call
+   * here corresponds to a Firebase fetch operation.
+   * - `Job.get(jobId)` becomes `getDoc(doc(db, 'jobs', jobId))`.
+   * - `Client.get(jobData.client_id)` becomes `getDoc(doc(db, 'clients', jobData.client_id))`.
+   * - `Document.filter({ job_id: jobId })` becomes `getDocs(query(collection(db, 'documents'), where('job_id', '==', jobId)))`.
+   * - `Employee.list()` becomes `getDocs(collection(db, 'employees'))`.
+   * You'll use `Promise.all` in a similar way but with Firebase's async functions.
+   */
   const loadJobDetails = useCallback(async (jobId) => {
     setIsLoading(true);
     setError(null);
     try {
+      // FIREBASE TRANSITION: Replace with `getDoc(doc(db, 'jobs', jobId))`
       const jobData = await Job.get(jobId);
       if (!jobData) {
         throw new Error("Job not found");
       }
 
+      // FIREBASE TRANSITION: This `Promise.all` pattern is good. Replace each Base44 call
+      // with its Firebase equivalent (getDoc, getDocs, query, etc.).
       const [
         clientData,
         courtCaseData,
@@ -321,6 +370,8 @@ export default function JobDetailsPage() {
 
       const validatedJobData = await validateJobStatus(jobData, Array.isArray(attemptsData) ? attemptsData : []);
 
+      // --- State Updates ---
+      // This logic for setting state after data is fetched will remain the same.
       setJob(validatedJobData);
       setJobNotes(validatedJobData.notes || '');
 
@@ -398,9 +449,16 @@ export default function JobDetailsPage() {
     setIsLoading(false);
   }, []);
 
+  /**
+   * This effect runs on component mount. It fetches the current user, gets the job ID from the URL,
+   * and triggers the initial data load.
+   * FIREBASE TRANSITION: Replace `User.me()` with Firebase Auth's `onAuthStateChanged` or `auth.currentUser`.
+   * The rest of the logic for reading URL params and session storage is standard React and will remain.
+   */
   useEffect(() => {
     const fetchUser = async () => {
       try {
+        // FIREBASE TRANSITION: Replace with Firebase Auth logic to get the current user.
         const user = await User.me();
         setCurrentUser(user);
       } catch (e) {
@@ -448,6 +506,12 @@ export default function JobDetailsPage() {
     }
   }, [location.search, loadJobDetails]);
 
+  /**
+   * Toggles the 'is_closed' status of the job.
+   * FIREBASE TRANSITION: This is a database update. Replace `Job.update`
+   * with `updateDoc(doc(db, 'jobs', job.id), { ... })`.
+   * The activity log logic can be implemented using Firebase's `arrayUnion` to add a new log entry.
+   */
   const handleToggleJobClosed = async () => {
     if (!job) return;
     try {
@@ -464,11 +528,13 @@ export default function JobDetailsPage() {
         const currentActivityLog = Array.isArray(job?.activity_log) ? job.activity_log : [];
         const updatedActivityLog = [...currentActivityLog, newLogEntry];
 
+        // FIREBASE TRANSITION: Replace this with `updateDoc(doc(db, 'jobs', job.id), { ... })`.
         await Job.update(job.id, {
             is_closed: newClosedStatus,
             activity_log: updatedActivityLog
         });
 
+        // This local state update remains the same.
         setJob(prevJob => ({
             ...prevJob,
             is_closed: newClosedStatus,
@@ -481,6 +547,10 @@ export default function JobDetailsPage() {
     }
   };
 
+  /**
+   * Handles entering "edit mode" for a specific card.
+   * This is pure UI state management and will not change.
+   */
   const handleStartEdit = (section) => {
     switch(section) {
       case 'jobDetails':
@@ -543,6 +613,10 @@ export default function JobDetailsPage() {
     }
   };
 
+  /**
+   * Handles exiting "edit mode" without saving.
+   * This is pure UI state management and will not change.
+   */
   const handleCancelEdit = (section) => {
     setEditFormData({});
     setAddressLoadingStates([]);
@@ -565,6 +639,13 @@ export default function JobDetailsPage() {
     }
   };
 
+  /**
+   * Saves the changes from an edit form to the database.
+   * FIREBASE TRANSITION: This is another critical function to adapt. The `switch` statement
+   * determines WHAT to update, and the final `await` call is WHERE the update happens.
+   * Replace `Job.update` and `CourtCase.update` with `updateDoc` for the corresponding
+   * Firestore documents.
+   */
   const handleSaveEdit = async (section) => {
     try {
       let updateData = {};
@@ -606,11 +687,13 @@ export default function JobDetailsPage() {
           break;
         case 'caseInfo':
           if (job?.court_case_id) {
+            // FIREBASE TRANSITION: Replace this with `updateDoc(doc(db, 'courtCases', job.court_case_id), { ... })`.
             await CourtCase.update(job.court_case_id, {
               case_number: editFormData.case_number,
               plaintiff: editFormData.plaintiff,
               defendant: editFormData.defendant
             });
+            // This local state update is fine.
             setCourtCase(prevCase => ({
                 ...prevCase,
                 case_number: editFormData.case_number,
@@ -646,15 +729,18 @@ export default function JobDetailsPage() {
         const updatedActivityLog = [...currentActivityLog, newLogEntry];
         updateData.activity_log = updatedActivityLog;
 
+        // FIREBASE TRANSITION: This is the main database write. Replace with `updateDoc(doc(db, 'jobs', job.id), updateData)`.
         await Job.update(job.id, updateData);
         console.log(`✅ Successfully saved ${section}:`, updateData);
 
+        // This local state update is fine.
         setJob(prevJob => ({
           ...prevJob,
           ...updateData
         }));
 
         if (section === 'assignment') {
+          // Re-fetch all data if assignment changes, as it affects the 'server' object. This pattern is fine.
           await loadJobDetails(job.id);
         }
       }
@@ -668,6 +754,7 @@ export default function JobDetailsPage() {
         };
         const currentActivityLog = Array.isArray(job?.activity_log) ? job.activity_log : [];
         const updatedActivityLog = [...currentActivityLog, newLogEntry];
+        // FIREBASE TRANSITION: Replace with an `updateDoc` call to add to the job's activity log.
         await Job.update(job.id, { activity_log: updatedActivityLog });
         setJob(prevJob => ({...prevJob, activity_log: updatedActivityLog }));
       }
@@ -679,6 +766,10 @@ export default function JobDetailsPage() {
     }
   };
 
+  /**
+   * Generic input handler for the edit forms.
+   * This is pure state management and does not need to change.
+   */
   const handleEditInputChange = (field, value) => {
     setEditFormData(prev => {
         if (field === 'server_type' && prev.server_type !== value) {
@@ -695,6 +786,10 @@ export default function JobDetailsPage() {
     });
   };
 
+  /**
+   * Handlers for managing the address form array.
+   * These are all pure state management and will not change.
+   */
   const handleAddressInputChange = (index, field, value) => {
     setEditFormData(prev => {
       const currentAddresses = Array.isArray(prev.addresses) ? prev.addresses : [];
@@ -779,6 +874,11 @@ export default function JobDetailsPage() {
     });
   };
 
+  /**
+   * Saves the job notes.
+   * FIREBASE TRANSITION: Another database update. Replace `Job.update` with
+   * `updateDoc(doc(db, 'jobs', job.id), { notes: jobNotes, activity_log: ... })`.
+   */
   const handleSaveNotes = async () => {
     try {
       const newLogEntry = {
@@ -796,9 +896,11 @@ export default function JobDetailsPage() {
         activity_log: updatedActivityLog
       };
 
+      // FIREBASE TRANSITION: Replace this with `updateDoc`.
       await Job.update(job.id, updateData);
       console.log("✅ Successfully saved notes:", updateData);
 
+      // This local state update is fine.
       setJob(prevJob => ({
         ...prevJob,
         ...updateData
@@ -811,6 +913,8 @@ export default function JobDetailsPage() {
     }
   };
 
+  // --- Helper Functions ---
+  // These are for organizing local data and do not need to change.
   const getDocumentsByCategory = (category) => {
     const allDocs = Array.isArray(documents) ? documents : [];
     return allDocs.filter(doc => doc.document_category === category);
@@ -823,6 +927,10 @@ export default function JobDetailsPage() {
 
   const isOverdue = job && job.due_date && new Date(job.due_date) < new Date() && job.status !== 'served';
 
+  /**
+   * Handlers for the invoice line items.
+   * These are pure local state management and will not change.
+   */
   const handleLineItemChange = (index, field, value) => {
     setLineItems(prev => {
         const currentItems = Array.isArray(prev) ? prev : [];
@@ -885,6 +993,7 @@ export default function JobDetailsPage() {
     setCustomItem(null);
   };
 
+  // This `useMemo` for calculating a total is pure frontend logic and will not change.
   const totalFee = useMemo(() => {
     if (!Array.isArray(lineItems)) return 0;
     return lineItems.reduce((acc, item) => {
@@ -894,6 +1003,11 @@ export default function JobDetailsPage() {
     }, 0);
   }, [lineItems]);
 
+  /**
+   * Saves the invoice line items to the job.
+   * FIREBASE TRANSITION: This is a database update. Replace `Job.update`
+   * with `updateDoc(doc(db, 'jobs', job.id), { line_items: ..., total_fee: ... })`.
+   */
   const saveInvoiceItems = async () => {
     if (!job?.id || !Array.isArray(lineItems)) {
       console.warn("⚠️ Cannot save invoice items: missing job ID or invalid line items");
@@ -907,9 +1021,11 @@ export default function JobDetailsPage() {
         total_fee: total
       };
 
+      // FIREBASE TRANSITION: Replace this with `updateDoc`.
       await Job.update(job.id, updateData);
       console.log("✅ Successfully saved invoice items:", updateData);
 
+      // Local state updates are fine.
       setJob(prevJob => ({
         ...prevJob,
         ...updateData
@@ -927,6 +1043,11 @@ export default function JobDetailsPage() {
     }
   };
 
+  /**
+   * Callback for when a new contact is created in the dialog.
+   * FIREBASE TRANSITION: The dialog itself will contain the Firebase `updateDoc` call
+   * to add the contact to the client. This handler just updates the local UI state.
+   */
   const handleContactCreated = (newContact) => {
     setClient(prevClient => ({
         ...prevClient,
@@ -938,6 +1059,10 @@ export default function JobDetailsPage() {
     setIsNewContactDialogOpen(false);
   };
 
+  /**
+   * Callback for when a contractor is selected from the search input.
+   * This is local state management and will not change.
+   */
   const handleContractorSelected = (contractor) => {
     setSelectedContractor(contractor);
     if (contractor) {
@@ -947,10 +1072,18 @@ export default function JobDetailsPage() {
     }
   };
 
+  /**
+   * Generates and saves a field sheet. This is a multi-step process.
+   * FIREBASE TRANSITION: This will require significant changes.
+   * 1. `generateFieldSheet`: This will become a call to a Firebase Cloud Function (`httpsCallable`).
+   * 2. The returned PDF blob will then be uploaded using Firebase Storage's `uploadBytes`.
+   * 3. `getDownloadURL`: After uploading, you'll get the public URL for the file.
+   * 4. `Document.create`: You will use `addDoc(collection(db, 'documents'), { ... })` to create the new document record in Firestore, storing the download URL.
+   */
   const handleGenerateFieldSheet = async () => {
     setIsGeneratingFieldSheet(true);
     try {
-      // 1. Generate the PDF from the backend function
+      // 1. FIREBASE: Call your Cloud Function here.
       const response = await generateFieldSheet({ job_id: job.id });
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const formattedDateForFilename = format(new Date(), 'yyyy-MM-dd-HH-mm-ss');
@@ -959,26 +1092,26 @@ export default function JobDetailsPage() {
       // 2. Create a File object to upload
       const fileToUpload = new File([blob], fileName, { type: 'application/pdf' });
 
-      // 3. Upload the file using the integration
+      // 3. FIREBASE: Replace `UploadFile` with Firebase Storage's `uploadBytes` and `getDownloadURL`.
       const { file_url } = await UploadFile({ file: fileToUpload });
 
       if (!file_url) {
         throw new Error("File upload failed, could not get a file URL.");
       }
 
-      // 4. Create a new Document entity record for the field sheet
+      // 4. FIREBASE: Replace `Document.create` with `addDoc` to your 'documents' collection in Firestore.
       const newDocument = await Document.create({
         job_id: job.id,
         title: `Field Sheet - ${format(new Date(), 'MMM d, yyyy h:mm a')}`,
-        file_url: file_url,
+        file_url: file_url, // This will be the URL from Firebase Storage.
         document_category: 'field_sheet',
         received_at: new Date().toISOString()
       });
 
-      // 5. Update the local state to show the new document immediately
+      // 5. Update local state (this part remains the same).
       setDocuments(prev => [...prev, newDocument]);
 
-      // 6. Trigger the download for the user
+      // 6. Trigger the download for the user (this part remains the same).
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
@@ -995,9 +1128,16 @@ export default function JobDetailsPage() {
     setIsGeneratingFieldSheet(false);
   };
 
+
+  // --- Render Logic ---
+  // The JSX below is for rendering the UI. The structure will remain the same.
+  // You will just be passing data fetched from Firebase instead of Base44.
+
+  // Loading state display
   if (isLoading) {
     return (
       <div className="p-8 max-w-7xl mx-auto space-y-6">
+        {/* ... Skeleton UI ... */}
         <Skeleton className="h-10 w-1/4" />
         <div className="grid md:grid-cols-3 gap-6">
           <div className="md:col-span-2 space-y-6">
@@ -1013,9 +1153,11 @@ export default function JobDetailsPage() {
     );
   }
 
+  // Error state display
   if (error) {
     return (
       <div className="p-8 text-center">
+        {/* ... Error UI ... */}
         <AlertTriangle className="mx-auto w-12 h-12 text-red-500 mb-4" />
         <h2 className="text-xl font-semibold">Error</h2>
         <p className="text-slate-600">{error}</p>
@@ -1029,9 +1171,11 @@ export default function JobDetailsPage() {
     );
   }
 
+  // Not found state display
   if (!job) {
     return (
       <div className="p-8 text-center">
+        {/* ... Not Found UI ... */}
         <AlertTriangle className="mx-auto w-12 h-12 text-red-500 mb-4" />
         <h2 className="text-xl font-semibold">Job Not Found</h2>
         <p className="text-slate-600">The job you are looking for could not be loaded.</p>
@@ -1045,10 +1189,11 @@ export default function JobDetailsPage() {
     );
   }
 
+  // Main component render
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="p-6 md:p-8 max-w-6xl mx-auto">
-        {/* Header */}
+        {/* Header Section */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
           <div className="flex items-center gap-4">
             <Link to={createPageUrl("Jobs")}>
@@ -1108,425 +1253,206 @@ export default function JobDetailsPage() {
         </div>
 
         {/* Main Content Grid */}
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Main Content - Left Side */}
-          <div className="lg:col-span-2 space-y-6">
+        <div className="space-y-6">
+          {/* Job Assignment Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Building2 className="w-5 h-5" />
+                Job Assignment
+              </CardTitle>
+              {!isEditingAssignment && (
+                <Button variant="outline" size="sm" onClick={() => handleStartEdit('assignment')} className="gap-2">
+                  <Pencil className="w-4 h-4" />
+                  Edit
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isEditingAssignment ? (
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="edit-client">Client</Label>
+                    <select
+                      id="edit-client"
+                      value={editFormData.client_id || ''}
+                      onChange={(e) => handleEditInputChange('client_id', e.target.value)}
+                      className="w-full p-2 border border-slate-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select a client...</option>
+                      {Array.isArray(allClients) && allClients.map(c => (
+                        <option key={c.id} value={c.id}>{c.company_name}</option>
+                      ))}
+                    </select>
+                  </div>
 
-            {/* Job Assignment */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Building2 className="w-5 h-5" />
-                  Job Assignment
-                </CardTitle>
-                {!isEditingAssignment && (
-                  <Button variant="outline" size="sm" onClick={() => handleStartEdit('assignment')} className="gap-2">
-                    <Pencil className="w-4 h-4" />
-                    Edit
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {isEditingAssignment ? (
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="edit-client">Client</Label>
+                  <div>
+                    <Label htmlFor="edit-contact">Job Contact</Label>
+                    <div className="flex items-center gap-2">
                       <select
-                        id="edit-client"
-                        value={editFormData.client_id || ''}
-                        onChange={(e) => handleEditInputChange('client_id', e.target.value)}
+                        id="edit-contact"
+                        value={editFormData.contact_email || ''}
+                        onChange={(e) => handleEditInputChange('contact_email', e.target.value)}
+                        className="flex-grow w-full p-2 border border-slate-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        disabled={!client}
+                      >
+                        <option value="">Select a contact...</option>
+                        {Array.isArray(client?.contacts) && client.contacts.map((contact, index) => (
+                          <option key={contact.email || index} value={contact.email}>
+                            {contact.first_name} {contact.last_name} {contact.primary && '(Primary)'}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsNewContactDialogOpen(true)}
+                        disabled={!client}
+                        className="px-3 py-2 gap-1 whitespace-nowrap"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        New
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>Server Type</Label>
+                    <div className="grid grid-cols-2 gap-2 rounded-md bg-slate-100 p-1 mt-1">
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          handleEditInputChange('server_type', 'employee');
+                          setSelectedContractor(null);
+                          setContractorSearchValue("");
+                        }}
+                        className={`gap-2 justify-center transition-colors ${
+                          editFormData.server_type === 'employee'
+                            ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
+                            : 'bg-transparent text-slate-600 hover:bg-slate-200'
+                        }`}
+                        variant="ghost"
+                      >
+                        <UserIcon className="w-4 h-4" />
+                        Employee
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={() => handleEditInputChange('server_type', 'contractor')}
+                        className={`gap-2 justify-center transition-colors ${
+                          editFormData.server_type === 'contractor'
+                            ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
+                            : 'bg-transparent text-slate-600 hover:bg-slate-200'
+                        }`}
+                        variant="ghost"
+                      >
+                        <HardHat className="w-4 h-4" />
+                        Contractor
+                      </Button>
+                    </div>
+                  </div>
+
+                  {editFormData.server_type === 'employee' ? (
+                    <div>
+                      <Label htmlFor="edit-assigned-server">Assigned Server</Label>
+                      <select
+                        id="edit-assigned-server"
+                        value={editFormData.assigned_server_id || 'unassigned'}
+                        onChange={(e) => handleEditInputChange('assigned_server_id', e.target.value)}
                         className="w-full p-2 border border-slate-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       >
-                        <option value="">Select a client...</option>
-                        {Array.isArray(allClients) && allClients.map(c => (
-                          <option key={c.id} value={c.id}>{c.company_name}</option>
+                        <option value="unassigned">Unassigned</option>
+                        {Array.isArray(allEmployees) && allEmployees.map(e => (
+                          <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
                         ))}
                       </select>
                     </div>
-
+                  ) : (
                     <div>
-                      <Label htmlFor="edit-contact">Job Contact</Label>
-                      <div className="flex items-center gap-2">
-                        <select
-                          id="edit-contact"
-                          value={editFormData.contact_email || ''}
-                          onChange={(e) => handleEditInputChange('contact_email', e.target.value)}
-                          className="flex-grow w-full p-2 border border-slate-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          disabled={!client}
-                        >
-                          <option value="">Select a contact...</option>
-                          {Array.isArray(client?.contacts) && client.contacts.map((contact, index) => (
-                            <option key={contact.email || index} value={contact.email}>
-                              {contact.first_name} {contact.last_name} {contact.primary && '(Primary)'}
-                            </option>
-                          ))}
-                        </select>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setIsNewContactDialogOpen(true)}
-                          disabled={!client}
-                          className="px-3 py-2 gap-1 whitespace-nowrap"
-                        >
-                          <UserPlus className="w-4 h-4" />
-                          New
-                        </Button>
+                      <Label>Assigned Contractor</Label>
+                      <div className="mt-1">
+                        <ContractorSearchInput
+                          value={contractorSearchValue}
+                          onValueChange={setContractorSearchValue}
+                          onContractorSelected={handleContractorSelected}
+                          currentClientId={editFormData.client_id}
+                        />
                       </div>
                     </div>
+                  )}
 
-                    <div>
-                      <Label>Server Type</Label>
-                      <div className="grid grid-cols-2 gap-2 rounded-md bg-slate-100 p-1 mt-1">
-                        <Button
-                          type="button"
-                          onClick={() => {
-                            handleEditInputChange('server_type', 'employee');
-                            setSelectedContractor(null);
-                            setContractorSearchValue("");
-                          }}
-                          className={`gap-2 justify-center transition-colors ${
-                            editFormData.server_type === 'employee'
-                              ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
-                              : 'bg-transparent text-slate-600 hover:bg-slate-200'
-                          }`}
-                          variant="ghost"
-                        >
-                          <UserIcon className="w-4 h-4" />
-                          Employee
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={() => handleEditInputChange('server_type', 'contractor')}
-                          className={`gap-2 justify-center transition-colors ${
-                            editFormData.server_type === 'contractor'
-                              ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
-                              : 'bg-transparent text-slate-600 hover:bg-slate-200'
-                          }`}
-                          variant="ghost"
-                        >
-                          <HardHat className="w-4 h-4" />
-                          Contractor
-                        </Button>
-                      </div>
-                    </div>
-
-                    {editFormData.server_type === 'employee' ? (
-                      <div>
-                        <Label htmlFor="edit-assigned-server">Assigned Server</Label>
-                        <select
-                          id="edit-assigned-server"
-                          value={editFormData.assigned_server_id || 'unassigned'}
-                          onChange={(e) => handleEditInputChange('assigned_server_id', e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="unassigned">Unassigned</option>
-                          {Array.isArray(allEmployees) && allEmployees.map(e => (
-                            <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    ) : (
-                      <div>
-                        <Label>Assigned Contractor</Label>
-                        <div className="mt-1">
-                          <ContractorSearchInput
-                            value={contractorSearchValue}
-                            onValueChange={setContractorSearchValue}
-                            onContractorSelected={handleContractorSelected}
-                            currentClientId={editFormData.client_id}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex gap-3 pt-4">
-                      <Button onClick={() => handleSaveEdit('assignment')} className="relative">
-                        {isAssignmentDirty && (
-                          <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                          </span>
-                        )}
-                        Save Changes
-                      </Button>
-                      <Button variant="outline" onClick={() => handleCancelEdit('assignment')}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-xs text-slate-500">Client</Label>
-                      <p className="font-semibold flex items-center gap-2">
-                        <Building2 className="w-4 h-4"/>
-                        {client?.company_name || 'N/A'}
-                      </p>
-
-                      <div className="mt-3">
-                        <Label className="text-xs text-slate-500">Job Contact</Label>
-
-                        {(() => {
-                          const contact = client?.contacts?.find(c => c.email === job.contact_email);
-                          if (contact) {
-                            return (
-                              <div className="mt-1">
-                                <p className="font-medium text-sm text-slate-800 flex items-center gap-2">
-                                  <UserCircle className="w-4 h-4 text-slate-400"/>
-                                  {contact.first_name} {contact.last_name} {contact.primary && '(Primary)'}
-                                </p>
-                                <p className="text-sm text-slate-600 flex items-center gap-2 mt-0.5">
-                                  <Mail className="w-4 h-4 text-slate-400" />
-                                  {contact.email}
-                                </p>
-                              </div>
-                            );
-                          } else if (job.contact_email) {
-                            return (
-                              <p className="text-sm text-slate-600 flex items-center gap-2 mt-1">
-                                <Mail className="w-4 h-4 text-slate-400" />
-                                {job.contact_email}
-                              </p>
-                            );
-                          } else {
-                            return <p className="text-sm text-slate-500 mt-1">No contact specified.</p>;
-                          }
-                        })()}
-                      </div>
-                    </div>
-                    <div>
-                      <Label className="text-xs text-slate-500">Assigned Server</Label>
-                      <div className="flex items-center gap-2 font-semibold">
-                        {server?.type === 'Employee' ? <UserIcon className="w-4 h-4"/> : <HardHat className="w-4 h-4"/>}
-                        <span>{server?.name || 'Unassigned'}</span>
-                      </div>
-                      <p className="text-sm text-slate-600 mt-1 capitalize">{job.server_type || 'employee'}</p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Field Sheet Section */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <QrCode className="w-6 h-6 text-blue-600" />
-                    <div>
-                      <CardTitle>Field Sheet</CardTitle>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={handleGenerateFieldSheet}
-                    disabled={isGeneratingFieldSheet}
-                    className="gap-2"
-                  >
-                    {isGeneratingFieldSheet ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4" />
-                        Generate New Sheet
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {fieldSheetDocuments.length > 0 ? (
-                  <div className="space-y-2">
-                    <h4 className="text-sm font-medium text-slate-600 mb-2">Generated Sheets:</h4>
-                    {fieldSheetDocuments.slice().sort((a, b) => {
-                      const dateA = new Date(a.received_at || a.created_date);
-                      const dateB = new Date(b.received_at || b.created_date);
-                      return dateB - dateA;
-                    }).map(doc => {
-                      const docDate = doc.received_at || doc.created_date;
-                      return (
-                        <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50 border">
-                          <div className="flex items-center gap-2">
-                            <FileClock className="w-4 h-4 text-slate-500" />
-                            <div>
-                              <p className="font-medium text-slate-800 text-sm">{doc.title}</p>
-                              <p className="text-xs text-slate-500">
-                                {docDate ? `Generated on ${format(new Date(docDate), 'MMM d, yyyy @ h:mm a')}` : 'Date unknown'}
-                              </p>
-                            </div>
-                          </div>
-                          <Button variant="outline" size="sm" asChild>
-                            <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="gap-2">
-                              <Download className="w-3 h-3" />
-                              Download
-                            </a>
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-slate-500 text-sm text-center py-4">No field sheets have been generated for this job yet.</p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Job Details */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Recipient & Service Details</CardTitle>
-                {!isEditingJobDetails && (
-                  <Button variant="outline" size="sm" onClick={() => handleStartEdit('jobDetails')} className="gap-2">
-                    <Pencil className="w-4 h-4" />
-                    Edit
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {isEditingJobDetails ? (
-                  <div className="space-y-6">
-                    <div>
-                      <Label htmlFor="edit-recipient">Recipient Name</Label>
-                      <Input
-                        id="edit-recipient"
-                        value={editFormData.recipient_name || ''}
-                        onChange={(e) => handleEditInputChange('recipient_name', e.target.value)}
-                        placeholder="Name of person/entity to be served"
-                      />
-                    </div>
-
-                    <div className="space-y-4">
-                      {Array.isArray(editFormData.addresses) && editFormData.addresses.map((addr, index) => (
-                        <div key={index} className="p-4 border border-slate-200 rounded-lg space-y-3 relative bg-slate-50/50">
-                          <div className="flex justify-between items-center">
-                            <h4 className="font-semibold text-slate-800">
-                              Address {index + 1} {addr.primary && <span className="text-amber-600 font-normal">(Primary)</span>}
-                            </h4>
-                            <div className="flex items-center gap-2">
-                              {!addr.primary && (
-                                <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={() => handleSetPrimaryAddress(index)}>
-                                  <Star className="w-3.5 h-3.5"/> Set Primary
-                                </Button>
-                              )}
-                              {editFormData.addresses && editFormData.addresses.length > 1 && (
-                                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:bg-red-100 hover:text-red-600" onClick={() => handleRemoveAddress(index)}>
-                                  <Trash2 className="w-4 h-4"/>
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                          <div>
-                            <Label htmlFor={`edit-address1-${index}`}>Street Address</Label>
-                            <AddressAutocomplete
-                              id={`edit-address1-${index}`}
-                              value={addr.address1 || ''}
-                              onChange={(value) => handleAddressInputChange(index, 'address1', value)}
-                              onAddressSelect={(details) => handleAddressAutocompleteSelect(index, details)}
-                              onLoadingChange={(loading) => handleAddressLoadingChange(index, loading)}
-                              placeholder="Street address"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor={`edit-address2-${index}`}>Address Line 2</Label>
-                            <Input
-                              id={`edit-address2-${index}`}
-                              value={addr.address2 || ''}
-                              onChange={(e) => handleAddressInputChange(index, 'address2', e.target.value)}
-                              placeholder="Apartment, suite, etc."
-                            />
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                              <Label htmlFor={`edit-city-${index}`}>City</Label>
-                              <Input id={`edit-city-${index}`} value={addr.city || ''} onChange={(e) => handleAddressInputChange(index, 'city', e.target.value)} disabled={addressLoadingStates[index]} />
-                            </div>
-                            <div>
-                              <Label htmlFor={`edit-state-${index}`}>State</Label>
-                              <Input id={`edit-state-${index}`} value={addr.state || ''} onChange={(e) => handleAddressInputChange(index, 'state', e.target.value)} disabled={addressLoadingStates[index]} />
-                            </div>
-                            <div>
-                              <Label htmlFor={`edit-postal-${index}`}>ZIP Code</Label>
-                              <Input id={`edit-postal-${index}`} value={addr.postal_code || ''} onChange={(e) => handleAddressInputChange(index, 'postal_code', e.target.value)} disabled={addressLoadingStates[index]} />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {(!editFormData.addresses || editFormData.addresses.length < 4) && (
-                      <Button type="button" variant="outline" onClick={handleAddAddress} className="gap-2 w-full border-dashed">
-                        <Plus className="w-4 h-4"/> Add Another Address
-                      </Button>
-                    )}
-
-                    <div>
-                      <Label htmlFor="edit-instructions">Service Instructions</Label>
-                      <Textarea
-                        id="edit-instructions"
-                        value={editFormData.service_instructions || ''}
-                        onChange={(e) => handleEditInputChange('service_instructions', e.target.value)}
-                        rows={3}
-                        placeholder="Special instructions for the process server..."
-                      />
-                    </div>
-                    <div className="flex gap-3 pt-4">
-                      <Button onClick={() => handleSaveEdit('jobDetails')} className="relative">
-                        {isJobDetailsDirty && (
-                          <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                          </span>
-                        )}
-                        Save Changes
-                      </Button>
-                      <Button variant="outline" onClick={() => handleCancelEdit('jobDetails')}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="border-t border-slate-200">
-                      <Label className="text-xs text-slate-500">Recipient</Label>
-                      <p className="font-medium text-slate-900 mb-2">{job?.recipient?.name}</p>
-
-                      <Label className="text-xs text-slate-500">Service Addresses</Label>
-                       {Array.isArray(job?.addresses) ? job.addresses.map((address, index) => (
-                        <div key={index} className="flex items-start justify-between gap-3 text-slate-600 mt-2 py-2">
-                          <div className="flex items-start gap-3">
-                            <MapPin className="w-4 h-4 mt-1 flex-shrink-0 text-slate-400"/>
-                            <div>
-                              {address.address1}<br/>
-                              {address.address2 && <>{address.address2}<br/></>}
-                              {address.city}, {address.state} {address.postal_code}
-                            </div>
-                          </div>
-                          {address.primary && (
-                            <Badge className="bg-amber-100 text-amber-800 border border-amber-200 flex-shrink-0 self-center">
-                              Primary
-                            </Badge>
-                          )}
-                        </div>
-                      )) : (
-                        <p className="text-slate-500 text-sm mt-2">No addresses configured</p>
+                  <div className="flex gap-3 pt-4">
+                    <Button onClick={() => handleSaveEdit('assignment')} className="relative">
+                      {isAssignmentDirty && (
+                        <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                        </span>
                       )}
+                      Save Changes
+                    </Button>
+                    <Button variant="outline" onClick={() => handleCancelEdit('assignment')}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-xs text-slate-500">Client</Label>
+                    <p className="font-semibold flex items-center gap-2">
+                      <Building2 className="w-4 h-4"/>
+                      {client?.company_name || 'N/A'}
+                    </p>
+
+                    <div className="mt-3">
+                      <Label className="text-xs text-slate-500">Job Contact</Label>
+
+                      {(() => {
+                        const contact = client?.contacts?.find(c => c.email === job.contact_email);
+                        if (contact) {
+                          return (
+                            <div className="mt-1">
+                              <p className="font-medium text-sm text-slate-800 flex items-center gap-2">
+                                <UserCircle className="w-4 h-4 text-slate-400"/>
+                                {contact.first_name} {contact.last_name} {contact.primary && '(Primary)'}
+                              </p>
+                              <p className="text-sm text-slate-600 flex items-center gap-2 mt-0.5">
+                                <Mail className="w-4 h-4 text-slate-400" />
+                                {contact.email}
+                              </p>
+                            </div>
+                          );
+                        } else if (job.contact_email) {
+                          return (
+                            <p className="text-sm text-slate-600 flex items-center gap-2 mt-1">
+                              <Mail className="w-4 h-4 text-slate-400" />
+                              {job.contact_email}
+                            </p>
+                          );
+                        } else {
+                          return <p className="text-sm text-slate-500 mt-1">No contact specified.</p>;
+                        }
+                      })()}
                     </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-slate-500">Assigned Server</Label>
+                    <div className="flex items-center gap-2 font-semibold">
+                      {server?.type === 'Employee' ? <UserIcon className="w-4 h-4"/> : <HardHat className="w-4 h-4"/>}
+                      <span>{server?.name || 'Unassigned'}</span>
+                    </div>
+                    <p className="text-sm text-slate-600 mt-1 capitalize">{job.server_type || 'employee'}</p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-                    {job?.service_instructions && (
-                      <div className="pt-4 border-t border-slate-200">
-                        <Label className="text-xs text-slate-500">Service Instructions</Label>
-                        <p className="text-sm text-slate-700 mt-1">{job.service_instructions}</p>
-                      </div>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Case Information */}
+          {/* Case Info and Service Details Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Case Information Card */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Case Information</CardTitle>
@@ -1609,390 +1535,7 @@ export default function JobDetailsPage() {
               </CardContent>
             </Card>
 
-            {/* Service Attempts */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="w-5 h-5" />
-                  Service Attempts ({Array.isArray(attempts) ? attempts.length : 0})
-                </CardTitle>
-                <Link to={`${createPageUrl("LogAttempt")}?jobId=${job.id}`}>
-                  <Button className="gap-2">
-                    <Plus className="w-4 h-4" />
-                    Add New Attempt
-                  </Button>
-                </Link>
-              </CardHeader>
-              <CardContent>
-                {Array.isArray(attempts) && attempts.length > 0 ? (
-                  <div className="space-y-3">
-                    {attempts.map(attempt => {
-                      const isExpanded = expandedAttemptId === attempt.id;
-
-                      let serverName = attempt.server_name_manual;
-                      if (attempt.server_id && Array.isArray(allEmployees)) {
-                        const serverEmployee = allEmployees.find(emp => emp.id === attempt.server_id);
-                        if (serverEmployee) {
-                          serverName = `${serverEmployee.first_name} ${serverEmployee.last_name}`;
-                        }
-                      }
-                      if (!serverName) serverName = 'N/A';
-
-                      return (
-                      <div key={attempt.id} className="p-3 rounded-lg bg-slate-50 border border-slate-200 transition-all">
-                        <div className="flex justify-between items-start">
-                          <div className="flex items-center gap-2 pt-1">
-                            {attempt.status === 'served' ?
-                              <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" /> :
-                              <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                            }
-                            <div>
-                                <span className="font-medium capitalize">{attempt.status.replace(/_/g, ' ')}</span>
-                                <span className="text-sm text-slate-500">
-                                  {' - '} {format(new Date(attempt.attempt_date), 'MMM d, h:mm a')}
-                                </span>
-                                {attempt.notes && <p className="text-sm text-slate-600 truncate max-w-sm">{attempt.notes}</p>}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-800" onClick={() => setExpandedAttemptId(isExpanded ? null : attempt.id)}>
-                                        {isExpanded ? <MinusCircle className="w-5 h-5" /> : <PlusCircle className="w-5 h-5" />}
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                    <p>{isExpanded ? 'Collapse' : 'Expand'} Details</p>
-                                </TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Link to={`${createPageUrl("LogAttempt")}?jobId=${job.id}&attemptId=${attempt.id}`}>
-                                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-800">
-                                        <Edit className="w-4 h-4" />
-                                      </Button>
-                                    </Link>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                    <p>Edit Attempt</p>
-                                </TooltipContent>
-                            </Tooltip>
-                          </div>
-                        </div>
-                        <AnimatePresence>
-                        {isExpanded && (
-                            <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                exit={{ opacity: 0, height: 0 }}
-                                transition={{ duration: 0.3, ease: "easeInOut" }}
-                                className="overflow-hidden"
-                            >
-                                <div className="pt-4 mt-3 border-t border-slate-200 space-y-4 text-sm">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <DetailItem icon={UserIcon} label="Server" value={serverName} />
-                                        <DetailItem icon={MapPin} label="Address of Attempt" value={attempt.address_of_attempt} />
-                                        <DetailItem icon={FileText} label="Service Outcome" value={attempt.service_type_detail} />
-                                    </div>
-
-                                    {attempt.status === 'served' && (
-                                        <div>
-                                            <h4 className="font-semibold text-slate-700 mb-2">Person Served Details</h4>
-                                            <div className="p-3 bg-slate-100 rounded-md grid grid-cols-2 md:grid-cols-3 gap-4">
-                                                <DetailItem icon={UserSquare} label="Relationship" value={attempt.relationship_to_recipient} />
-                                                <DetailItem icon={Hash} label="Age" value={attempt.person_served_age} />
-                                                <DetailItem icon={Ruler} label="Height" value={attempt.person_served_height} />
-                                                <DetailItem icon={Weight} label="Weight" value={attempt.person_served_weight} />
-                                                <DetailItem icon={Scissors} label="Hair" value={attempt.person_served_hair_color} />
-                                                <DetailItem icon={UserIcon} label="Sex" value={attempt.person_served_sex} />
-                                                 <div className="col-span-full">
-                                                   <DetailItem icon={FileText} label="Additional Description" value={attempt.person_served_description} />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {Array.isArray(attempt.uploaded_files) && attempt.uploaded_files.length > 0 && (
-                                        <div>
-                                            <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
-                                                <Camera className="w-4 h-4" />
-                                                Attached Files
-                                            </h4>
-                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                                                {attempt.uploaded_files.map((file, index) => (
-                                                    <a key={index} href={file.file_url} target="_blank" rel="noopener noreferrer" className="block group">
-                                                        {file.content_type?.startsWith('image/') ? (
-                                                            <img
-                                                              src={file.file_url}
-                                                              alt={file.name}
-                                                              className="w-full h-24 object-cover rounded-md border-2 border-slate-200 group-hover:border-blue-500 transition-all"
-                                                            />
-                                                        ) : (
-                                                            <div className="w-full h-24 flex items-center justify-center bg-slate-200 rounded-md border-2 border-slate-200 group-hover:border-blue-500 transition-all">
-                                                                <FileText className="w-8 h-8 text-slate-500" />
-                                                            </div>
-                                                        )}
-                                                        <p className="text-xs text-slate-600 truncate mt-1 group-hover:text-blue-700">{file.name || 'File'}</p>
-                                                    </a>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </motion.div>
-                        )}
-                        </AnimatePresence>
-                      </div>
-                    )})}
-                  </div>
-                ) : (
-                  <p className="text-slate-500 text-center py-4">No service attempts recorded yet.</p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Service Documents */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="w-5 h-5" />
-                  Service Documents ({serviceDocuments.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {serviceDocuments.length > 0 ? (
-                  <div className="space-y-2">
-                    {serviceDocuments.map(doc => (
-                      <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50">
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-slate-600"/>
-                          <span className="font-medium">{doc.title}</span>
-                        </div>
-                        <Button variant="outline" size="sm" asChild>
-                          <a href={doc.file_url} target="_blank" rel="noopener noreferrer">View</a>
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-slate-500 text-center py-4">No service documents uploaded.</p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Affidavits */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Paperclip className="w-5 h-5" />
-                  Affidavits ({affidavitDocuments.length})
-                </CardTitle>
-                <Link to={createPageUrl(`GenerateAffidavit?jobId=${job.id}`)}>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-2"
-                    disabled={!attempts || attempts.length === 0}
-                    title={!attempts || attempts.length === 0 ? "At least one service attempt is required to generate an affidavit" : "Generate affidavit based on service attempts"}
-                  >
-                    <Plus className="w-4 h-4" />
-                    Generate Affidavit
-                  </Button>
-                </Link>
-              </CardHeader>
-              <CardContent>
-                {affidavitDocuments.length > 0 ? (
-                  <div className="space-y-2">
-                    {affidavitDocuments.map(doc => (
-                      <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50">
-                        <div className="flex items-center gap-2">
-                          <Paperclip className="w-4 h-4 text-slate-600"/>
-                          <span className="font-medium">{doc.title}</span>
-                        </div>
-                        <Button variant="outline" size="sm" asChild>
-                          <a href={doc.file_url} target="_blank" rel="noopener noreferrer">View</a>
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-4">
-                    {!attempts || attempts.length === 0 ? (
-                      <div>
-                        <p className="text-slate-500">No service attempts recorded yet.</p>
-                        <p className="text-sm text-slate-400 mt-1">At least one service attempt is required to generate an affidavit.</p>
-                      </div>
-                    ) : (
-                      <p className="text-slate-500">No affidavits generated yet.</p>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Live Invoice Card - MOVED HERE */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <CardTitle className="flex items-center gap-2">
-                    <Receipt className="w-5 h-5"/>
-                    Invoice
-                  </CardTitle>
-                  {(() => {
-                    const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
-                    if (!jobInvoice) {
-                      return (
-                        <Badge className="bg-slate-100 text-slate-700">
-                          Not Invoiced
-                        </Badge>
-                      );
-                    }
-
-                    const invoiceStatusConfig = { // Renamed to avoid conflict with global statusConfig
-                      draft: { color: "bg-slate-100 text-slate-700", label: "Draft" },
-                      sent: { color: "bg-blue-100 text-blue-700", label: "Sent" },
-                      paid: { color: "bg-green-100 text-green-700", label: "Paid" },
-                      overdue: { color: "bg-red-100 text-red-700", label: "Overdue" },
-                      cancelled: { color: "bg-slate-100 text-slate-500", label: "Cancelled" }
-                    };
-
-                    const config = invoiceStatusConfig[jobInvoice.status] || invoiceStatusConfig.draft;
-                    return (
-                      <Badge className={config.color}>
-                        {config.label}
-                      </Badge>
-                    );
-                  })()}
-                </div>
-                <Button variant="outline" size="sm" onClick={saveInvoiceItems} className="gap-2 relative">
-                  {areInvoiceItemsDirty && !invoiceSaved && (
-                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                    </span>
-                  )}
-                  {invoiceSaved ? (
-                    <>
-                      <CheckCircle className="w-4 h-4 text-green-600" />
-                      Saved
-                    </>
-                  ) : (
-                    'Save Invoice'
-                  )}
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    {Array.isArray(lineItems) && lineItems.map((item, index) => (
-                      <div key={index} className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                        <div className="w-full">
-                          <Label className="text-xs text-slate-500">Description</Label>
-                          {(Array.isArray(invoicePresets) && invoicePresets.length > 0 && customItem !== index) ? (
-                            <select
-                              value={item?.description || ''}
-                              onChange={(e) => {
-                                if (e.target.value === 'custom') {
-                                  handleLineItemChange(index, 'description', '');
-                                  setCustomItem(index);
-                                } else if (e.target.value) {
-                                  handlePresetSelect(index, e.target.value);
-                                }
-                              }}
-                              className="w-full p-2 border border-slate-300 rounded-md text-sm mt-1"
-                            >
-                              <option value="">Select preset...</option>
-                              {invoicePresets.map((preset, presetIndex) => (
-                                <option key={presetIndex} value={preset.description}>
-                                  {preset.description} - ${preset.rate}
-                                </option>
-                              ))}
-                              <option value="custom">Custom description...</option>
-                            </select>
-                          ) : (
-                            <Input
-                              value={item?.description || ''}
-                              onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
-                              placeholder="Description"
-                              className="w-full mt-1"
-                            />
-                          )}
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row items-end gap-2 mt-3">
-                          <div className="flex-1 w-full">
-                            <Label className="text-xs text-slate-500">Qty</Label>
-                            <Input
-                              type="number"
-                              value={item?.quantity || ''}
-                              onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
-                              placeholder="1"
-                              className="mt-1"
-                            />
-                          </div>
-
-                          <div className="flex-1 w-full">
-                            <Label className="text-xs text-slate-500">Rate ($)</Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={item?.rate || ''}
-                              onChange={(e) => handleLineItemChange(index, 'rate', e.target.value)}
-                              placeholder="0.00"
-                              className="mt-1"
-                            />
-                          </div>
-
-                          <div className="flex-1 w-full">
-                            <Label className="text-xs text-slate-500">Total</Label>
-                            <div className="mt-1 h-10 flex items-center px-3 bg-slate-100 rounded-md border font-medium text-slate-900">
-                              ${((parseFloat(item?.quantity) || 0) * (parseFloat(item?.rate) || 0)).toFixed(2)}
-                            </div>
-                          </div>
-
-                          <div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleRemoveLineItem(index)}
-                              className="text-red-600 hover:text-red-700 h-10 w-10"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <Button variant="outline" className="w-full" onClick={handleAddLineItem}>
-                    <Plus className="w-4 h-4 mr-2" /> Add Item
-                  </Button>
-
-                <div className="pt-3 border-t">
-                    <div className="flex justify-between items-center mb-4">
-                      <span className="font-bold">Total:</span>
-                      <span className="text-xl font-bold">${totalFee.toFixed(2)}</span>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <Button variant="outline" size="sm" className="flex-1 gap-2">
-                        <Settings className="w-4 h-4" />
-                        Manage Invoice
-                      </Button>
-                      <Button variant="outline" size="sm" className="flex-1 gap-2">
-                        <Mail className="w-4 h-4" />
-                        Email Invoice
-                      </Button>
-                    </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Right Sidebar */}
-          <div className="space-y-6">
-
-            {/* Service Details */}
+            {/* Service Details Card */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Service Details</CardTitle>
@@ -2092,103 +1635,711 @@ export default function JobDetailsPage() {
                 )}
               </CardContent>
             </Card>
+          </div>
 
-            {/* Notes Section */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <StickyNote className="w-5 h-5"/>
-                  Notes
-                </CardTitle>
-                {!isEditingNotes && (
-                  <Button variant="outline" size="sm" onClick={() => setIsEditingNotes(true)}>
-                    Edit
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent>
-                {isEditingNotes ? (
-                  <div className="space-y-3">
-                    <Textarea
-                      value={jobNotes}
-                      onChange={(e) => setJobNotes(e.target.value)}
-                      rows={4}
-                      placeholder="Add notes about this job..."
+          {/* Field Sheet Card */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <QrCode className="w-6 h-6 text-blue-600" />
+                  <div>
+                    <CardTitle>Field Sheet</CardTitle>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleGenerateFieldSheet}
+                  disabled={isGeneratingFieldSheet}
+                  className="gap-2"
+                >
+                  {isGeneratingFieldSheet ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      Generate New Sheet
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {fieldSheetDocuments.length > 0 ? (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-slate-600 mb-2">Generated Sheets:</h4>
+                  {fieldSheetDocuments.slice().sort((a, b) => {
+                    const dateA = new Date(a.received_at || a.created_date);
+                    const dateB = new Date(b.received_at || b.created_date);
+                    return dateB - dateA;
+                  }).map(doc => {
+                    const docDate = doc.received_at || doc.created_date;
+                    return (
+                      <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50 border">
+                        <div className="flex items-center gap-2">
+                          <FileClock className="w-4 h-4 text-slate-500" />
+                          <div>
+                            <p className="font-medium text-slate-800 text-sm">{doc.title}</p>
+                            <p className="text-xs text-slate-500">
+                              {docDate ? `Generated on ${format(new Date(docDate), 'MMM d, yyyy @ h:mm a')}` : 'Date unknown'}
+                            </p>
+                          </div>
+                        </div>
+                        <Button variant="outline" size="sm" asChild>
+                          <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="gap-2">
+                            <Download className="w-3 h-3" />
+                            Download
+                          </a>
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-slate-500 text-sm text-center py-4">No field sheets have been generated for this job yet.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Recipient & Service Details Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Recipient & Service Details</CardTitle>
+              {!isEditingJobDetails && (
+                <Button variant="outline" size="sm" onClick={() => handleStartEdit('jobDetails')} className="gap-2">
+                  <Pencil className="w-4 h-4" />
+                  Edit
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isEditingJobDetails ? (
+                <div className="space-y-6">
+                  <div>
+                    <Label htmlFor="edit-recipient">Recipient Name</Label>
+                    <Input
+                      id="edit-recipient"
+                      value={editFormData.recipient_name || ''}
+                      onChange={(e) => handleEditInputChange('recipient_name', e.target.value)}
+                      placeholder="Name of person/entity to be served"
                     />
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={handleSaveNotes} className="relative">
-                        {areNotesDirty && (
-                          <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                          </span>
+                  </div>
+
+                  <div className="space-y-4">
+                    {Array.isArray(editFormData.addresses) && editFormData.addresses.map((addr, index) => (
+                      <div key={index} className="p-4 border border-slate-200 rounded-lg space-y-3 relative bg-slate-50/50">
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-semibold text-slate-800">
+                            Address {index + 1} {addr.primary && <span className="text-amber-600 font-normal">(Primary)</span>}
+                          </h4>
+                          <div className="flex items-center gap-2">
+                            {!addr.primary && (
+                              <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={() => handleSetPrimaryAddress(index)}>
+                                <Star className="w-3.5 h-3.5"/> Set Primary
+                              </Button>
+                            )}
+                            {editFormData.addresses && editFormData.addresses.length > 1 && (
+                              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:bg-red-100 hover:text-red-600" onClick={() => handleRemoveAddress(index)}>
+                                <Trash2 className="w-4 h-4"/>
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <Label htmlFor={`edit-address1-${index}`}>Street Address</Label>
+                          <AddressAutocomplete
+                            id={`edit-address1-${index}`}
+                            value={addr.address1 || ''}
+                            onChange={(value) => handleAddressInputChange(index, 'address1', value)}
+                            onAddressSelect={(details) => handleAddressAutocompleteSelect(index, details)}
+                            onLoadingChange={(loading) => handleAddressLoadingChange(index, loading)}
+                            placeholder="Street address"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor={`edit-address2-${index}`}>Address Line 2</Label>
+                          <Input
+                            id={`edit-address2-${index}`}
+                            value={addr.address2 || ''}
+                            onChange={(e) => handleAddressInputChange(index, 'address2', e.target.value)}
+                            placeholder="Apartment, suite, etc."
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <Label htmlFor={`edit-city-${index}`}>City</Label>
+                            <Input id={`edit-city-${index}`} value={addr.city || ''} onChange={(e) => handleAddressInputChange(index, 'city', e.target.value)} disabled={addressLoadingStates[index]} />
+                          </div>
+                          <div>
+                            <Label htmlFor={`edit-state-${index}`}>State</Label>
+                            <Input id={`edit-state-${index}`} value={addr.state || ''} onChange={(e) => handleAddressInputChange(index, 'state', e.target.value)} disabled={addressLoadingStates[index]} />
+                          </div>
+                          <div>
+                            <Label htmlFor={`edit-postal-${index}`}>ZIP Code</Label>
+                            <Input id={`edit-postal-${index}`} value={addr.postal_code || ''} onChange={(e) => handleAddressInputChange(index, 'postal_code', e.target.value)} disabled={addressLoadingStates[index]} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {(!editFormData.addresses || editFormData.addresses.length < 4) && (
+                    <Button type="button" variant="outline" onClick={handleAddAddress} className="gap-2 w-full border-dashed">
+                      <Plus className="w-4 h-4"/> Add Another Address
+                    </Button>
+                  )}
+
+                  <div>
+                    <Label htmlFor="edit-instructions">Service Instructions</Label>
+                    <Textarea
+                      id="edit-instructions"
+                      value={editFormData.service_instructions || ''}
+                      onChange={(e) => handleEditInputChange('service_instructions', e.target.value)}
+                      rows={3}
+                      placeholder="Special instructions for the process server..."
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <Button onClick={() => handleSaveEdit('jobDetails')} className="relative">
+                      {isJobDetailsDirty && (
+                        <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                        </span>
+                      )}
+                      Save Changes
+                    </Button>
+                    <Button variant="outline" onClick={() => handleCancelEdit('jobDetails')}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="border-t border-slate-200">
+                    <Label className="text-xs text-slate-500">Recipient</Label>
+                    <p className="font-medium text-slate-900 mb-2">{job?.recipient?.name}</p>
+
+                    <Label className="text-xs text-slate-500">Service Addresses</Label>
+                     {Array.isArray(job?.addresses) ? job.addresses.map((address, index) => (
+                      <div key={index} className="flex items-start justify-between gap-3 text-slate-600 mt-2 py-2">
+                        <div className="flex items-start gap-3">
+                          <MapPin className="w-4 h-4 mt-1 flex-shrink-0 text-slate-400"/>
+                          <div>
+                            {address.address1}<br/>
+                            {address.address2 && <>{address.address2}<br/></>}
+                            {address.city}, {address.state} {address.postal_code}
+                          </div>
+                        </div>
+                        {address.primary && (
+                          <Badge className="bg-amber-100 text-amber-800 border border-amber-200 flex-shrink-0 self-center">
+                            Primary
+                          </Badge>
                         )}
-                        Save
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setIsEditingNotes(false)}>
-                        Cancel
+                      </div>
+                    )) : (
+                      <p className="text-slate-500 text-sm mt-2">No addresses configured</p>
+                    )}
+                  </div>
+
+                  {job?.service_instructions && (
+                    <div className="pt-4 border-t border-slate-200">
+                      <Label className="text-xs text-slate-500">Service Instructions</Label>
+                      <p className="text-sm text-slate-700 mt-1">{job.service_instructions}</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Service Attempts Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="w-5 h-5" />
+                Service Attempts ({Array.isArray(attempts) ? attempts.length : 0})
+              </CardTitle>
+              <Link to={`${createPageUrl("LogAttempt")}?jobId=${job.id}`}>
+                <Button className="gap-2">
+                  <Plus className="w-4 h-4" />
+                  Add New Attempt
+                </Button>
+              </Link>
+            </CardHeader>
+            
+            {/* This is the new component for showing attempt time coverage. It's self-contained. */}
+            {job?.recipient?.type === 'individual' && (
+              <div className="px-6 pt-2 pb-6 border-b border-slate-200">
+                <h4 className="text-sm font-semibold text-slate-700 mb-4">Attempt Time Coverage</h4>
+                <AttemptTimeIndicator attempts={attempts} />
+              </div>
+            )}
+
+            <CardContent className={job?.recipient?.type !== 'individual' ? '' : 'pt-6'}>
+              {Array.isArray(attempts) && attempts.length > 0 ? (
+                <div className="space-y-3">
+                  {attempts.map(attempt => {
+                    const isExpanded = expandedAttemptId === attempt.id;
+
+                    let serverName = attempt.server_name_manual;
+                    if (attempt.server_id && Array.isArray(allEmployees)) {
+                      const serverEmployee = allEmployees.find(emp => emp.id === attempt.server_id);
+                      if (serverEmployee) {
+                        serverName = `${serverEmployee.first_name} ${serverEmployee.last_name}`;
+                      }
+                    }
+                    if (!serverName) serverName = 'N/A';
+
+                    return (
+                    <div key={attempt.id} className="p-3 rounded-lg bg-slate-50 border border-slate-200 transition-all">
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-2 pt-1">
+                          {attempt.status === 'served' ?
+                            <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" /> :
+                            <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                          }
+                          <div>
+                              <span className="font-medium capitalize">{attempt.status.replace(/_/g, ' ')}</span>
+                              <span className="text-sm text-slate-500">
+                                {' - '} {format(new Date(attempt.attempt_date), 'MMM d, h:mm a')}
+                              </span>
+                              {attempt.notes && <p className="text-sm text-slate-600 truncate max-w-sm">{attempt.notes}</p>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <Tooltip>
+                              <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-800" onClick={() => setExpandedAttemptId(isExpanded ? null : attempt.id)}>
+                                      {isExpanded ? <MinusCircle className="w-5 h-5" /> : <PlusCircle className="w-5 h-5" />}
+                                  </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                  <p>{isExpanded ? 'Collapse' : 'Expand'} Details</p>
+                              </TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                              <TooltipTrigger asChild>
+                                  <Link to={`${createPageUrl("LogAttempt")}?jobId=${job.id}&attemptId=${attempt.id}`}>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-800">
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                  </Link>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                  <p>Edit Attempt</p>
+                              </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </div>
+                      <AnimatePresence>
+                      {isExpanded && (
+                          <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.3, ease: "easeInOut" }}
+                              className="overflow-hidden"
+                          >
+                              <div className="pt-4 mt-3 border-t border-slate-200 space-y-4 text-sm">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      <DetailItem icon={UserIcon} label="Server" value={serverName} />
+                                      <DetailItem icon={MapPin} label="Address of Attempt" value={attempt.address_of_attempt} />
+                                      <DetailItem icon={FileText} label="Service Outcome" value={attempt.service_type_detail} />
+                                  </div>
+
+                                  {attempt.status === 'served' && (
+                                      <div>
+                                          <h4 className="font-semibold text-slate-700 mb-2">Person Served Details</h4>
+                                          <div className="p-3 bg-slate-100 rounded-md grid grid-cols-2 md:grid-cols-3 gap-4">
+                                              <DetailItem icon={UserSquare} label="Relationship" value={attempt.relationship_to_recipient} />
+                                              <DetailItem icon={Hash} label="Age" value={attempt.person_served_age} />
+                                              <DetailItem icon={Ruler} label="Height" value={attempt.person_served_height} />
+                                              <DetailItem icon={Weight} label="Weight" value={attempt.person_served_weight} />
+                                              <DetailItem icon={Scissors} label="Hair" value={attempt.person_served_hair_color} />
+                                              <DetailItem icon={UserIcon} label="Sex" value={attempt.person_served_sex} />
+                                               <div className="col-span-full">
+                                                 <DetailItem icon={FileText} label="Additional Description" value={attempt.person_served_description} />
+                                              </div>
+                                          </div>
+                                      </div>
+                                  )}
+
+                                  {Array.isArray(attempt.uploaded_files) && attempt.uploaded_files.length > 0 && (
+                                      <div>
+                                          <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                                              <Camera className="w-4 h-4" />
+                                              Attached Files
+                                          </h4>
+                                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                                              {attempt.uploaded_files.map((file, index) => (
+                                                  <a key={index} href={file.file_url} target="_blank" rel="noopener noreferrer" className="block group">
+                                                      {file.content_type?.startsWith('image/') ? (
+                                                          <img
+                                                            src={file.file_url}
+                                                            alt={file.name}
+                                                            className="w-full h-24 object-cover rounded-md border-2 border-slate-200 group-hover:border-blue-500 transition-all"
+                                                          />
+                                                      ) : (
+                                                          <div className="w-full h-24 flex items-center justify-center bg-slate-200 rounded-md border-2 border-slate-200 group-hover:border-blue-500 transition-all">
+                                                              <FileText className="w-8 h-8 text-slate-500" />
+                                                          </div>
+                                                      )}
+                                                      <p className="text-xs text-slate-600 truncate mt-1 group-hover:text-blue-700">{file.name || 'File'}</p>
+                                                  </a>
+                                              ))}
+                                          </div>
+                                      </div>
+                                  )}
+                              </div>
+                          </motion.div>
+                      )}
+                      </AnimatePresence>
+                    </div>
+                  )})}
+                </div>
+              ) : (
+                <p className="text-slate-500 text-center py-4">No service attempts recorded yet.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Service Documents Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Service Documents ({serviceDocuments.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {serviceDocuments.length > 0 ? (
+                <div className="space-y-2">
+                  {serviceDocuments.map(doc => (
+                    <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-slate-600"/>
+                        <span className="font-medium">{doc.title}</span>
+                      </div>
+                      <Button variant="outline" size="sm" asChild>
+                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer">View</a>
                       </Button>
                     </div>
-                  </div>
-                ) : (
-                  <div>
-                    {jobNotes ? (
-                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{jobNotes}</p>
-                    ) : (
-                      <p className="text-slate-500 text-sm">No notes added yet.</p>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-slate-500 text-center py-4">No service documents uploaded.</p>
+              )}
+            </CardContent>
+          </Card>
 
-            {/* Job Activity */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="w-5 h-5"/>
-                  Job Activity
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="relative">
-                  <div className="max-h-96 overflow-y-auto space-y-4 text-sm pr-2">
-                    {Array.isArray(job?.activity_log) && job.activity_log.length > 0 ? (
-                      job.activity_log.slice().reverse().map((log, index, array) => {
-                        if (!log) return null;
-                        const config = eventTypeConfig[log.event_type] || { color: 'bg-slate-300' };
-                        return (
-                          <div key={index} className="flex gap-3 relative">
-                            <div className="absolute left-0 top-1.5 h-full">
-                               {index < array.length - 1 &&
-                                <div className="w-px h-full bg-slate-200 ml-[5.5px] mt-1"></div>
-                               }
-                            </div>
-                            <div className={`w-3 h-3 rounded-full ${config.color} mt-1 flex-shrink-0 z-10 ring-4 ring-white`}></div>
-                            <div>
-                              <p className="font-medium text-slate-800">{log.description}</p>
-                              <p className="text-slate-500 text-xs">
-                                {log.timestamp ? format(new Date(log.timestamp), 'MMM d, yyyy h:mm a') : ''}
-                                {log.user_name && ` by ${log.user_name}`}
-                              </p>
-                            </div>
-                          </div>
-                        )
-                      })
-                    ) : (
-                      <p className="text-slate-500">No activity to display.</p>
-                    )}
-                  </div>
-                  {job?.activity_log?.length > 10 && (
-                    <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
+          {/* Affidavits Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Paperclip className="w-5 h-5" />
+                Affidavits ({affidavitDocuments.length})
+              </CardTitle>
+              <Link to={createPageUrl(`GenerateAffidavit?jobId=${job.id}`)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={!attempts || attempts.length === 0}
+                  title={!attempts || attempts.length === 0 ? "At least one service attempt is required to generate an affidavit" : "Generate affidavit based on service attempts"}
+                >
+                  <Plus className="w-4 h-4" />
+                  Generate Affidavit
+                </Button>
+              </Link>
+            </CardHeader>
+            <CardContent>
+              {affidavitDocuments.length > 0 ? (
+                <div className="space-y-2">
+                  {affidavitDocuments.map(doc => (
+                    <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50">
+                      <div className="flex items-center gap-2">
+                        <Paperclip className="w-4 h-4 text-slate-600"/>
+                        <span className="font-medium">{doc.title}</span>
+                      </div>
+                      <Button variant="outline" size="sm" asChild>
+                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer">View</a>
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  {!attempts || attempts.length === 0 ? (
+                    <div>
+                      <p className="text-slate-500">No service attempts recorded yet.</p>
+                      <p className="text-sm text-slate-400 mt-1">At least one service attempt is required to generate an affidavit.</p>
+                    </div>
+                  ) : (
+                    <p className="text-slate-500">No affidavits generated yet.</p>
                   )}
                 </div>
-              </CardContent>
-            </Card>
-          </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Live Invoice Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CardTitle className="flex items-center gap-2">
+                  <Receipt className="w-5 h-5"/>
+                  Invoice
+                </CardTitle>
+                {(() => {
+                  const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
+                  if (!jobInvoice) {
+                    return (
+                      <Badge className="bg-slate-100 text-slate-700">
+                        Not Invoiced
+                      </Badge>
+                    );
+                  }
+
+                  const invoiceStatusConfig = { // Renamed to avoid conflict with global statusConfig
+                    draft: { color: "bg-slate-100 text-slate-700", label: "Draft" },
+                    sent: { color: "bg-blue-100 text-blue-700", label: "Sent" },
+                    paid: { color: "bg-green-100 text-green-700", label: "Paid" },
+                    overdue: { color: "bg-red-100 text-red-700", label: "Overdue" },
+                    cancelled: { color: "bg-slate-100 text-slate-500", label: "Cancelled" }
+                  };
+
+                  const config = invoiceStatusConfig[jobInvoice.status] || invoiceStatusConfig.draft;
+                  return (
+                    <Badge className={config.color}>
+                      {config.label}
+                    </Badge>
+                  );
+                })()}
+              </div>
+              <Button variant="outline" size="sm" onClick={saveInvoiceItems} className="gap-2 relative">
+                {areInvoiceItemsDirty && !invoiceSaved && (
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                  </span>
+                )}
+                {invoiceSaved ? (
+                  <>
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    Saved
+                  </>
+                ) : (
+                  'Save Invoice'
+                )}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="space-y-3">
+                  {Array.isArray(lineItems) && lineItems.map((item, index) => (
+                    <div key={index} className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                      <div className="w-full">
+                        <Label className="text-xs text-slate-500">Description</Label>
+                        {(Array.isArray(invoicePresets) && invoicePresets.length > 0 && customItem !== index) ? (
+                          <select
+                            value={item?.description || ''}
+                            onChange={(e) => {
+                              if (e.target.value === 'custom') {
+                                handleLineItemChange(index, 'description', '');
+                                setCustomItem(index);
+                              } else if (e.target.value) {
+                                handlePresetSelect(index, e.target.value);
+                              }
+                            }}
+                            className="w-full p-2 border border-slate-300 rounded-md text-sm mt-1"
+                          >
+                            <option value="">Select preset...</option>
+                            {invoicePresets.map((preset, presetIndex) => (
+                              <option key={presetIndex} value={preset.description}>
+                                {preset.description} - ${preset.rate}
+                              </option>
+                            ))}
+                            <option value="custom">Custom description...</option>
+                          </select>
+                        ) : (
+                          <Input
+                            value={item?.description || ''}
+                            onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
+                            placeholder="Description"
+                            className="w-full mt-1"
+                          />
+                        )}
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-end gap-2 mt-3">
+                        <div className="flex-1 w-full">
+                          <Label className="text-xs text-slate-500">Qty</Label>
+                          <Input
+                            type="number"
+                            value={item?.quantity || ''}
+                            onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
+                            placeholder="1"
+                            className="mt-1"
+                          />
+                        </div>
+
+                        <div className="flex-1 w-full">
+                          <Label className="text-xs text-slate-500">Rate ($)</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={item?.rate || ''}
+                            onChange={(e) => handleLineItemChange(index, 'rate', e.target.value)}
+                            placeholder="0.00"
+                            className="mt-1"
+                          />
+                        </div>
+
+                        <div className="flex-1 w-full">
+                          <Label className="text-xs text-slate-500">Total</Label>
+                          <div className="mt-1 h-10 flex items-center px-3 bg-slate-100 rounded-md border font-medium text-slate-900">
+                            ${((parseFloat(item?.quantity) || 0) * (parseFloat(item?.rate) || 0)).toFixed(2)}
+                          </div>
+                        </div>
+
+                        <div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemoveLineItem(index)}
+                            className="text-red-600 hover:text-red-700 h-10 w-10"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <Button variant="outline" className="w-full" onClick={handleAddLineItem}>
+                  <Plus className="w-4 h-4 mr-2" /> Add Item
+                </Button>
+
+              <div className="pt-3 border-t">
+                  <div className="flex justify-between items-center mb-4">
+                    <span className="font-bold">Total:</span>
+                    <span className="text-xl font-bold">${totalFee.toFixed(2)}</span>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button variant="outline" size="sm" className="flex-1 gap-2">
+                      <Settings className="w-4 h-4" />
+                      Manage Invoice
+                    </Button>
+                    <Button variant="outline" size="sm" className="flex-1 gap-2">
+                      <Mail className="w-4 h-4" />
+                      Email Invoice
+                    </Button>
+                  </div>
+              </div>
+            </CardContent>
+          </Card>
+
+
+          {/* Notes Card */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <StickyNote className="w-5 h-5"/>
+                Notes
+              </CardTitle>
+              {!isEditingNotes && (
+                <Button variant="outline" size="sm" onClick={() => setIsEditingNotes(true)}>
+                  Edit
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {isEditingNotes ? (
+                <div className="space-y-3">
+                  <Textarea
+                    value={jobNotes}
+                    onChange={(e) => setJobNotes(e.target.value)}
+                    rows={4}
+                    placeholder="Add notes about this job..."
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={handleSaveNotes} className="relative">
+                      {areNotesDirty && (
+                        <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                        </span>
+                      )}
+                      Save
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setIsEditingNotes(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {jobNotes ? (
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{jobNotes}</p>
+                  ) : (
+                    <p className="text-slate-500 text-sm">No notes added yet.</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Job Activity Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="w-5 h-5"/>
+                Job Activity
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="relative">
+                <div className="max-h-96 overflow-y-auto space-y-4 text-sm pr-2">
+                  {Array.isArray(job?.activity_log) && job.activity_log.length > 0 ? (
+                    job.activity_log.slice().reverse().map((log, index, array) => {
+                      if (!log) return null;
+                      const config = eventTypeConfig[log.event_type] || { color: 'bg-slate-300' };
+                      return (
+                        <div key={index} className="flex gap-3 relative">
+                          <div className="absolute left-0 top-1.5 h-full">
+                             {index < array.length - 1 &&
+                              <div className="w-px h-full bg-slate-200 ml-[5.5px] mt-1"></div>
+                             }
+                          </div>
+                          <div className={`w-3 h-3 rounded-full ${config.color} mt-1 flex-shrink-0 z-10 ring-4 ring-white`}></div>
+                          <div>
+                            <p className="font-medium text-slate-800">{log.description}</p>
+                            <p className="text-slate-500 text-xs">
+                              {log.timestamp ? format(new Date(log.timestamp), 'MMM d, yyyy h:mm a') : ''}
+                              {log.user_name && ` by ${log.user_name}`}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <p className="text-slate-500">No activity to display.</p>
+                  )}
+                </div>
+                {job?.activity_log?.length > 10 && (
+                  <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
+      {/* Dialog for creating a new contact. This component is self-contained. */}
       <NewContactDialog
         open={isNewContactDialogOpen}
         onOpenChange={setIsNewContactDialogOpen}

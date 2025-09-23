@@ -26,6 +26,7 @@ import {
   TooltipTrigger
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+// FIREBASE TRANSITION: You will replace this with the Firebase SDK, e.g., `import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";`.
 import { User } from "@/api/entities";
 
 const navigationItems = [
@@ -84,6 +85,34 @@ export default function Layout({ children, currentPageName }) {
 
   // Main Authentication and Routing Effect
   useEffect(() => {
+    // FIREBASE TRANSITION: This `checkAuthAndRedirect` logic will be replaced.
+    // You'll use Firebase's `onAuthStateChanged` listener.
+    // const auth = getAuth();
+    // const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    //   if (firebaseUser) {
+    //     // User is signed in. You can fetch your custom user profile from Firestore here.
+    //     // Example: Assuming you have a `db` instance from Firebase initialized.
+    //     // const userDocRef = doc(db, "users", firebaseUser.uid);
+    //     // const userDocSnap = await getDoc(userDocRef);
+    //     // if (userDocSnap.exists()) {
+    //     //   setUser(userDocSnap.data());
+    //     // } else {
+    //     //   // User data not in Firestore, might need to create it or handle differently
+    //     //   setUser({ uid: firebaseUser.uid, email: firebaseUser.email, full_name: firebaseUser.displayName });
+    //     // }
+    //     if (currentPageName === 'Home') {
+    //       navigate(createPageUrl('Dashboard'), { replace: true });
+    //     }
+    //   } else {
+    //     // User is signed out.
+    //     setUser(null);
+    //     if (currentPageName !== 'Home') {
+    //       navigate(createPageUrl('Home'), { replace: true });
+    //     }
+    //   }
+    //   setIsAuthLoading(false);
+    // });
+    // return () => unsubscribe(); // Cleanup subscription on unmount.
     const checkAuthAndRedirect = async () => {
       try {
         const currentUser = await User.me();
@@ -113,6 +142,7 @@ export default function Layout({ children, currentPageName }) {
   }, [location.pathname]);
 
   const handleLogout = async () => {
+    // FIREBASE TRANSITION: Replace `User.logout()` with Firebase's `signOut(auth)`.
     await User.logout();
     window.location.reload();
   };

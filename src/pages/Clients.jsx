@@ -1,10 +1,19 @@
 
+// FIREBASE TRANSITION: This is a standard CRUD page.
+// - `loadClients`: Replace `Client.list()` with `getDocs(collection(db, "clients"))`.
+// - The filtering logic in `filterClients` is frontend-based and will remain the same.
+// - The `NewClientDialog` component, when submitted, will use `addDoc` to create a new client in Firestore instead of `Client.create()`.
+// - The `ClientsTable` will trigger updates using `updateDoc` or `deleteDoc` in Firestore.
+
 import React, { useState, useEffect, useCallback } from "react";
-import { Client } from "@/api/entities";
+// FIREBASE TRANSITION: Replace with Firebase SDK imports.
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { db } from "@/lib/firebase"; // Assuming db is exported from a firebase config file
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  Plus, 
+import {
+  Plus,
   Search,
   Building2
 } from "lucide-react";
@@ -26,8 +35,16 @@ export default function ClientsPage() {
   const loadClients = async () => {
     setIsLoading(true);
     try {
-      const data = await Client.list("-created_date");
-      setClients(data);
+      const clientsCollectionRef = collection(db, "clients");
+      // Original was "-created_date", which implies descending order.
+      // Firestore's orderBy takes a field and then 'asc' or 'desc'.
+      const q = query(clientsCollectionRef, orderBy("created_date", "desc"));
+      const querySnapshot = await getDocs(q);
+      const clientsData = querySnapshot.docs.map(doc => ({
+        id: doc.id, // Important: include the document ID
+        ...doc.data()
+      }));
+      setClients(clientsData);
     } catch (error) {
       console.error("Error loading clients:", error);
     }
@@ -38,7 +55,7 @@ export default function ClientsPage() {
     let filtered = clients;
 
     if (searchTerm) {
-      filtered = filtered.filter(client => 
+      filtered = filtered.filter(client =>
         client.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         client.contact_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         client.email?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -67,7 +84,7 @@ export default function ClientsPage() {
               <h1 className="text-3xl font-bold text-slate-900 mb-2">Clients</h1>
               <p className="text-slate-600">Manage your client relationships</p>
             </div>
-            <Button 
+            <Button
               onClick={() => setShowNewClientDialog(true)}
               className="bg-slate-900 hover:bg-slate-800 gap-2"
             >
@@ -92,7 +109,7 @@ export default function ClientsPage() {
           </div>
 
           {/* Clients Table */}
-          <ClientsTable 
+          <ClientsTable
             clients={filteredClients}
             isLoading={isLoading}
             onClientUpdate={loadClients}

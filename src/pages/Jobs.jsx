@@ -1,5 +1,12 @@
 
+// FIREBASE TRANSITION: This page contains significant data fetching and manipulation logic.
+// - `loadData`: Replace `Job.list`, `Client.list`, etc. with `getDocs` from Firestore. Shared job logic will require a more complex query, potentially `query(collection(db, 'jobs'), where('assigned_server_id', '==', companyId))`.
+// - `handleBulkStatusUpdate`, `handleBulkDelete`: Replace `Job.update` and `Job.delete` with batched writes (`writeBatch`) in Firestore for efficiency.
+// - `handleUpdateSharedJobStatus`: Replace the function call with a call to your new Firebase Cloud Function.
+// - `User.me()`: Replace with Firebase Auth to get the current user.
+
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+// FIREBASE TRANSITION: Replace these with Firebase SDK imports.
 import { Job, Client, Employee, CourtCase, User } from "@/api/entities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+// FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { updateSharedJobStatus } from "@/api/functions";
 
 import JobsTable from "../components/jobs/JobsTable";

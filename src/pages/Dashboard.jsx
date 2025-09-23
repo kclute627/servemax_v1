@@ -1,5 +1,11 @@
 
+// FIREBASE TRANSITION: The data fetching logic in this component will be migrated to use the Firebase SDK.
+// Each `Promise.all` call fetching data from `Job`, `Client`, `Invoice`, etc., will be replaced with
+// calls to Firestore's `getDocs` on the corresponding collections. The data processing and state
+// setting logic after the fetch will remain largely the same.
+
 import React, { useState, useEffect, useCallback } from "react";
+// FIREBASE TRANSITION: These will be replaced by your Firebase service imports.
 import { Job, Client, Invoice, Employee } from "@/api/entities";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,12 +24,12 @@ import {
   Calendar
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  startOfDay, 
-  subDays, 
-  startOfMonth, 
-  subMonths, 
-  startOfQuarter, 
+import {
+  startOfDay,
+  subDays,
+  startOfMonth,
+  subMonths,
+  startOfQuarter,
   startOfYear,
   endOfDay,
   endOfMonth,
@@ -47,13 +53,13 @@ export default function Dashboard() {
     pastDueJobs: 0,
     rushJobsOpen: 0
   });
-  
+
   const [invoiceStats, setInvoiceStats] = useState({
     totalInvoices: 0,
     totalPaid: 0,
     pastDueInvoices: 0
   });
-  
+
   const [selectedPeriod, setSelectedPeriod] = useState('this_month');
   const [isLoading, setIsLoading] = useState(true);
   const [isInvoiceLoading, setIsInvoiceLoading] = useState(false);
@@ -89,7 +95,7 @@ export default function Dashboard() {
 
   const getDateRange = (period) => {
     const now = new Date();
-    
+
     switch (period) {
       case 'today':
         return { start: startOfDay(now), end: endOfDay(now) };
@@ -114,6 +120,9 @@ export default function Dashboard() {
   const loadDashboardData = useCallback(async () => {
     setIsLoading(true);
     try {
+      // FIREBASE TRANSITION: Replace this `Promise.all` with Firestore `getDocs` calls.
+      // e.g., `const jobsSnapshot = await getDocs(collection(db, "jobs"));`
+      // `const jobs = jobsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));`
       const [jobs, clients, invoices] = await Promise.all([
         Job.list("-created_date", 500), // Increased limit for better stats
         Client.list(),
@@ -170,7 +179,7 @@ export default function Dashboard() {
       const dateRange = getDateRange(selectedPeriod);
 
       let filteredInvoices = invoices;
-      
+
       if (dateRange) {
         filteredInvoices = invoices.filter(invoice => {
           const invoiceDate = new Date(invoice.invoice_date);
@@ -206,7 +215,7 @@ export default function Dashboard() {
             Invoice.list(),
             Client.list()
         ]);
-        
+
         const dateRange = getDateRange(topClientsPeriod);
 
         const clientStats = allClients.reduce((acc, client) => {
@@ -215,7 +224,7 @@ export default function Dashboard() {
         }, {});
 
         // Calculate jobs
-        const jobsToConsider = dateRange 
+        const jobsToConsider = dateRange
             ? allJobs.filter(job => job.created_date && isWithinInterval(new Date(job.created_date), dateRange))
             : allJobs;
 
@@ -240,7 +249,7 @@ export default function Dashboard() {
         const statsArray = Object.values(clientStats)
                                 .filter(item => item.jobs > 0 || item.revenue > 0)
                                 .sort((a, b) => b.revenue - a.revenue || b.jobs - a.jobs); // Sort by revenue desc, then jobs desc
-                                
+
         setTopClientsData(statsArray);
 
     } catch (error) {
@@ -257,16 +266,16 @@ export default function Dashboard() {
             Job.list(), // This gets ALL jobs (open and closed)
             Employee.list()
         ]);
-        
+
         const dateRange = getDateRange(topServersPeriod);
 
         // Filter employees to only process servers
         const processServers = allEmployees.filter(emp => emp.role === 'process_server');
 
         const serverStats = processServers.reduce((acc, server) => {
-            acc[server.id] = { 
-                server, 
-                jobs: 0, 
+            acc[server.id] = {
+                server,
+                jobs: 0,
                 completedJobs: 0,
                 rating: 0
             };
@@ -275,7 +284,7 @@ export default function Dashboard() {
 
         // Filter jobs by date range if specified
         // NOTE: This includes ALL jobs (both open and closed) for complete server performance history
-        const jobsToConsider = dateRange 
+        const jobsToConsider = dateRange
             ? allJobs.filter(job => job.created_date && isWithinInterval(new Date(job.created_date), dateRange))
             : allJobs;
 
@@ -298,20 +307,20 @@ export default function Dashboard() {
             }
 
             const completionRate = stat.completedJobs / stat.jobs;
-            
-            // Rating formula: 
+
+            // Rating formula:
             // - Up to 4 stars for completion rate.
             // - Up to 1 star for job volume (maxes out at 20 completed jobs).
             const completionBonus = completionRate * 4;
             const volumeBonus = Math.min(stat.completedJobs / 20, 1);
             const rating = completionBonus + volumeBonus;
-            
+
             return {
                 ...stat,
                 rating: Number(rating.toFixed(1))
             };
         }).sort((a, b) => b.rating - a.rating || b.completedJobs - a.completedJobs); // Sort by rating desc, then completed jobs desc
-        
+
         setTopServersData(statsArray);
 
     } catch (error) {
@@ -375,7 +384,7 @@ export default function Dashboard() {
                 <p className="text-slate-600">Current job status and urgent items</p>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               {/* Total Open Jobs Card */}
               <Card className="border-0 shadow-lg bg-gradient-to-br from-slate-50 to-slate-100 hover:shadow-xl transition-all duration-300 border border-slate-200">
@@ -463,7 +472,7 @@ export default function Dashboard() {
                   <p className="text-slate-600">Financial metrics and billing status</p>
                 </div>
               </div>
-              
+
               {/* Time Period Selector */}
               <div className="flex items-center gap-3">
                 <Calendar className="w-5 h-5 text-slate-500" />
@@ -480,7 +489,7 @@ export default function Dashboard() {
                 </select>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               {/* Total Invoices Card */}
               <Card className="border-0 shadow-lg bg-gradient-to-br from-slate-50 to-slate-100 hover:shadow-xl transition-all duration-300 border border-slate-200">

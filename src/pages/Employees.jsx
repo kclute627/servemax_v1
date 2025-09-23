@@ -1,6 +1,12 @@
+// FIREBASE TRANSITION: Standard CRUD page.
+// - `loadEmployees`: Replace `Employee.list()` with `getDocs` on the 'employees' collection in Firestore.
+// - `handleSetDefault`: Will involve a Firestore transaction (`runTransaction`) or batched write (`writeBatch`) to ensure you unset the old default and set the new one atomically.
+// - The dialog components (`NewEmployeeDialog`, `EditEmployeeDialog`) will use `addDoc` and `updateDoc` on the 'employees' collection.
 
 import React, { useState, useEffect, useCallback } from "react";
+// FIREBASE TRANSITION: Replace with Firebase SDK imports.
 import { Employee } from "@/api/entities";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -12,7 +18,7 @@ import {
 
 import EmployeesTable from "../components/employees/EmployeesTable";
 import NewEmployeeDialog from "../components/employees/NewEmployeeDialog";
-import EditEmployeeDialog from "../components/employees/EditEmployeeDialog"; // New import
+import EditEmployeeDialog from "../components/employees/EditEmployeeDialog";
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState([]);
@@ -29,8 +35,9 @@ export default function EmployeesPage() {
   const loadEmployees = async () => {
     setIsLoading(true);
     try {
-      const data = await Employee.list("-created_date");
-      setEmployees(data);
+      // FIREBASE TRANSITION: Replace Employee.list() with Firestore getDocs
+      const employeeList = await Employee.list('-created_date');
+      setEmployees(employeeList);
     } catch (error) {
       console.error("Error loading employees:", error);
     }
@@ -65,21 +72,17 @@ export default function EmployeesPage() {
   };
 
   const handleSetDefault = async (employeeToSetAsDefault) => {
-    // Find the current default employee
-    const currentDefault = employees.find(e => e.is_default_server);
-
+    // FIREBASE TRANSITION: This needs a transaction in Firestore.
+    // 1. Query for the current default employee.
+    // 2. In a transaction, update the old default's `is_default_server` to false.
+    // 3. Update the new default's `is_default_server` to true.
     try {
-        const updatePromises = [];
+        const currentDefault = employees.find(e => e.is_default_server);
 
-        // If there's a current default and it's not the one we're setting, unset it
         if (currentDefault && currentDefault.id !== employeeToSetAsDefault.id) {
-            updatePromises.push(Employee.update(currentDefault.id, { is_default_server: false }));
+            await Employee.update(currentDefault.id, { is_default_server: false });
         }
-
-        // Set the new employee as the default
-        updatePromises.push(Employee.update(employeeToSetAsDefault.id, { is_default_server: true }));
-
-        await Promise.all(updatePromises);
+        await Employee.update(employeeToSetAsDefault.id, { is_default_server: true });
 
         // Refresh the local data to reflect the change in the UI
         loadEmployees();

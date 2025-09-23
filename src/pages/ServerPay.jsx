@@ -1,4 +1,10 @@
+
+// FIREBASE TRANSITION: Data aggregation page.
+// - `loadPayData`: Replace `Job.list()` and `Employee.filter()` with `getDocs` calls. The filtering and aggregation logic will happen on the client-side as it does now, which is acceptable for moderate amounts of data. For very large datasets, you might consider a Cloud Function to pre-aggregate this data.
+// - `handleMarkAsPaid`: Will use a Firestore `writeBatch` to update the `server_payment_status` on multiple job documents at once.
+
 import React, { useState, useEffect } from 'react';
+// FIREBASE TRANSITION: Replace with Firebase SDK imports.
 import { Job, Employee } from "@/api/entities";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +27,9 @@ export default function ServerPayPage() {
   }, []);
 
   const loadPayData = async () => {
+    // FIREBASE TRANSITION: Replace `Job.list()` and `Employee.filter()` with `getDocs` calls.
+    // The filtering and aggregation logic will happen on the client-side as it does now, which is acceptable for moderate amounts of data.
+    // For very large datasets, you might consider a Cloud Function to pre-aggregate this data.
     setIsLoading(true);
     try {
       const [jobs, employees] = await Promise.all([
@@ -51,6 +60,7 @@ export default function ServerPayPage() {
   };
   
   const handleMarkAsPaid = async (jobIds) => {
+    // FIREBASE TRANSITION: Will use a Firestore `writeBatch` to update the `server_payment_status` on multiple job documents at once.
     // In a real app, this would likely be a bulk update.
     // For now, we update one by one.
     try {
