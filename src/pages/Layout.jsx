@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   LayoutDashboard,
@@ -16,7 +16,8 @@ import {
   Menu,
   X,
   HandCoins,
-  Settings
+  Settings,
+  Loader2,
 } from "lucide-react";
 import {
   Tooltip,
@@ -65,9 +66,11 @@ const navigationItems = [
   }
 ];
 
-export default function Layout({ children }) {
+export default function Layout({ children, currentPageName }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Persist collapse state in localStorage
@@ -79,28 +82,56 @@ export default function Layout({ children }) {
     localStorage.setItem("sidebarCollapsed", isCollapsed);
   }, [isCollapsed]);
 
+  // Main Authentication and Routing Effect
+  useEffect(() => {
+    const checkAuthAndRedirect = async () => {
+      try {
+        const currentUser = await User.me();
+        setUser(currentUser);
+        // User is logged in.
+        // If they are on the Home page, redirect to Dashboard.
+        if (currentPageName === 'Home') {
+          navigate(createPageUrl('Dashboard'), { replace: true });
+        }
+      } catch (error) {
+        // User is not logged in.
+        setUser(null);
+        // If they are trying to access a protected page, redirect to Home.
+        if (currentPageName !== 'Home') {
+          navigate(createPageUrl('Home'), { replace: true });
+        }
+      } finally {
+        setIsAuthLoading(false);
+      }
+    };
+    checkAuthAndRedirect();
+  }, [currentPageName, navigate]);
+
   // Close mobile menu on route change
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const currentUser = await User.me();
-        setUser(currentUser);
-      } catch (error) {
-        console.log("User not authenticated");
-      }
-    };
-    loadUser();
-  }, []);
 
   const handleLogout = async () => {
     await User.logout();
     window.location.reload();
   };
 
+  // Loading screen while checking auth
+  if (isAuthLoading) {
+    return (
+      <div className="w-full min-h-screen flex items-center justify-center bg-slate-50">
+        <Loader2 className="w-8 h-8 text-blue-800 animate-spin" />
+      </div>
+    );
+  }
+
+  // Unauthenticated: Render children directly (for Home page)
+  if (!user) {
+    return <>{children}</>;
+  }
+  
+  // Authenticated: Render full layout
   return (
     <TooltipProvider>
       <div className="w-full min-h-screen bg-slate-50">

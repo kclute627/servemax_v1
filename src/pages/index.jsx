@@ -22,6 +22,8 @@ import GenerateAffidavit from "./GenerateAffidavit";
 
 import Accounting from "./Accounting";
 
+import Home from "./Home";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -47,6 +49,8 @@ const PAGES = {
     GenerateAffidavit: GenerateAffidavit,
     
     Accounting: Accounting,
+    
+    Home: Home,
     
 }
 
@@ -96,6 +100,8 @@ function PagesContent() {
                 <Route path="/GenerateAffidavit" element={<GenerateAffidavit />} />
                 
                 <Route path="/Accounting" element={<Accounting />} />
+                
+                <Route path="/Home" element={<Home />} />
                 
             </Routes>
         </Layout>
