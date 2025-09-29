@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Job, Employee, Attempt, User, Client } from '@/api/entities'; // Client imported as per outline
+import { Job, Employee, Attempt, User, Client, Document } from '@/api/entities'; // Added Document import
 import { createPageUrl } from '@/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   ArrowLeft,
   Clock,
@@ -16,19 +17,39 @@ import {
   CheckCircle,
   XCircle,
   Loader2,
-  Save
+  Save,
+  Plus
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import DocumentUpload from '../components/jobs/DocumentUpload';
+import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
 
-const attemptStatusOptions = [
-  { value: "served", label: "Successfully Served", icon: CheckCircle, color: "text-green-600" },
-  { value: "not_served", label: "Not Served", icon: XCircle, color: "text-red-600" },
-  { value: "contact_made", label: "Contact Made", icon: UserIcon, color: "text-blue-600" },
-  { value: "vacant", label: "Property Vacant", icon: XCircle, color: "text-orange-600" },
-  { value: "bad_address", label: "Bad Address", icon: MapPin, color: "text-red-600" },
-];
+// Updated attemptStatusOptions as per outline
+const attemptStatusOptions = {
+  served: [
+    'Personal Service',
+    'Substituted Service - Dwelling',
+    'Substituted Service - Corporate',
+    'Posted',
+    'Certified Mail',
+    'Other'
+  ],
+  not_served: [
+    'No Answer',
+    'Bad Address',
+    'Moved',
+    'Evaded Service',
+    'Could Not Serve in Time',
+    'Recipient Deceased',
+    'Other'
+  ]
+};
+
+// New helper function as per outline
+const handleJobStatusOnAttempt = (attemptStatus) => {
+  if (attemptStatus === 'served') return 'needs_affidavit';
+  return 'in_progress';
+};
 
 const initialFormData = {
   job_id: "", // Will be filled by loadJobData
@@ -59,7 +80,7 @@ export default function LogAttemptPage() {
 
   // General Page State
   const [job, setJob] = useState(null);
-  const [client, setClient] = useState(null); // Added client state as per outline
+  const [client, setClient] = useState(null);
   const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,11 +89,29 @@ export default function LogAttemptPage() {
 
   // New state for edit mode and uploaded files
   const [isEditMode, setIsEditMode] = useState(false);
-  const [editingAttemptId, setEditingAttemptId] = useState(null); // Renamed from attemptId in original, to match outline
-  const [uploadedFiles, setUploadedFiles] = useState([]); // Separate state for uploaded files as per outline
+  const [editingAttemptId, setEditingAttemptId] = useState(null);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
 
   // Form state managed by formData
   const [formData, setFormData] = useState(initialFormData);
+
+  // New state for address management
+  const [selectedAddressType, setSelectedAddressType] = useState(""); // Identifier for existing address, "new", or "custom"
+  const [showNewAddressForm, setShowNewAddressForm] = useState(false);
+  const [newAddressData, setNewAddressData] = useState({
+    label: "Service Address",
+    address1: "",
+    address2: "",
+    city: "",
+    state: "",
+    postal_code: "",
+    county: "",
+    latitude: null,
+    longitude: null,
+    primary: false
+  });
+  const [newAddressInput, setNewAddressInput] = useState("");
+  const [isAddressLoading, setIsAddressLoading] = useState(false);
 
   // Generic handler for form field changes
   const handleInputChange = useCallback((e) => {
@@ -88,7 +127,7 @@ export default function LogAttemptPage() {
         setCurrentUser(user);
         // Pre-fill server name if user is an employee and no server is set yet
         // This logic needs to be careful not to overwrite existing server data when editing
-        if (!formData.server_id || formData.server_id === "manual" && !formData.server_name_manual) {
+        if (!formData.server_id || (formData.server_id === "manual" && !formData.server_name_manual)) {
           const employeeRecord = await Employee.filter({ email: user.email });
           if (employeeRecord.length > 0) {
             setFormData(prev => ({
@@ -126,7 +165,7 @@ export default function LogAttemptPage() {
       const clientData = jobData.client_id ? await Client.get(jobData.client_id) : null;
       
       setJob(jobData);
-      setClient(clientData); // Set client data
+      setClient(clientData);
       setEmployees(employeesData || []);
 
       if (attemptId) {
@@ -156,7 +195,32 @@ export default function LogAttemptPage() {
               gps_lat: attemptData.gps_lat || null,
               gps_lon: attemptData.gps_lon || null,
             });
-            setUploadedFiles(attemptData.uploaded_files || []); // Set separate uploadedFiles state
+            // Filter out files that don't have an ID, or have a jobId that doesn't match the current job.
+            // This is a defensive check to ensure only valid, relevant files are loaded.
+            const validUploadedFiles = (attemptData.uploaded_files || []).filter(file => file.id && file.job_id === jobData.id);
+            setUploadedFiles(validUploadedFiles);
+            
+            // Set address selection based on existing address
+            let foundExistingAddress = false;
+            if (jobData.addresses?.length > 0) {
+              const fullAttemptAddress = attemptData.address_of_attempt?.trim();
+              const matchedAddress = jobData.addresses.find(addr => 
+                fullAttemptAddress === `${addr.address1}, ${addr.city}, ${addr.state} ${addr.postal_code}`.trim()
+              );
+              if (matchedAddress) {
+                setSelectedAddressType(matchedAddress.address1); // Use address1 as the key for the select value
+                foundExistingAddress = true;
+              }
+            }
+            if (!foundExistingAddress) {
+              // If not an existing address, assume it was a manually entered address for this attempt
+              setSelectedAddressType("new"); // Set to new so the form can be shown if user wants to modify
+              setNewAddressData(prev => ({ // Populate newAddressData from attempt's address_of_attempt
+                ...prev,
+                address1: attemptData.address_of_attempt, // Autocomplete doesn't fill this easily, so direct fill
+              }));
+              setNewAddressInput(attemptData.address_of_attempt); // Show in autocomplete input
+            }
           } else {
             throw new Error("Attempt not found");
           }
@@ -170,9 +234,12 @@ export default function LogAttemptPage() {
         // New attempt: Set default address and current date/time
         const now = new Date();
         let defaultAddress = "";
+        let defaultSelectedAddressType = ""; // Default to no selection
+
         if (jobData.addresses?.length > 0) {
           const primaryAddress = jobData.addresses.find(a => a.primary) || jobData.addresses[0];
           defaultAddress = `${primaryAddress.address1}, ${primaryAddress.city}, ${primaryAddress.state} ${primaryAddress.postal_code}`;
+          defaultSelectedAddressType = primaryAddress.address1; // Use address1 as the key
         }
         setFormData(prev => ({
           ...prev,
@@ -181,6 +248,7 @@ export default function LogAttemptPage() {
           attempt_time: now.toTimeString().slice(0, 5),
           address_of_attempt: defaultAddress,
         }));
+        setSelectedAddressType(defaultSelectedAddressType); // Set selectedAddressType here
         setUploadedFiles([]); // Ensure uploadedFiles is empty for new attempts
       }
 
@@ -191,8 +259,7 @@ export default function LogAttemptPage() {
       navigate(createPageUrl("Jobs"));
     }
     setIsLoading(false);
-  }, []); // Changed dependency array from [navigate] to [] to fix warning. `navigate` is stable from `useNavigate` and does not need to be a dependency.
-
+  }, [navigate]);
 
   // Consolidated data loading effect (replaces previous jobId and loadInitialData effects)
   useEffect(() => {
@@ -211,30 +278,154 @@ export default function LogAttemptPage() {
       alert("No job ID found. Returning to the jobs list.");
       navigate(createPageUrl("Jobs"));
     }
-  }, [location.search, navigate, loadJobData]); // Added loadJobData to dependencies, as it's now a stable function
+  }, [location.search, navigate, loadJobData]);
 
+  // UPDATED: This function now accepts the address data directly to avoid state lag
+  const updateAttemptAddress = useCallback((currentAddressData) => {
+    if (selectedAddressType === "new" && currentAddressData.address1) {
+      const parts = [
+        currentAddressData.address1,
+        currentAddressData.address2,
+        currentAddressData.city,
+        currentAddressData.state,
+        currentAddressData.postal_code
+      ].filter(Boolean);
+      
+      const fullAddress = parts.join(', ');
+      setFormData(prev => ({ ...prev, address_of_attempt: fullAddress }));
+    } else {
+        // If not a "new" address, or if address1 is empty for a "new" address, clear the preview
+        setFormData(prev => ({ ...prev, address_of_attempt: "" }));
+    }
+  }, [selectedAddressType]); // Dependency on selectedAddressType remains
 
+  // New address handling functions
+  const handleAddressSelection = (value) => {
+    setSelectedAddressType(value);
+    setShowNewAddressForm(value === "new");
+    
+    if (value === "new") {
+      // Reset new address form and its input
+      const resetNewAddress = {
+        label: "Service Address",
+        address1: "",
+        address2: "",
+        city: "",
+        state: "",
+        postal_code: "",
+        county: "",
+        latitude: null,
+        longitude: null,
+        primary: false
+      };
+      setNewAddressData(resetNewAddress);
+      setNewAddressInput("");
+      updateAttemptAddress(resetNewAddress); // Clear attempt address for new entry
+    } else {
+      // Existing address selected
+      const selectedAddress = job.addresses?.find(addr => addr.address1 === value);
+      if (selectedAddress) {
+        const fullAddress = `${selectedAddress.address1}, ${selectedAddress.city}, ${selectedAddress.state} ${selectedAddress.postal_code}`.trim();
+        setFormData(prev => ({ ...prev, address_of_attempt: fullAddress }));
+      }
+    }
+  };
+
+  const handleNewAddressSelect = (addressDetails) => {
+    setIsAddressLoading(true);
+    
+    // 1. Update the state for the form fields
+    const updatedAddressData = {
+      ...newAddressData, // Keep existing label, etc.
+      address1: addressDetails.address1 || "",
+      address2: addressDetails.address2 || "", // Ensure address2 is also set from autocomplete if available
+      city: addressDetails.city || "",
+      state: addressDetails.state || "",
+      postal_code: addressDetails.postal_code || "",
+      county: addressDetails.county || "",
+      latitude: addressDetails.latitude || null,
+      longitude: addressDetails.longitude || null,
+    };
+    setNewAddressData(updatedAddressData);
+    
+    // 2. Update the visual input field for the user
+    setNewAddressInput(addressDetails.address1 || "");
+    
+    // 3. Directly pass the new details to update the preview box
+    updateAttemptAddress(updatedAddressData);
+    
+    setIsAddressLoading(false);
+  };
+
+  const handleNewAddressFieldChange = (field, value) => {
+    // Construct the updated object before setting state
+    const updatedAddress = { ...newAddressData, [field]: value };
+    setNewAddressData(updatedAddress);
+    // Pass the newly constructed address object directly to the preview function
+    updateAttemptAddress(updatedAddress);
+  };
+
+  const handleNewAddressLabelChange = (e) => {
+    const updatedAddress = { ...newAddressData, label: e.target.value };
+    setNewAddressData(updatedAddress);
+    // No need to update attemptAddress for label change, as it's not part of the address string.
+  };
+
+  // Enhanced GPS capture function
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
       alert("Geolocation is not supported by your browser.");
       return;
     }
 
-    setIsLoading(true); // Using isLoading for location fetching, could be separate
+    setIsLoading(true); // Show loading state
+    
+    const options = {
+      enableHighAccuracy: true, // Use GPS if available
+      timeout: 10000, // 10 second timeout
+      maximumAge: 60000 // Accept a cached position that's not older than 1 minute
+    };
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        
         setFormData(prev => ({
           ...prev,
-          gps_lat: position.coords.latitude,
-          gps_lon: position.coords.longitude,
+          gps_lat: latitude,
+          gps_lon: longitude,
         }));
+        
+        // Show accuracy information to user
+        if (accuracy > 100) {
+          alert(`Location captured, but accuracy is low (±${Math.round(accuracy)}m). Consider moving to a more open area for better GPS signal.`);
+        }
+        
         setIsLoading(false);
       },
       (error) => {
-        console.error("Error getting location:", error);
-        alert("Unable to retrieve your location.");
+        let errorMessage = "Unable to retrieve your location. ";
+        
+        switch(error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage += "Please allow location access and try again.";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMessage += "Location information is unavailable.";
+            break;
+          case error.TIMEOUT:
+            errorMessage += "Location request timed out. Please try again.";
+            break;
+          default:
+            errorMessage += "An unknown error occurred.";
+            break;
+        }
+        
+        console.error("GPS error:", error);
+        alert(errorMessage);
         setIsLoading(false);
-      }
+      },
+      options
     );
   };
 
@@ -248,12 +439,14 @@ export default function LogAttemptPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
+    setError(null); // Added as per outline
+
     if (!formData.attempt_date || !formData.attempt_time) {
       alert("Please enter both a date and time for the attempt.");
+      setIsSubmitting(false);
       return;
     }
-
-    setIsSubmitting(true);
 
     if (formData.server_id === 'manual' && !formData.server_name_manual.trim()) {
       alert("Please select or manually enter a process server");
@@ -278,7 +471,8 @@ export default function LogAttemptPage() {
       }
     }
 
-    if (!formData.address_of_attempt || !formData.address_of_attempt.trim()) {
+    const finalAddressOfAttempt = formData.address_of_attempt; // Get final address string for validation and use
+    if (!finalAddressOfAttempt || !finalAddressOfAttempt.trim()) { // Added address validation as per outline
       alert("Please enter an address for the attempt");
       setIsSubmitting(false);
       return;
@@ -294,8 +488,8 @@ export default function LogAttemptPage() {
       const attemptData = { // Renamed from finalData for clarity
         job_id: job.id,
         ...serverData,
-        attempt_date: combinedDateTime.toISOString(),
-        address_of_attempt: formData.address_of_attempt,
+        attempt_date: combinedDateTime.toISOString(), // Outline specific: use combinedDateTime.toISOString()
+        address_of_attempt: finalAddressOfAttempt, // Use the validated address
         notes: formData.notes,
         status: formData.status,
         service_type_detail: formData.service_type_detail,
@@ -312,36 +506,41 @@ export default function LogAttemptPage() {
         uploaded_files: uploadedFiles // Use the separate uploadedFiles state
       };
 
+      let newAttempt;
       if (isEditMode && editingAttemptId) {
-        await Attempt.update(editingAttemptId, attemptData);
+        newAttempt = await Attempt.update(editingAttemptId, attemptData);
       } else {
-        await Attempt.create(attemptData);
+        newAttempt = await Attempt.create(attemptData);
+      }
+
+      // Update documents with the attempt_id (New logic as per outline)
+      if (uploadedFiles.length > 0 && newAttempt?.id) {
+        await Promise.all(
+          uploadedFiles.map(doc => Document.update(doc.id, { attempt_id: newAttempt.id }))
+        );
+      }
+
+      // NEW: Add new address to job if one was created and not a duplicate and integrate into jobUpdatePayload
+      let addressesToUpdateForJob = [...(job.addresses || [])];
+      
+      if (selectedAddressType === "new" && newAddressData.address1 && job.id) {
+        const fullNewAddressString = `${newAddressData.address1}, ${newAddressData.city}, ${newAddressData.state} ${newAddressData.postal_code}`.trim();
+        const addressAlreadyExists = addressesToUpdateForJob.some(addr => 
+          `${addr.address1}, ${addr.city}, ${addr.state} ${addr.postal_code}`.trim() === fullNewAddressString
+        );
+
+        if (!addressAlreadyExists) {
+          addressesToUpdateForJob.push(newAddressData);
+          console.log("Added new address to job for update payload:", newAddressData);
+        } else {
+          console.log("New address is a duplicate, not adding to job update payload.");
+        }
       }
 
       // --- UPDATE JOB STATUS ---
-      const allAttempts = await Attempt.filter({ job_id: job.id });
-      const hasServedAttempt = allAttempts.some(a => a.status === 'served');
+      const newJobStatus = handleJobStatusOnAttempt(formData.status); // Using new helper function
 
-      let newJobStatus;
-      let serviceDate = null;
-      let serviceMethod = null;
-
-      if (hasServedAttempt) {
-        newJobStatus = 'served';
-        const servedAttempt = allAttempts.find(a => a.status === 'served');
-        serviceDate = servedAttempt ? servedAttempt.attempt_date : null;
-        const serviceTypeLower = servedAttempt?.service_type_detail?.toLowerCase() || '';
-        serviceMethod = serviceTypeLower.includes('personal') ? 'personal' :
-                        serviceTypeLower.includes('substitute') ? 'substituted' : 'other';
-      } else if (allAttempts.length > 0) {
-        newJobStatus = 'in_progress';
-      } else if (job.assigned_server_id && job.assigned_server_id !== 'unassigned') {
-        newJobStatus = 'assigned';
-      } else {
-        newJobStatus = 'pending';
-      }
-
-      // Add activity log entry
+      // Add activity log entry (existing logic, integrated into a single payload)
       const newLogEntry = {
         timestamp: new Date().toISOString(),
         user_name: currentUser?.full_name || "System",
@@ -354,16 +553,19 @@ export default function LogAttemptPage() {
 
       const jobUpdatePayload = {
         status: newJobStatus,
-        activity_log: [...currentActivityLog, newLogEntry],
+        addresses: addressesToUpdateForJob, // Pass potentially updated addresses
+        activity_log: [...currentActivityLog, newLogEntry], // Include activity log
       };
 
-      if (serviceDate) jobUpdatePayload.service_date = serviceDate;
-      if (serviceMethod) jobUpdatePayload.service_method = serviceMethod;
-
-      await Job.update(job.id, jobUpdatePayload);
+      if (formData.status === 'served') { // Outline specific: update service_date if served
+        jobUpdatePayload.service_date = combinedDateTime.toISOString();
+        // The outline implies service_method logic is handled by new status or not needed here.
+      }
+      
+      await Job.update(job.id, jobUpdatePayload); // Perform a single job update
       // --- END JOB UPDATE ---
 
-      navigate(`${createPageUrl('JobDetails')}?id=${job.id}&success=attempt_saved`);
+      navigate(`${createPageUrl('JobDetails')}?id=${job.id}`); // Navigated as per outline
 
     } catch (e) {
       setError(e.message);
@@ -400,9 +602,12 @@ export default function LogAttemptPage() {
     );
   }
 
+  // Get existing addresses for dropdown
+  const existingAddresses = job.addresses || [];
+
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="p-6 md:p-8 max-w-4xl mx-auto"> {/* Max-width changed to 4xl as per outline */}
+      <div className="p-6 md:p-8 max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
           <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`}>
@@ -504,7 +709,7 @@ export default function LogAttemptPage() {
                   <Button
                     type="button"
                     variant={formData.status === 'served' ? 'default' : 'outline'}
-                    onClick={() => setFormData(prev => ({ ...prev, status: 'served', service_type_detail: '' }))} // Clear detail on status change
+                    onClick={() => setFormData(prev => ({ ...prev, status: 'served', service_type_detail: attemptStatusOptions.served[0] || '' }))} // Default to first served option
                     className={`flex-1 h-12 gap-2 ${
                       formData.status === 'served'
                         ? 'bg-green-600 hover:bg-green-700 text-white'
@@ -517,7 +722,7 @@ export default function LogAttemptPage() {
                   <Button
                     type="button"
                     variant={formData.status === 'not_served' ? 'default' : 'outline'}
-                    onClick={() => setFormData(prev => ({ ...prev, status: 'not_served', service_type_detail: 'No Answer' }))} // Default to 'No Answer' for not served
+                    onClick={() => setFormData(prev => ({ ...prev, status: 'not_served', service_type_detail: attemptStatusOptions.not_served[0] || 'No Answer' }))} // Default to first not_served option
                     className={`flex-1 h-12 gap-2 ${
                       formData.status === 'not_served'
                         ? 'bg-red-600 hover:bg-red-700 text-white'
@@ -530,18 +735,39 @@ export default function LogAttemptPage() {
                 </div>
               </div>
 
-              {/* Service Type Detail Input (Simplified, no dynamic options from CompanySettings) */}
+              {/* Service Type Detail Select/Input */}
               <div>
                 <Label htmlFor="service-type-detail">Service Type Detail</Label>
-                <Input
+                <Select
                   id="service-type-detail"
                   name="service_type_detail"
                   value={formData.service_type_detail}
-                  onChange={handleInputChange}
-                  placeholder={formData.status === 'served' ? "e.g., Personal Service, Substitute Service" : "e.g., No Answer, Vacant, Not Found"}
-                  className="mt-1 h-12"
+                  onValueChange={(value) => handleInputChange({ target: { name: 'service_type_detail', value } })}
                   required={formData.status === 'served'}
-                />
+                >
+                  <SelectTrigger className="mt-1 h-12">
+                    <SelectValue 
+                      placeholder={formData.status === 'served' ? "Select service type..." : "Select reason for not served..."} 
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {attemptStatusOptions[formData.status]?.map((detail) => (
+                      <SelectItem key={detail} value={detail}>
+                        {detail}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {formData.service_type_detail === 'Other' && (
+                  <Input
+                    className="mt-2 h-12"
+                    placeholder="Please specify other service type detail..."
+                    value={formData.service_type_detail === 'Other' ? '' : formData.service_type_detail} // Clear if "Other" is the only value
+                    onChange={handleInputChange}
+                    name="service_type_detail"
+                    required={true}
+                  />
+                )}
               </div>
 
               {/* Served Person Details - Only show when status is 'served' */}
@@ -666,18 +892,148 @@ export default function LogAttemptPage() {
                 </Card>
               )}
 
-              {/* Address Input (Simplified, no autocomplete or multiple address selection) */}
+              {/* NEW: Enhanced Address Selection */}
               <div>
-                <Label htmlFor="address-of-attempt">Address of Attempt</Label>
-                <Input
-                  id="address-of-attempt"
-                  name="address_of_attempt"
-                  value={formData.address_of_attempt}
-                  onChange={handleInputChange}
-                  placeholder="Enter the full address of the attempt"
-                  required
-                  className="mt-1 h-12"
-                />
+                <Label htmlFor="address-selection">Address of Attempt</Label>
+                <Select
+                  value={selectedAddressType}
+                  onValueChange={handleAddressSelection}
+                >
+                  <SelectTrigger id="address-selection" className="mt-1 h-12">
+                    <SelectValue placeholder="Select an address for the attempt..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {existingAddresses.map((address, index) => (
+                      <SelectItem key={address.address1 + address.postal_code + index} value={address.address1}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{address.label || `Address ${index + 1}`}</span>
+                          <span className="text-sm text-slate-600">
+                            {address.address1}, {address.city}, {address.state} {address.postal_code}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                    <SelectSeparator />
+                    <SelectItem value="new">
+                      <div className="flex items-center gap-2">
+                        <Plus className="w-4 h-4" />
+                        <span>Add New Address / Manual Entry</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {/* Show new address form when "Add New Address" is selected */}
+                {showNewAddressForm && (
+                  <Card className="mt-4 border-blue-200 bg-blue-50">
+                    <CardHeader>
+                      <CardTitle className="text-lg text-blue-800">Add New Address</CardTitle>
+                      <CardDescription>
+                        This address will be saved to the job for future attempts.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <Label htmlFor="address-label">Address Label</Label>
+                        <Input
+                          id="address-label"
+                          value={newAddressData.label}
+                          onChange={handleNewAddressLabelChange}
+                          placeholder="e.g., Work Address, Secondary Address"
+                          className="mt-1"
+                        />
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className="md:col-span-3">
+                          <Label htmlFor="new-address-street">Street Address</Label>
+                          <div className="relative">
+                            <AddressAutocomplete
+                              value={newAddressInput}
+                              onChange={(val) => {
+                                setNewAddressInput(val);
+                                // Manually update the address1 field as user types
+                                handleNewAddressFieldChange('address1', val);
+                              }}
+                              onAddressSelect={handleNewAddressSelect}
+                              onLoadingChange={setIsAddressLoading}
+                              placeholder="Start typing the street address..."
+                              className="mt-1 h-12"
+                            />
+                            {isAddressLoading && newAddressInput.length > 0 && (
+                              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 animate-spin text-slate-400">
+                                <Loader2 />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <Label htmlFor="new-address-suite">Suite/Apt</Label>
+                          <Input
+                            id="new-address-suite"
+                            value={newAddressData.address2}
+                            onChange={(e) => handleNewAddressFieldChange('address2', e.target.value)}
+                            placeholder="Suite, Apt, etc."
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <Label htmlFor="new-address-city">City</Label>
+                          <Input
+                            id="new-address-city"
+                            value={newAddressData.city}
+                            onChange={(e) => handleNewAddressFieldChange('city', e.target.value)}
+                            placeholder="City"
+                            className="mt-1"
+                            disabled={isAddressLoading}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="new-address-state">State</Label>
+                          <Input
+                            id="new-address-state"
+                            value={newAddressData.state}
+                            onChange={(e) => handleNewAddressFieldChange('state', e.target.value)}
+                            placeholder="State"
+                            className="mt-1"
+                            disabled={isAddressLoading}
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="new-address-zip">ZIP Code</Label>
+                          <Input
+                            id="new-address-zip"
+                            value={newAddressData.postal_code}
+                            onChange={(e) => handleNewAddressFieldChange('postal_code', e.target.value)}
+                            placeholder="ZIP Code"
+                            className="mt-1"
+                            disabled={isAddressLoading}
+                          />
+                        </div>
+                      </div>
+
+                      {formData.address_of_attempt && (
+                        <div className="p-3 bg-white border border-blue-200 rounded-lg">
+                          <p className="font-medium text-blue-800">Address for Attempt:</p>
+                          <p className="text-sm text-slate-700">{formData.address_of_attempt}</p>
+                          {newAddressData.county && (
+                            <p className="text-xs text-slate-600 mt-1">County: {newAddressData.county}</p>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Display selected existing address if applicable and not 'new' */}
+                {selectedAddressType !== "new" && formData.address_of_attempt && (
+                    <div className="mt-2 p-3 bg-slate-100 border border-slate-200 rounded-lg">
+                        <p className="text-sm text-slate-700">{formData.address_of_attempt}</p>
+                    </div>
+                )}
               </div>
 
               {/* Notes */}
@@ -699,27 +1055,63 @@ export default function LogAttemptPage() {
                 />
               </div>
 
-              {/* GPS Location */}
+              {/* Enhanced GPS Location Section */}
               <div>
-                <Label>GPS Location (Optional)</Label>
-                <div className="flex items-center gap-4 mt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleGetLocation}
-                    disabled={isLoading}
-                    className="gap-2"
-                  >
-                    {isLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <MapPin className="w-4 h-4" />
+                <Label>GPS Location (Recommended)</Label>
+                <div className="mt-2">
+                  <div className="flex items-center gap-4 mb-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleGetLocation}
+                      disabled={isLoading}
+                      className="gap-2"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <MapPin className="w-4 h-4" />
+                      )}
+                      {isLoading ? 'Getting Location...' : 'Capture Current Location'}
+                    </Button>
+                    
+                    {formData.gps_lat && formData.gps_lon && (
+                      <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded-lg flex items-center gap-2">
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                        <span className="font-medium">Location captured</span>
+                      </div>
                     )}
-                    Capture Current Location
-                  </Button>
+                  </div>
+
                   {formData.gps_lat && formData.gps_lon && (
-                    <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded-lg">
-                      ✓ Location captured: {formData.gps_lat.toFixed(4)}, {formData.gps_lon.toFixed(4)}
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-slate-700">GPS Coordinates</span>
+                        <span className="font-mono text-xs text-slate-500">
+                          {formData.gps_lat.toFixed(6)}, {formData.gps_lon.toFixed(6)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600">
+                        These coordinates will be saved with your attempt for location verification.
+                        GPS data helps establish proof of presence at the service location.
+                      </p>
+                    </div>
+                  )}
+
+                  {!formData.gps_lat && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <MapPin className="w-5 h-5 text-blue-600 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-blue-800 mb-1">
+                            GPS Location Recommended
+                          </p>
+                          <p className="text-xs text-blue-700">
+                            Capturing your current GPS location provides legal proof of your presence 
+                            at the service address and can be valuable evidence in affidavits.
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

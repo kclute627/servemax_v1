@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect } from "react";
 // FIREBASE TRANSITION: Replace with Firebase SDK imports.
-import { Job, Client, Employee, CourtCase, Document, Court, CompanySettings, User } from "@/api/entities"; // Added User import
+import { Job, Client, Employee, CourtCase, Document, Court, CompanySettings, User, ServerPayRecord, Invoice } from "@/api/entities"; // Added User import, Added ServerPayRecord, Added Invoice
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,6 +48,7 @@ import AddressAutocomplete from "../components/jobs/AddressAutocomplete";
 import ServerPayItems from "../components/jobs/ServerPayItems";
 import CourtAutocomplete from "../components/jobs/CourtAutocomplete";
 import ContractorSearchInput from "../components/jobs/ContractorSearchInput";
+import CaseNumberAutocomplete from "../components/jobs/CaseNumberAutocomplete"; // New Import
 // FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { generateFieldSheet } from "@/api/functions"; // Added import for generateFieldSheet
 
@@ -107,6 +108,10 @@ export default function CreateJobPage() {
   ]);
   const [contractorSearchText, setContractorSearchText] = useState("");
   const [selectedContractor, setSelectedContractor] = useState(null);
+  const [selectedCase, setSelectedCase] = useState(null); // New state
+  const [isEditingCase, setIsEditingCase] = useState(false); // New state for case editing
+  const [showCaseEditWarning, setShowCaseEditWarning] = useState(false); // New state for case warning dialog
+  const [associatedJobsCount, setAssociatedJobsCount] = useState(0); // New state for job count
 
   useEffect(() => {
     const loadAndSetEmployees = async () => {
@@ -289,6 +294,46 @@ export default function CreateJobPage() {
     }));
   };
 
+  const handleCaseSelect = async (courtCase) => {
+    setSelectedCase(courtCase);
+    setIsEditingCase(false); // Lock fields on select
+    
+    // Populate case information fields
+    setFormData(prev => ({
+      ...prev,
+      case_number: courtCase.case_number || '',
+      plaintiff: courtCase.plaintiff || '',
+      defendant: courtCase.defendant || '',
+      court_name: courtCase.court_name || '',
+      court_county: courtCase.court_county || '',
+      court_address: courtCase.court_address ? JSON.parse(courtCase.court_address) : {}
+    }));
+
+    // If court information exists, set up the court selection
+    if (courtCase.court_name) {
+      // Create a court object for display
+      const courtObj = {
+        branch_name: courtCase.court_name,
+        county: courtCase.court_county,
+        address: courtCase.court_address ? JSON.parse(courtCase.court_address) : {}
+      };
+      setSelectedCourtFromAutocomplete(courtObj);
+      
+      if (courtObj.address?.address1) {
+        setShowCourtDetails(true);
+      }
+    }
+
+    // Fetch the number of associated jobs (both open and closed)
+    try {
+      const jobs = await Job.filter({ court_case_id: courtCase.id });
+      setAssociatedJobsCount(jobs.length); // Don't subtract 1 - show actual count of existing jobs
+    } catch(err) {
+      console.error("Error fetching associated jobs count:", err);
+      setAssociatedJobsCount(0);
+    }
+  };
+
   const handleCourtSelect = (court) => {
     setFormData(prev => ({
       ...prev,
@@ -296,8 +341,10 @@ export default function CreateJobPage() {
       court_county: court.county,
       court_address: court.address || {}
     }));
-    if (court.address?.address1) {
-        setShowCourtDetails(true);
+    
+    // Show court details section if address exists or if it's a new court
+    if (court.address?.address1 || court.isNew) {
+      setShowCourtDetails(true);
     }
 
     setSelectedCourtFromAutocomplete(court);
@@ -315,6 +362,18 @@ export default function CreateJobPage() {
     setShowCourtDetails(false);
   };
 
+  const handleClearCaseSelection = () => {
+    setSelectedCase(null);
+    setIsEditingCase(false);
+    handleClearCourtSelection(); // Also clear court if case is cleared
+    setFormData(prev => ({
+      ...prev,
+      case_number: "",
+      plaintiff: "",
+      defendant: ""
+    }));
+  };
+
   const calculateTotalFee = () => {
     return (formData.service_fee || 0) + (formData.rush_fee || 0) + (formData.mileage_fee || 0);
   };
@@ -325,6 +384,18 @@ export default function CreateJobPage() {
       return `JOB-${(existingJobs.length + 1).toString().padStart(6, '0')}`;
     } catch (error) {
       return `JOB-${Date.now()}`;
+    }
+  };
+
+  const generateInvoiceNumber = async () => {
+    try {
+      const existingInvoices = await Invoice.list();
+      const invoiceCount = existingInvoices.length;
+      const currentYear = new Date().getFullYear();
+      return `INV-${currentYear}-${(invoiceCount + 1).toString().padStart(4, '0')}`;
+    } catch (error) {
+      console.error("Error generating invoice number:", error);
+      return `INV-${Date.now()}`;
     }
   };
 
@@ -411,29 +482,51 @@ export default function CreateJobPage() {
                                    selectedContractor.job_sharing_opt_in === true;
       }
 
-      let courtCase;
-      if (formData.court_name) {
-        const existingCourts = await Court.filter({ branch_name: formData.court_name });
-        let court;
+      // --- Enhanced Case & Court Handling ---
+      let courtCaseId;
 
+      // 1. Handle Court Update (if edited)
+      if (formData.court_name && isEditingExistingCourt) {
+        const existingCourts = await Court.filter({ branch_name: formData.court_name });
         if (existingCourts.length > 0) {
-          court = existingCourts[0];
-          if (showCourtDetails || selectedCourtFromAutocomplete === null) {
-              await Court.update(court.id, {
-                  county: formData.court_county,
-                  address: formData.court_address
-              });
-          }
-        } else {
-          court = await Court.create({
+          await Court.update(existingCourts[0].id, {
+            county: formData.court_county,
+            address: formData.court_address
+          });
+        }
+      } else if (formData.court_name && !selectedCourtFromAutocomplete) {
+        // Handle creation of a brand new court not previously in DB
+        const existingCourts = await Court.filter({ branch_name: formData.court_name });
+        if (existingCourts.length === 0) {
+           await Court.create({
             branch_name: formData.court_name,
             county: formData.court_county || "Unknown County",
             address: formData.court_address
           });
         }
-
+      }
+      
+      // 2. Handle CourtCase (Update existing or Create new)
+      if (selectedCase && isEditingCase) {
+        // User EDITED an existing case
+        const caseUpdateData = {
+          case_name: `${formData.plaintiff} vs ${formData.defendant}`,
+          case_number: formData.case_number,
+          plaintiff: formData.plaintiff,
+          defendant: formData.defendant,
+          court_name: formData.court_name,
+          court_county: formData.court_county,
+          court_address: JSON.stringify(formData.court_address)
+        };
+        await CourtCase.update(selectedCase.id, caseUpdateData);
+        courtCaseId = selectedCase.id;
+      } else if (selectedCase) {
+        // User SELECTED an existing case, no edits
+        courtCaseId = selectedCase.id;
+      } else {
+        // User is CREATING a new case from scratch
         const caseName = `${formData.plaintiff} vs ${formData.defendant}`;
-        courtCase = await CourtCase.create({
+        const newCourtCase = await CourtCase.create({
           case_name: caseName,
           case_number: formData.case_number,
           plaintiff: formData.plaintiff,
@@ -442,15 +535,9 @@ export default function CreateJobPage() {
           court_county: formData.court_county,
           court_address: JSON.stringify(formData.court_address)
         });
-      } else {
-        const caseName = `${formData.plaintiff} vs ${formData.defendant}`;
-        courtCase = await CourtCase.create({
-          case_name: caseName,
-          case_number: formData.case_number,
-          plaintiff: formData.plaintiff,
-          defendant: formData.defendant
-        });
+        courtCaseId = newCourtCase.id;
       }
+      // --- End of Enhanced Handling ---
 
       // Fix for Assigned Server Display: Ensure assigned_server_id is always a string ('unassigned' or actual ID)
       const serverIdForSubmission = (formData.assigned_server_id === "unassigned" || !formData.assigned_server_id) ? "unassigned" : String(formData.assigned_server_id);
@@ -469,7 +556,7 @@ export default function CreateJobPage() {
         client_job_number: formData.client_job_number,
         client_id: formData.client_id,
         contact_email: formData.contact_email,
-        court_case_id: courtCase.id,
+        court_case_id: courtCaseId,
         recipient: {
           name: formData.recipient_name,
           type: formData.recipient_type
@@ -515,6 +602,121 @@ export default function CreateJobPage() {
       }
 
       const newJob = await Job.create(newJobData);
+
+      // Create ServerPayRecord if there's server pay
+      if (totalServerPay > 0 && serverIdForSubmission !== "unassigned") {
+        let serverName = "";
+        if (formData.server_type === 'employee') {
+          const server = employees.find(e => String(e.id) === serverIdForSubmission);
+          serverName = server ? `${server.first_name} ${server.last_name}` : "Unknown Employee";
+        } else if (formData.server_type === 'contractor' && selectedContractor) {
+          serverName = selectedContractor.company_name || "Unknown Contractor";
+        }
+
+        await ServerPayRecord.create({
+          job_id: newJob.id,
+          server_id: serverIdForSubmission,
+          server_type: formData.server_type,
+          server_name: serverName,
+          job_number: jobNumber,
+          client_id: formData.client_id,
+          pay_items: formData.server_pay_items,
+          total_amount: totalServerPay,
+          payment_status: "unpaid",
+          due_date: formData.due_date
+        });
+      }
+
+      // Automatically create invoice for the job
+      try {
+        const invoiceNumber = await generateInvoiceNumber();
+        const invoiceDate = new Date();
+        const invoiceDueDate = new Date(invoiceDate);
+        invoiceDueDate.setDate(invoiceDate.getDate() + 30); // 30 days payment terms
+
+        // Build line items from job fees
+        const lineItems = [];
+        
+        if (formData.service_fee > 0) {
+          lineItems.push({
+            description: `Process Service - ${formData.recipient_name}`,
+            quantity: 1,
+            rate: formData.service_fee,
+            amount: formData.service_fee
+          });
+        }
+        
+        if (formData.rush_fee > 0) {
+          lineItems.push({
+            description: "Rush Service Fee",
+            quantity: 1,
+            rate: formData.rush_fee,
+            amount: formData.rush_fee
+          });
+        }
+        
+        if (formData.mileage_fee > 0) {
+          lineItems.push({
+            description: "Mileage Fee",
+            quantity: 1,
+            rate: formData.mileage_fee,
+            amount: formData.mileage_fee
+          });
+        }
+
+        // Check for printing fees from settings
+        try {
+          const invoiceSettings = await CompanySettings.filter({ setting_key: "invoice_settings" });
+          if (invoiceSettings.length > 0 && invoiceSettings[0].setting_value?.enabled && uploadedDocuments.length > 0) {
+            const totalPages = uploadedDocuments.reduce((sum, doc) => sum + (doc.page_count || 1), 0);
+            const printingFeePerPage = invoiceSettings[0].setting_value?.fee_per_page || 0.10;
+            const totalPrintingFee = totalPages * printingFeePerPage;
+            
+            if (totalPrintingFee > 0) {
+              lineItems.push({
+                description: `Document Printing (${totalPages} pages @ $${printingFeePerPage.toFixed(2)}/page)`,
+                quantity: totalPages,
+                rate: printingFeePerPage,
+                amount: totalPrintingFee
+              });
+            }
+          }
+        } catch (error) {
+          console.error("Error calculating printing fees:", error);
+        }
+
+        const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
+        const taxRate = 0; // You can modify this to apply tax if needed
+        const taxAmount = subtotal * taxRate;
+        const totalAmount = subtotal + taxAmount;
+
+        const newInvoice = await Invoice.create({
+          invoice_number: invoiceNumber,
+          client_id: formData.client_id,
+          invoice_date: invoiceDate.toISOString().split('T')[0],
+          due_date: invoiceDueDate.toISOString().split('T')[0],
+          job_ids: [newJob.id],
+          line_items: lineItems,
+          subtotal: subtotal,
+          tax_rate: taxRate,
+          tax_amount: taxAmount,
+          total_amount: totalAmount,
+          status: "draft",
+          notes: `Auto-generated invoice for job ${jobNumber}`
+        });
+
+        console.log("Invoice auto-generated:", invoiceNumber);
+        
+        // Update the job to reference the invoice
+        await Job.update(newJob.id, {
+          invoiced: true,
+          invoice_id: newInvoice.id
+        });
+
+      } catch (error) {
+        console.error("Failed to auto-generate invoice:", error);
+        // Don't block job creation if invoice generation fails
+      }
 
       if (uploadedDocuments.length > 0) {
         const documentsToCreate = uploadedDocuments.map(doc => ({
@@ -680,16 +882,52 @@ export default function CreateJobPage() {
                 <CardTitle>Case Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="case_number">Case Number</Label>
-                  <Input
-                    id="case_number"
-                    value={formData.case_number}
-                    onChange={(e) => handleInputChange('case_number', e.target.value)}
-                    placeholder="Enter court case number"
-                    autoComplete="off"
-                  />
-                </div>
+                {selectedCase && !isEditingCase ? (
+                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <h4 className="font-semibold text-slate-900">{selectedCase.case_number}</h4>
+                        <p className="text-sm text-slate-600">{selectedCase.case_name}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          onClick={() => setShowCaseEditWarning(true)}
+                        >
+                          <Pencil className="w-4 h-4" />
+                          Edit Case
+                        </Button>
+                         <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-slate-500 hover:bg-slate-200"
+                          onClick={handleClearCaseSelection}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <Label htmlFor="case_number">Case Number</Label>
+                      <CaseNumberAutocomplete
+                        id="case_number"
+                        value={formData.case_number}
+                        onChange={(value) => handleInputChange('case_number', value)}
+                        onCaseSelect={handleCaseSelect}
+                        placeholder="Enter case number or search existing cases..."
+                        required
+                        disabled={selectedCase && !isEditingCase}
+                      />
+                    </div>
+                  </>
+                )}
 
                 <div className="flex items-center justify-center py-2">
                   <div className="text-lg font-semibold text-slate-600 bg-slate-100 px-4 py-1 rounded-full">
@@ -707,6 +945,7 @@ export default function CreateJobPage() {
                     placeholder="Enter plaintiff name(s)"
                     required
                     className="resize-none"
+                    disabled={selectedCase && !isEditingCase}
                   />
                 </div>
 
@@ -720,6 +959,7 @@ export default function CreateJobPage() {
                     placeholder="Enter defendant name(s)"
                     required
                     className="resize-none"
+                    disabled={selectedCase && !isEditingCase}
                   />
                 </div>
               </CardContent>
@@ -748,6 +988,7 @@ export default function CreateJobPage() {
                           size="sm"
                           className="gap-2"
                           onClick={() => setShowCourtEditWarning(true)}
+                          disabled={selectedCase && !isEditingCase}
                         >
                           <Pencil className="w-4 h-4" />
                           Edit
@@ -758,6 +999,7 @@ export default function CreateJobPage() {
                           size="icon"
                           className="h-7 w-7 text-slate-500 hover:bg-slate-200"
                           onClick={handleClearCourtSelection}
+                          disabled={selectedCase && !isEditingCase}
                         >
                           <X className="w-4 h-4" />
                         </Button>
@@ -789,7 +1031,7 @@ export default function CreateJobPage() {
                             selectedCourt={selectedCourtFromAutocomplete}
                             onClearSelection={handleClearCourtSelection}
                             placeholder="e.g., 12th Judicial Circuit Court"
-                            disabled={isEditingExistingCourt}
+                            disabled={isEditingExistingCourt || (selectedCase && !isEditingCase)}
                           />
                         </div>
                         {isEditingExistingCourt && (
@@ -807,18 +1049,21 @@ export default function CreateJobPage() {
                       </div>
                     </div>
 
-                    <div className="flex justify-start">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="gap-2 border-dashed border-slate-300 hover:border-slate-400 text-slate-600 hover:text-slate-700"
-                            onClick={() => setShowCourtDetails(!showCourtDetails)}
-                        >
-                            <Plus className="w-4 h-4" />
-                            {showCourtDetails ? 'Hide Additional Court Information' : 'Add Additional Court Information'}
-                        </Button>
-                    </div>
+                    {formData.court_name && (
+                      <div className="flex justify-start">
+                          <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-2 border-dashed border-slate-300 hover:border-slate-400 text-slate-600 hover:text-slate-700"
+                              onClick={() => setShowCourtDetails(!showCourtDetails)}
+                              disabled={selectedCase && !isEditingCase}
+                          >
+                              <Plus className="w-4 h-4" />
+                              {showCourtDetails ? 'Hide Additional Court Information' : 'Add Additional Court Information'}
+                          </Button>
+                      </div>
+                    )}
 
                     <div className={!showCourtDetails ? "hidden" : "block"}>
                         <div className="space-y-4 pt-4 border-t border-slate-200">
@@ -832,6 +1077,7 @@ export default function CreateJobPage() {
                                         onAddressSelect={handleCourtAddressSelect}
                                         onLoadingChange={setIsCourtAddressLoading}
                                         placeholder="Start typing court address..."
+                                        disabled={selectedCase && !isEditingCase}
                                     />
                                 </div>
                                 <div>
@@ -841,7 +1087,7 @@ export default function CreateJobPage() {
                                         value={formData.court_address?.address2 || ''}
                                         onChange={(e) => handleCourtAddressChange('address2', e.target.value)}
                                         placeholder="Suite, courtroom, etc."
-                                        disabled={isCourtAddressLoading}
+                                        disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
                                         autoComplete="nope"
                                     />
                                 </div>
@@ -853,7 +1099,7 @@ export default function CreateJobPage() {
                                   id="court_city"
                                   value={formData.court_address?.city || ''}
                                   onChange={(e) => handleCourtAddressChange('city', e.target.value)}
-                                  disabled={isCourtAddressLoading}
+                                  disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
                                   autoComplete="nope"
                                 />
                                 {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
@@ -864,7 +1110,7 @@ export default function CreateJobPage() {
                                   id="court_state"
                                   value={formData.court_address?.state || ''}
                                   onChange={(e) => handleCourtAddressChange('state', e.target.value)}
-                                  disabled={isCourtAddressLoading}
+                                  disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
                                   autoComplete="nope"
                                 />
                                 {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
@@ -875,7 +1121,7 @@ export default function CreateJobPage() {
                                   id="court_zip"
                                   value={formData.court_address?.postal_code || ''}
                                   onChange={(e) => handleCourtAddressChange('postal_code', e.target.value)}
-                                  disabled={isCourtAddressLoading}
+                                  disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
                                   autoComplete="nope"
                                 />
                                 {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
@@ -889,6 +1135,7 @@ export default function CreateJobPage() {
                                     onChange={(e) => handleInputChange('court_county', e.target.value)}
                                     placeholder="e.g., Cook County"
                                     autoComplete="nope"
+                                    disabled={selectedCase && !isEditingCase}
                                 />
                             </div>
                         </div>
@@ -897,7 +1144,7 @@ export default function CreateJobPage() {
                 )}
               </CardContent>
             </Card>
-
+            
             {/* Recipient & Service Address */}
             <Card>
               <CardHeader>
@@ -1232,6 +1479,45 @@ export default function CreateJobPage() {
         client={selectedClient}
         onContactCreated={handleNewContactCreated}
       />
+
+      {/* Case Edit Warning Dialog */}
+      {showCaseEditWarning && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
+            <div className="flex items-start gap-3 mb-4">
+              <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-slate-900 mb-2">Edit Case Information</h3>
+                <p className="text-sm text-slate-600 mb-3">
+                  You are about to edit a case that is linked to <strong>{associatedJobsCount} other jobs</strong>.
+                </p>
+                <p className="text-sm text-slate-600">
+                  Any changes you make will be reflected on all associated jobs. Are you sure you want to proceed?
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowCaseEditWarning(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setShowCaseEditWarning(false);
+                  setIsEditingCase(true);
+                }}
+                className="bg-amber-600 hover:bg-amber-700"
+              >
+                Yes, Edit Case
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Court Edit Warning Dialog */}
       {showCourtEditWarning && (

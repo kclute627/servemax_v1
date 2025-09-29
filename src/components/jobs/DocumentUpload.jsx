@@ -1,9 +1,11 @@
 
 import React, { useState, useCallback } from 'react';
 import { UploadFile } from "@/api/integrations";
+import { mergePDFs } from "@/api/functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { 
   Upload, 
   X, 
@@ -11,12 +13,19 @@ import {
   Image, 
   FileIcon,
   Loader2,
-  PlusCircle
+  PlusCircle,
+  Combine,
+  AlertTriangle
 } from "lucide-react";
 
 export default function DocumentUpload({ documents, onDocumentsChange }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const [showMergeWarning, setShowMergeWarning] = useState(false);
+  const [dontShowMergeWarning, setDontShowMergeWarning] = useState(
+    localStorage.getItem('hideMergeWarning') === 'true'
+  );
 
   const getDocumentCategory = (fileName, contentType) => {
     const name = fileName.toLowerCase();
@@ -41,6 +50,12 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
     }
     return null;
   };
+
+  const getPDFDocuments = useCallback(() => {
+    return (documents || []).filter(doc => 
+      doc.content_type === 'application/pdf' && doc.file_url
+    );
+  }, [documents]);
 
   const uploadFiles = useCallback(async (files) => {
     setIsUploading(true);
@@ -70,6 +85,68 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
     setIsUploading(false);
   }, [onDocumentsChange]);
 
+  const handleMergeClick = () => {
+    if (dontShowMergeWarning) {
+      performMerge();
+    } else {
+      setShowMergeWarning(true);
+    }
+  };
+
+  const performMerge = useCallback(async () => {
+    setIsMerging(true);
+    setShowMergeWarning(false);
+
+    try {
+      const pdfDocs = getPDFDocuments();
+      const fileUrls = pdfDocs.map(doc => doc.file_url);
+      
+      const response = await mergePDFs({
+        file_urls: fileUrls,
+        merged_title: 'Merged Service Documents'
+      });
+
+      // Create blob from response
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const file = new File([blob], 'Merged_Service_Documents.pdf', { type: 'application/pdf' });
+
+      // Upload the merged file
+      const { file_url } = await UploadFile({ file });
+
+      // Create new document entry for merged PDF
+      const mergedDoc = {
+        id: `merged-${Date.now()}-${Math.random()}`,
+        title: 'Merged Service Documents',
+        affidavit_text: 'Merged Service Documents',
+        file_url: file_url,
+        file_size: blob.size,
+        content_type: 'application/pdf',
+        document_category: 'to_be_served',
+        page_count: pdfDocs.reduce((total, doc) => total + (doc.page_count || 1), 0)
+      };
+
+      // Remove original PDF documents and add merged document
+      const nonPdfDocs = (documents || []).filter(doc => 
+        !(doc.content_type === 'application/pdf' && doc.file_url)
+      );
+      
+      onDocumentsChange([...nonPdfDocs, mergedDoc]);
+
+    } catch (error) {
+      console.error("Error merging PDFs:", error);
+      alert("Failed to merge PDFs. Please try again.");
+    }
+
+    setIsMerging(false);
+  }, [documents, onDocumentsChange, getPDFDocuments]);
+
+  const handleWarningConfirm = useCallback(() => {
+    if (dontShowMergeWarning) {
+      localStorage.setItem('hideMergeWarning', 'true');
+    }
+    performMerge();
+  }, [dontShowMergeWarning, performMerge]);
+
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
     setIsDragOver(true);
@@ -95,7 +172,7 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
 
   const handleManualAdd = () => {
     const newDoc = {
-      id: `manual-${Date.now()}`,
+      id: `manual-${Date.now()}-${Math.random()}`,
       title: "",
       affidavit_text: "",
       file_url: null,
@@ -159,11 +236,29 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
         </Button>
       </div>
 
-      <div className="flex justify-start">
+      <div className="flex justify-between items-center">
         <Button type="button" variant="outline" size="sm" onClick={handleManualAdd}>
           <PlusCircle className="w-4 h-4 mr-2" />
           Add Manual Document Entry
         </Button>
+
+        {getPDFDocuments().length > 1 && (
+          <Button 
+            type="button" 
+            variant="outline" 
+            size="sm" 
+            onClick={handleMergeClick}
+            disabled={isMerging}
+            className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+          >
+            {isMerging ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Combine className="w-4 h-4" />
+            )}
+            {isMerging ? 'Merging...' : `Merge ${getPDFDocuments().length} PDFs`}
+          </Button>
+        )}
       </div>
 
       {(documents && documents.length > 0) && (
@@ -206,6 +301,54 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {showMergeWarning && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
+            <div className="flex items-start gap-3 mb-4">
+              <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-slate-900 mb-2">Merge PDF Documents</h3>
+                <p className="text-sm text-slate-600 mb-3">
+                  This will combine all {getPDFDocuments().length} PDF documents into a single file. 
+                  The original separate files will be removed.
+                </p>
+                <p className="text-sm text-slate-600">
+                  Are you sure you want to merge these documents?
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-2 mb-4">
+              <Checkbox 
+                id="dont-show-again"
+                checked={dontShowMergeWarning}
+                onCheckedChange={setDontShowMergeWarning}
+              />
+              <Label htmlFor="dont-show-again" className="text-sm text-slate-600">
+                Don't show this message again
+              </Label>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowMergeWarning(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleWarningConfirm}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                Yes, Merge PDFs
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>

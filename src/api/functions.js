@@ -11,3 +11,7 @@ export const generateFieldSheet = base44.functions.generateFieldSheet;
 
 export const generateAffidavit = base44.functions.generateAffidavit;
 
+export const findDirectoryCompanies = base44.functions.findDirectoryCompanies;
+
+export const mergePDFs = base44.functions.mergePDFs;
+

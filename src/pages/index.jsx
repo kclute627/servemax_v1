@@ -24,6 +24,10 @@ import Accounting from "./Accounting";
 
 import Home from "./Home";
 
+import Directory from "./Directory";
+
+import ClientDetails from "./ClientDetails";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -51,6 +55,10 @@ const PAGES = {
     Accounting: Accounting,
     
     Home: Home,
+    
+    Directory: Directory,
+    
+    ClientDetails: ClientDetails,
     
 }
 
@@ -102,6 +110,10 @@ function PagesContent() {
                 <Route path="/Accounting" element={<Accounting />} />
                 
                 <Route path="/Home" element={<Home />} />
+                
+                <Route path="/Directory" element={<Directory />} />
+                
+                <Route path="/ClientDetails" element={<ClientDetails />} />
                 
             </Routes>
         </Layout>

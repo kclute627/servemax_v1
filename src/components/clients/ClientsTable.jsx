@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +20,6 @@ import {
 import { 
   MoreHorizontal,
   Eye,
-  Edit,
   Mail,
   Phone,
   Building2,
@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
 
 const clientTypeConfig = {
   law_firm: { color: "bg-blue-100 text-blue-700", label: "Law Firm" },
@@ -137,7 +139,12 @@ export default function ClientsTable({ clients, isLoading, onClientUpdate }) {
                         <Building2 className="w-5 h-5 text-slate-600" />
                       </div>
                       <div>
-                        <p className="font-semibold text-slate-900">{client.company_name}</p>
+                        <Link 
+                          to={`${createPageUrl("ClientDetails")}?id=${client.id}`}
+                          className="font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                        >
+                          {client.company_name}
+                        </Link>
                         <div className="flex items-center gap-1 mt-1">
                           <MapPin className="w-3 h-3 text-slate-400" />
                           <span className="text-sm text-slate-500">{getPrimaryAddress(client)}</span>
@@ -188,14 +195,14 @@ export default function ClientsTable({ clients, isLoading, onClientUpdate }) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem className="gap-2">
-                          <Eye className="w-4 h-4" />
-                          View Details
+                        <DropdownMenuItem asChild>
+                          <Link to={`${createPageUrl("ClientDetails")}?id=${client.id}`} className="gap-2 flex items-center">
+                            <Eye className="w-4 h-4" />
+                            View Details
+                          </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="gap-2">
-                          <Edit className="w-4 h-4" />
-                          Edit Client
-                        </DropdownMenuItem>
+                        {/* The "Edit Client" menu item has been removed as per consolidation. 
+                            Editing functionality is now expected to be available within the ClientDetails page. */}
                         <DropdownMenuItem className="gap-2">
                           <Mail className="w-4 h-4" />
                           Send Email

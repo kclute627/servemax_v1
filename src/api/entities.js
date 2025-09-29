@@ -23,6 +23,8 @@ export const Court = base44.entities.Court;
 
 export const CompanySettings = base44.entities.CompanySettings;
 
+export const ServerPayRecord = base44.entities.ServerPayRecord;
+
 
 
 // auth sdk:

@@ -1,7 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs } from 'firebase/firestore'; // FIREBASE TRANSITION: Import Firestore functions
-import { db } from '@/lib/firebase'; // FIREBASE TRANSITION: Import Firestore database instance
+import React, { useState, useMemo } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,48 +14,15 @@ import PaymentsTable from '../components/accounting/PaymentsTable';
 import AccountingStats from '../components/accounting/AccountingStats';
 import RevenueChart from '../components/accounting/RevenueChart';
 import InvoiceStatusChart from '../components/accounting/InvoiceStatusChart';
+import { useGlobalData } from '../components/GlobalDataContext'; // Import the custom hook
 
-// FIREBASE TRANSITION: Data display page.
 export default function AccountingPage() {
-  const [invoices, setInvoices] = useState([]);
-  const [payments, setPayments] = useState([]);
-  const [clients, setClients] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Use data from the global context instead of local state
+  const { invoices, payments, clients, isLoading } = useGlobalData();
   const [searchTerm, setSearchTerm] = useState('');
   
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    setIsLoading(true);
-    try {
-      // FIREBASE TRANSITION: Replace Invoice.list(), Payment.list(), Client.list() with getDocs calls.
-      const [invoicesSnapshot, paymentsSnapshot, clientsSnapshot] = await Promise.all([
-        getDocs(collection(db, 'invoices')),
-        getDocs(collection(db, 'payments')),
-        getDocs(collection(db, 'clients')),
-      ]);
-
-      const invoicesData = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const paymentsData = paymentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const clientsData = clientsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-      // Note: Ordering like '-invoice_date' needs to be handled with Firestore queries (orderBy)
-      // or client-side if not critical for initial load. For simplicity in this example,
-      // we're fetching all and then filtering/sorting if needed for display.
-      // E.g., const orderedInvoices = invoicesData.sort((a, b) => new Date(b.invoice_date) - new Date(a.invoice_date));
-
-      setInvoices(invoicesData);
-      setPayments(paymentsData);
-      setClients(clientsData);
-    } catch (error) {
-      console.error("Error loading accounting data:", error);
-    }
-    setIsLoading(false);
-  };
+  // No need for useEffect or loadData here anymore, as data is provided by context
   
-  // The filteredInvoices and filteredPayments memos are frontend logic and will remain the same.
   const filteredInvoices = useMemo(() => {
     if (!searchTerm) return invoices;
     return invoices.filter(invoice => {
@@ -82,7 +47,6 @@ export default function AccountingPage() {
     });
   }, [payments, clients, invoices, searchTerm]);
 
-  // All sub-components are for display and will just receive data as props.
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="p-6 md:p-8">

@@ -5,8 +5,8 @@
 // setting logic after the fetch will remain largely the same.
 
 import React, { useState, useEffect, useCallback } from "react";
-// FIREBASE TRANSITION: These will be replaced by your Firebase service imports.
-import { Job, Client, Invoice, Employee } from "@/api/entities";
+// These are now less critical but kept for potential direct use cases
+import { Job, Client, Invoice, Employee } from "@/api/entities"; 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
@@ -39,9 +39,13 @@ import {
 } from "date-fns";
 
 import TopClients from "../components/dashboard/TopClients";
-import TopServers from "../components/dashboard/TopServers"; // New import
+import TopServers from "../components/dashboard/TopServers";
+import { useGlobalData } from "../components/GlobalDataContext";
 
 export default function Dashboard() {
+  // Get all data from global context
+  const { jobs, clients, invoices, employees, isLoading: isGlobalLoading, refreshData } = useGlobalData();
+
   const [stats, setStats] = useState({
     totalJobs: 0,
     pendingJobs: 0,
@@ -61,17 +65,16 @@ export default function Dashboard() {
   });
 
   const [selectedPeriod, setSelectedPeriod] = useState('this_month');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isInvoiceLoading, setIsInvoiceLoading] = useState(false);
+  // isGlobalLoading will cover the general loading state for these main stats
 
   // State for Top Clients
   const [topClientsData, setTopClientsData] = useState([]);
-  const [isTopClientsLoading, setIsTopClientsLoading] = useState(true);
+  const [isTopClientsLoading, setIsTopClientsLoading] = useState(true); // Still needed for calculation state
   const [topClientsPeriod, setTopClientsPeriod] = useState('this_month');
 
   // New state for Top Servers
   const [topServersData, setTopServersData] = useState([]);
-  const [isTopServersLoading, setIsTopServersLoading] = useState(true);
+  const [isTopServersLoading, setIsTopServersLoading] = useState(true); // Still needed for calculation state
   const [topServersPeriod, setTopServersPeriod] = useState('this_month');
 
   // Time period options for Invoices
@@ -117,235 +120,220 @@ export default function Dashboard() {
     }
   };
 
-  const loadDashboardData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      // FIREBASE TRANSITION: Replace this `Promise.all` with Firestore `getDocs` calls.
-      // e.g., `const jobsSnapshot = await getDocs(collection(db, "jobs"));`
-      // `const jobs = jobsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));`
-      const [jobs, clients, invoices] = await Promise.all([
-        Job.list("-created_date", 500), // Increased limit for better stats
-        Client.list(),
-        Invoice.list("-created_date", 500) // Increased limit for better stats
-      ]);
-
-      // Calculate job stats
-      const pendingJobs = jobs.filter((j) => j.status === 'pending' || j.status === 'assigned').length;
-      const completedJobs = jobs.filter((j) => j.status === 'served').length;
-      const activeClients = clients.filter((c) => c.status === 'active').length;
-      const openJobs = jobs.filter((j) => !j.is_closed).length;
-
-      // Calculate rush jobs that are still open
-      const rushJobsOpen = jobs.filter((j) => !j.is_closed && j.priority === 'rush').length;
-
-      // Calculate overdue/past due jobs
-      const today = new Date();
-      const pastDueJobs = jobs.filter((j) =>
-        j.due_date &&
-        new Date(j.due_date) < today &&
-        j.status !== 'served' &&
-        j.status !== 'cancelled' &&
-        !j.is_closed
-      ).length;
-
-      // Calculate monthly revenue from paid invoices
-      const currentMonth = new Date().getMonth();
-      const monthlyRevenue = invoices
-        .filter((inv) => inv.status === 'paid' && inv.payment_date && new Date(inv.payment_date).getMonth() === currentMonth)
-        .reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
-
+  const calculateDashboardData = useCallback(() => {
+    if (isGlobalLoading || !jobs || !clients || !invoices) {
+      // If global data is loading or not yet available, return early.
+      // Skeletons will handle the visual loading state.
       setStats({
-        totalJobs: jobs.length,
-        pendingJobs,
-        completedJobs,
-        activeClients,
-        monthlyRevenue,
-        overdueJobs: pastDueJobs, // Legacy name
-        openJobs,
-        pastDueJobs,
-        rushJobsOpen // Added for new card
+        totalJobs: 0, pendingJobs: 0, completedJobs: 0, activeClients: 0,
+        monthlyRevenue: 0, overdueJobs: 0, openJobs: 0, pastDueJobs: 0, rushJobsOpen: 0
       });
-
-    } catch (error) {
-      console.error("Error loading dashboard data:", error);
+      return;
     }
-    setIsLoading(false);
-  }, []);
 
-  const loadInvoiceStats = useCallback(async () => {
-    setIsInvoiceLoading(true);
-    try {
-      const invoices = await Invoice.list("-created_date");
-      const dateRange = getDateRange(selectedPeriod);
+    // Calculate job stats
+    const pendingJobs = jobs.filter((j) => j.status === 'pending' || j.status === 'assigned').length;
+    const completedJobs = jobs.filter((j) => j.status === 'served').length;
+    const activeClients = clients.filter((c) => c.status === 'active').length;
+    const openJobs = jobs.filter((j) => !j.is_closed).length;
 
-      let filteredInvoices = invoices;
+    // Calculate rush jobs that are still open
+    const rushJobsOpen = jobs.filter((j) => !j.is_closed && j.priority === 'rush').length;
 
-      if (dateRange) {
-        filteredInvoices = invoices.filter(invoice => {
-          const invoiceDate = new Date(invoice.invoice_date);
-          return isWithinInterval(invoiceDate, dateRange);
-        });
-      }
+    // Calculate overdue/past due jobs
+    const today = new Date();
+    const pastDueJobs = jobs.filter((j) =>
+      j.due_date &&
+      new Date(j.due_date) < today &&
+      j.status !== 'served' &&
+      j.status !== 'cancelled' &&
+      !j.is_closed
+    ).length;
 
-      const totalInvoices = filteredInvoices.length;
-      const totalPaid = filteredInvoices.filter(inv => inv.status === 'paid').length;
-      const pastDueInvoices = filteredInvoices.filter(inv => {
-        if (inv.status === 'paid') return false;
-        const dueDate = new Date(inv.due_date);
-        return dueDate < new Date();
-      }).length;
+    // Calculate monthly revenue from paid invoices
+    const currentMonth = new Date().getMonth();
+    const monthlyRevenue = invoices
+      .filter((inv) => inv.status === 'paid' && inv.payment_date && new Date(inv.payment_date).getMonth() === currentMonth)
+      .reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
 
-      setInvoiceStats({
-        totalInvoices,
-        totalPaid,
-        pastDueInvoices
+    setStats({
+      totalJobs: jobs.length,
+      pendingJobs,
+      completedJobs,
+      activeClients,
+      monthlyRevenue,
+      overdueJobs: pastDueJobs, // Legacy name
+      openJobs,
+      pastDueJobs,
+      rushJobsOpen // Added for new card
+    });
+
+  }, [jobs, clients, invoices, isGlobalLoading]);
+
+  const calculateInvoiceStats = useCallback(() => {
+    if (isGlobalLoading || !invoices) {
+      setInvoiceStats({ totalInvoices: 0, totalPaid: 0, pastDueInvoices: 0 });
+      return;
+    }
+
+    const dateRange = getDateRange(selectedPeriod);
+
+    let filteredInvoices = invoices;
+
+    if (dateRange) {
+      filteredInvoices = invoices.filter(invoice => {
+        const invoiceDate = new Date(invoice.invoice_date);
+        return isWithinInterval(invoiceDate, dateRange);
       });
-    } catch (error) {
-      console.error("Error loading invoice stats:", error);
     }
-    setIsInvoiceLoading(false);
-  }, [selectedPeriod]);
 
-  // New function to load Top Clients data
-  const loadTopClientsData = useCallback(async () => {
+    const totalInvoices = filteredInvoices.length;
+    const totalPaid = filteredInvoices.filter(inv => inv.status === 'paid').length;
+    const pastDueInvoices = filteredInvoices.filter(inv => {
+      if (inv.status === 'paid') return false;
+      const dueDate = new Date(inv.due_date);
+      return dueDate < new Date();
+    }).length;
+
+    setInvoiceStats({
+      totalInvoices,
+      totalPaid,
+      pastDueInvoices
+    });
+  }, [invoices, selectedPeriod, isGlobalLoading]);
+
+  // New function to calculate Top Clients data
+  const calculateTopClientsData = useCallback(() => {
+    if (isGlobalLoading || !jobs || !invoices || !clients) {
+        setTopClientsData([]);
+        return;
+    }
     setIsTopClientsLoading(true);
-    try {
-        const [allJobs, allInvoices, allClients] = await Promise.all([
-            Job.list(),
-            Invoice.list(),
-            Client.list()
-        ]);
 
-        const dateRange = getDateRange(topClientsPeriod);
+    const dateRange = getDateRange(topClientsPeriod);
 
-        const clientStats = allClients.reduce((acc, client) => {
-            acc[client.id] = { client, jobs: 0, revenue: 0 };
-            return acc;
-        }, {});
+    const clientStats = clients.reduce((acc, client) => {
+        acc[client.id] = { client, jobs: 0, revenue: 0 };
+        return acc;
+    }, {});
 
-        // Calculate jobs
-        const jobsToConsider = dateRange
-            ? allJobs.filter(job => job.created_date && isWithinInterval(new Date(job.created_date), dateRange))
-            : allJobs;
+    // Calculate jobs: Count jobs that were SERVED in the period
+    const servedJobsToConsider = dateRange
+        ? jobs.filter(job => job.status === 'served' && job.service_date && isWithinInterval(new Date(job.service_date), dateRange))
+        : jobs.filter(job => job.status === 'served');
 
-        jobsToConsider.forEach(job => {
-            if (job.client_id && clientStats[job.client_id]) {
-                clientStats[job.client_id].jobs += 1;
-            }
-        });
+    servedJobsToConsider.forEach(job => {
+        if (job.client_id && clientStats[job.client_id]) {
+            clientStats[job.client_id].jobs += 1;
+        }
+    });
 
-        // Calculate revenue from paid invoices
-        const invoicesToConsider = dateRange
-            ? allInvoices.filter(inv => inv.status === 'paid' && inv.payment_date && isWithinInterval(new Date(inv.payment_date), dateRange))
-            : allInvoices.filter(inv => inv.status === 'paid');
+    // Calculate revenue from paid invoices: Count invoices PAID in the period
+    const paidInvoicesToConsider = dateRange
+        ? invoices.filter(inv => inv.status === 'paid' && inv.payment_date && isWithinInterval(new Date(inv.payment_date), dateRange))
+        : invoices.filter(inv => inv.status === 'paid');
 
-        invoicesToConsider.forEach(invoice => {
-            if (invoice.client_id && clientStats[invoice.client_id]) {
-                clientStats[invoice.client_id].revenue += invoice.total_amount || 0;
-            }
-        });
+    paidInvoicesToConsider.forEach(invoice => {
+        if (invoice.client_id && clientStats[invoice.client_id]) {
+            clientStats[invoice.client_id].revenue += invoice.total_amount || 0;
+        }
+    });
 
-        // Filter out clients with no activity and sort
-        const statsArray = Object.values(clientStats)
-                                .filter(item => item.jobs > 0 || item.revenue > 0)
-                                .sort((a, b) => b.revenue - a.revenue || b.jobs - a.jobs); // Sort by revenue desc, then jobs desc
+    // Filter out clients with no activity and sort
+    const statsArray = Object.values(clientStats)
+                            .filter(item => item.jobs > 0 || item.revenue > 0)
+                            .sort((a, b) => b.revenue - a.revenue || b.jobs - a.jobs); // Sort by revenue desc, then jobs desc
 
-        setTopClientsData(statsArray);
-
-    } catch (error) {
-        console.error("Error loading top clients data:", error);
-    }
+    setTopClientsData(statsArray);
     setIsTopClientsLoading(false);
-  }, [topClientsPeriod]);
+  }, [jobs, invoices, clients, topClientsPeriod, isGlobalLoading]);
 
-  // New function to load Top Servers data
-  const loadTopServersData = useCallback(async () => {
-    setIsTopServersLoading(true);
-    try {
-        const [allJobs, allEmployees] = await Promise.all([
-            Job.list(), // This gets ALL jobs (open and closed)
-            Employee.list()
-        ]);
-
-        const dateRange = getDateRange(topServersPeriod);
-
-        // Filter employees to only process servers
-        const processServers = allEmployees.filter(emp => emp.role === 'process_server');
-
-        const serverStats = processServers.reduce((acc, server) => {
-            acc[server.id] = {
-                server,
-                jobs: 0,
-                completedJobs: 0,
-                rating: 0
-            };
-            return acc;
-        }, {});
-
-        // Filter jobs by date range if specified
-        // NOTE: This includes ALL jobs (both open and closed) for complete server performance history
-        const jobsToConsider = dateRange
-            ? allJobs.filter(job => job.created_date && isWithinInterval(new Date(job.created_date), dateRange))
-            : allJobs;
-
-        // Calculate job counts and completion rates for each server
-        // Counting ALL assigned jobs regardless of open/closed status
-        jobsToConsider.forEach(job => {
-            if (job.assigned_server_id && serverStats[job.assigned_server_id]) {
-                serverStats[job.assigned_server_id].jobs += 1;
-                if (job.status === 'served') {
-                    serverStats[job.assigned_server_id].completedJobs += 1;
-                }
-            }
-        });
-
-        // Calculate ratings based on completion rate and job volume
-        const statsArray = Object.values(serverStats).map(stat => {
-            // A server must have jobs to have a rating.
-            if (stat.jobs === 0) {
-              return { ...stat, rating: 0 };
-            }
-
-            const completionRate = stat.completedJobs / stat.jobs;
-
-            // Rating formula:
-            // - Up to 4 stars for completion rate.
-            // - Up to 1 star for job volume (maxes out at 20 completed jobs).
-            const completionBonus = completionRate * 4;
-            const volumeBonus = Math.min(stat.completedJobs / 20, 1);
-            const rating = completionBonus + volumeBonus;
-
-            return {
-                ...stat,
-                rating: Number(rating.toFixed(1))
-            };
-        }).sort((a, b) => b.rating - a.rating || b.completedJobs - a.completedJobs); // Sort by rating desc, then completed jobs desc
-
-        setTopServersData(statsArray);
-
-    } catch (error) {
-        console.error("Error loading top servers data:", error);
+  // New function to calculate Top Servers data
+  const calculateTopServersData = useCallback(() => {
+    if (isGlobalLoading || !jobs || !employees) {
+        setTopServersData([]);
+        return;
     }
+    setIsTopServersLoading(true);
+    
+    const dateRange = getDateRange(topServersPeriod);
+    const processServers = employees.filter(emp => emp.role === 'process_server');
+
+    const serverStats = processServers.reduce((acc, server) => {
+        acc[server.id] = {
+            server,
+            jobs: 0, // All jobs assigned in period
+            completedJobs: 0, // Jobs served in period
+            rating: 0
+        };
+        return acc;
+    }, {});
+
+    // 1. Count jobs COMPLETED (served) by each server within the period
+    const servedJobsInPeriod = dateRange
+        ? jobs.filter(job => job.status === 'served' && job.service_date && isWithinInterval(new Date(job.service_date), dateRange))
+        : jobs.filter(job => job.status === 'served');
+
+    servedJobsInPeriod.forEach(job => {
+        if (job.assigned_server_id && serverStats[job.assigned_server_id]) {
+            serverStats[job.assigned_server_id].completedJobs += 1;
+        }
+    });
+
+    // 2. Count all jobs ASSIGNED to each server within the period (for completion rate)
+    const assignedJobsInPeriod = dateRange
+        ? jobs.filter(job => job.created_date && isWithinInterval(new Date(job.created_date), dateRange))
+        : jobs;
+
+    assignedJobsInPeriod.forEach(job => {
+        if (job.assigned_server_id && serverStats[job.assigned_server_id]) {
+            serverStats[job.assigned_server_id].jobs += 1;
+        }
+    });
+
+    // Calculate ratings based on completion rate and job volume
+    const statsArray = Object.values(serverStats).map(stat => {
+        // A server must have jobs assigned in the period to have a rating.
+        if (stat.jobs === 0) {
+          return { ...stat, rating: 0 };
+        }
+
+        const completionRate = stat.completedJobs / stat.jobs;
+
+        // Rating formula:
+        // - Up to 4 stars for completion rate.
+        // - Up to 1 star for job volume (maxes out at 20 completed jobs).
+        const completionBonus = completionRate * 4;
+        const volumeBonus = Math.min(stat.completedJobs / 20, 1);
+        const rating = completionBonus + volumeBonus;
+
+        return {
+            ...stat,
+            rating: Number(rating.toFixed(1))
+        };
+    }).sort((a, b) => b.rating - a.rating || b.completedJobs - a.completedJobs); // Sort by rating desc, then completed jobs desc
+
+    setTopServersData(statsArray);
     setIsTopServersLoading(false);
-  }, [topServersPeriod]);
+  }, [jobs, employees, topServersPeriod, isGlobalLoading]);
 
   // Existing useEffect hooks
   useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData]);
+    calculateDashboardData();
+  }, [calculateDashboardData]);
 
   useEffect(() => {
-    loadInvoiceStats();
-  }, [loadInvoiceStats]);
+    calculateInvoiceStats();
+  }, [calculateInvoiceStats]);
 
   useEffect(() => {
-    loadTopClientsData();
-  }, [loadTopClientsData]);
+    calculateTopClientsData();
+  }, [calculateTopClientsData]);
 
   // New useEffect for Top Servers
   useEffect(() => {
-    loadTopServersData();
-  }, [loadTopServersData]);
+    calculateTopServersData();
+  }, [calculateTopServersData]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -357,7 +345,7 @@ export default function Dashboard() {
               <h1 className="text-4xl font-bold text-slate-900 mb-3">Dashboard</h1>
               <p className="text-slate-600 text-lg">Welcome back! Here's what's happening with your process serving operations.</p>
             </div>
-            <div className="flex gap-4">
+            <div className="flex gap-2 flex-wrap">
               <Link to={createPageUrl("Jobs")}>
                 <Button variant="outline" size="lg" className="gap-3 border-2 hover:border-slate-300 hover:bg-slate-50">
                   <Briefcase className="w-5 h-5" />
@@ -392,7 +380,7 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-slate-600 text-sm font-medium mb-2">Total Open Jobs</p>
-                      {isLoading ? (
+                      {isGlobalLoading ? (
                         <Skeleton className="h-12 w-24 bg-slate-200" />
                       ) : (
                         <p className="text-4xl font-bold mb-4 text-slate-800">{stats.openJobs}</p>
@@ -416,7 +404,7 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-purple-700 text-sm font-medium mb-2">Total Rush Jobs Open</p>
-                      {isLoading ? (
+                      {isGlobalLoading ? (
                         <Skeleton className="h-12 w-24 bg-purple-200" />
                       ) : (
                         <p className="text-4xl font-bold mb-4 text-purple-800">{stats.rushJobsOpen}</p>
@@ -440,7 +428,7 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-orange-700 text-sm font-medium mb-2">Total Past Due Jobs</p>
-                      {isLoading ? (
+                      {isGlobalLoading ? (
                         <Skeleton className="h-12 w-24 bg-orange-200" />
                       ) : (
                         <p className="text-4xl font-bold mb-4 text-orange-800">{stats.pastDueJobs}</p>
@@ -497,7 +485,7 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-slate-600 text-sm font-medium mb-2">Total Invoices</p>
-                      {isInvoiceLoading ? (
+                      {isGlobalLoading ? (
                         <Skeleton className="h-12 w-16 bg-slate-200" />
                       ) : (
                         <p className="text-4xl font-bold mb-2 text-slate-800">{invoiceStats.totalInvoices}</p>
@@ -519,7 +507,7 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-emerald-700 text-sm font-medium mb-2">Total Paid</p>
-                      {isInvoiceLoading ? (
+                      {isGlobalLoading ? (
                         <Skeleton className="h-12 w-16 bg-emerald-200" />
                       ) : (
                         <p className="text-4xl font-bold mb-2 text-emerald-800">{invoiceStats.totalPaid}</p>
@@ -541,7 +529,7 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-amber-700 text-sm font-medium mb-2">Past Due Invoices</p>
-                      {isInvoiceLoading ? (
+                      {isGlobalLoading ? (
                         <Skeleton className="h-12 w-16 bg-amber-200" />
                       ) : (
                         <p className="text-4xl font-bold mb-2 text-amber-800">{invoiceStats.pastDueInvoices}</p>
@@ -564,7 +552,7 @@ export default function Dashboard() {
             {/* Top Clients */}
             <TopClients
               clientsData={topClientsData}
-              isLoading={isTopClientsLoading}
+              isLoading={isTopClientsLoading || isGlobalLoading}
               period={topClientsPeriod}
               onPeriodChange={setTopClientsPeriod}
               timePeriods={topDataTimePeriods}
@@ -573,7 +561,7 @@ export default function Dashboard() {
             {/* Top Servers */}
             <TopServers
               serversData={topServersData}
-              isLoading={isTopServersLoading}
+              isLoading={isTopServersLoading || isGlobalLoading}
               period={topServersPeriod}
               onPeriodChange={setTopServersPeriod}
               timePeriods={topDataTimePeriods}

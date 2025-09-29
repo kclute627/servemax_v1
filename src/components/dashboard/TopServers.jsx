@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,16 +20,16 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
     if (!serversData) return [];
     
     return [...serversData]
-      .filter(stat => stat.jobs > 0 || stat.rating > 0) // Filter out servers with no activity
+      .filter(stat => stat.completedJobs > 0 || stat.rating > 0) // Filter out servers with no activity, using completedJobs
       .sort((a, b) => {
         if (viewMode === 'jobs') {
-          return b.jobs - a.jobs;
+          return b.completedJobs - a.completedJobs; // Sort by completedJobs
         } else {
-          // Sort by rating first, then by jobs as tiebreaker
+          // Sort by rating first, then by completedJobs as tiebreaker
           if (b.rating !== a.rating) {
             return b.rating - a.rating;
           }
-          return b.jobs - a.jobs;
+          return b.completedJobs - a.completedJobs; // Use completedJobs for tiebreaker
         }
       })
       .slice(0, 10); // Show top 10
@@ -47,7 +48,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                 <p className="text-slate-600">Your highest performing process servers by activity and rating.</p>
               </div>
             </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             {/* Time Period Selector */}
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-500" />
@@ -93,10 +94,10 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
             <TableHeader>
               <TableRow className="bg-slate-50">
                 <TableHead className="w-[60px] text-center font-semibold">Rank</TableHead>
-                <TableHead className="font-semibold">Server</TableHead>
+                <TableHead className="font-semibold whitespace-nowrap">Server</TableHead>
                 <TableHead className="text-center font-semibold">Jobs</TableHead>
-                <TableHead className="text-right font-semibold">
-                  {viewMode === 'jobs' ? 'Total Jobs' : 'Rating'}
+                <TableHead className="text-right font-semibold whitespace-nowrap">
+                  {viewMode === 'jobs' ? 'Completed Jobs' : 'Rating'}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -122,11 +123,11 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                       {item.server.first_name} {item.server.last_name}
                     </TableCell>
                     <TableCell className="text-center text-slate-600">
-                      {item.jobs}
+                      {item.completedJobs}
                     </TableCell>
                     <TableCell className="text-right">
                       {viewMode === 'jobs' ? (
-                        <span className="font-bold text-slate-900">{item.jobs}</span>
+                        <span className="font-bold text-slate-900">{item.completedJobs}</span>
                       ) : (
                         <div className="flex items-center justify-end gap-1">
                           <Star className="w-4 h-4 text-amber-400 fill-amber-400" />

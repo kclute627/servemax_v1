@@ -1,55 +1,17 @@
-
-// FIREBASE TRANSITION: This is a standard CRUD page.
-// - `loadClients`: Replace `Client.list()` with `getDocs(collection(db, "clients"))`.
-// - The filtering logic in `filterClients` is frontend-based and will remain the same.
-// - The `NewClientDialog` component, when submitted, will use `addDoc` to create a new client in Firestore instead of `Client.create()`.
-// - The `ClientsTable` will trigger updates using `updateDoc` or `deleteDoc` in Firestore.
-
 import React, { useState, useEffect, useCallback } from "react";
-// FIREBASE TRANSITION: Replace with Firebase SDK imports.
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebase"; // Assuming db is exported from a firebase config file
-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Plus,
-  Search,
-  Building2
-} from "lucide-react";
+import { Plus, Search } from "lucide-react";
 
 import ClientsTable from "../components/clients/ClientsTable";
 import NewClientDialog from "../components/clients/NewClientDialog";
+import { useGlobalData } from "../components/GlobalDataContext";
 
 export default function ClientsPage() {
-  const [clients, setClients] = useState([]);
+  const { clients, isLoading, refreshData } = useGlobalData();
   const [filteredClients, setFilteredClients] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showNewClientDialog, setShowNewClientDialog] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    loadClients();
-  }, []);
-
-  const loadClients = async () => {
-    setIsLoading(true);
-    try {
-      const clientsCollectionRef = collection(db, "clients");
-      // Original was "-created_date", which implies descending order.
-      // Firestore's orderBy takes a field and then 'asc' or 'desc'.
-      const q = query(clientsCollectionRef, orderBy("created_date", "desc"));
-      const querySnapshot = await getDocs(q);
-      const clientsData = querySnapshot.docs.map(doc => ({
-        id: doc.id, // Important: include the document ID
-        ...doc.data()
-      }));
-      setClients(clientsData);
-    } catch (error) {
-      console.error("Error loading clients:", error);
-    }
-    setIsLoading(false);
-  };
 
   const filterClients = useCallback(() => {
     let filtered = clients;
@@ -57,8 +19,8 @@ export default function ClientsPage() {
     if (searchTerm) {
       filtered = filtered.filter(client =>
         client.company_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.contact_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.email?.toLowerCase().includes(searchTerm.toLowerCase())
+        client.contacts?.some(c => `${c.first_name} ${c.last_name}`.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        client.contacts?.some(c => c.email?.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
 
@@ -70,7 +32,7 @@ export default function ClientsPage() {
   }, [filterClients]);
 
   const handleClientCreated = () => {
-    loadClients();
+    refreshData();
     setShowNewClientDialog(false);
   };
 
@@ -112,7 +74,7 @@ export default function ClientsPage() {
           <ClientsTable
             clients={filteredClients}
             isLoading={isLoading}
-            onClientUpdate={loadClients}
+            onClientUpdate={refreshData}
           />
 
           {/* New Client Dialog */}

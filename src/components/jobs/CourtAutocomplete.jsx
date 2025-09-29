@@ -1,10 +1,9 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Court } from "@/api/entities";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Landmark, Loader2, X } from "lucide-react";
+import { Landmark, Loader2, X, Plus } from "lucide-react";
 
 export default function CourtAutocomplete({ 
   value, 
@@ -12,7 +11,7 @@ export default function CourtAutocomplete({
   onCourtSelect,
   selectedCourt,
   onClearSelection,
-  disabled = false, // New prop
+  disabled = false,
   placeholder = "Start typing a court name...",
   ...props 
 }) {
@@ -58,7 +57,7 @@ export default function CourtAutocomplete({
         clearTimeout(debounceRef.current);
       }
     };
-  }, [value, disabled]); // Add disabled to dependencies
+  }, [value, disabled]);
 
   const fetchSuggestions = async (query) => {
     setIsLoading(true);
@@ -89,18 +88,38 @@ export default function CourtAutocomplete({
     }
   };
 
+  const handleCreateNewCourt = () => {
+    setShowSuggestions(false);
+    setSuggestions([]);
+    justSelectedRef.current = true;
+    
+    // Create a new court object with just the name
+    const newCourt = {
+      branch_name: value,
+      county: '',
+      address: {},
+      isNew: true // Flag to indicate this is a new court
+    };
+    
+    if (onCourtSelect) {
+      onCourtSelect(newCourt);
+    }
+  };
+
   const handleInputChange = (e) => {
     justSelectedRef.current = false;
     onChange(e.target.value);
   };
 
   const handleKeyDown = (e) => {
-    if (!showSuggestions || suggestions.length === 0) return;
+    if (!showSuggestions) return;
 
+    const totalItems = suggestions.length + (value.length >= 3 ? 1 : 0); // +1 for "Create new" option
+    
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setSelectedIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : prev));
+        setSelectedIndex(prev => (prev < totalItems - 1 ? prev + 1 : prev));
         break;
       case 'ArrowUp':
         e.preventDefault();
@@ -110,6 +129,8 @@ export default function CourtAutocomplete({
         e.preventDefault();
         if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
           handleSuggestionSelect(suggestions[selectedIndex]);
+        } else if (selectedIndex === suggestions.length && value.length >= 3) {
+          handleCreateNewCourt();
         }
         break;
       case 'Escape':
@@ -121,11 +142,15 @@ export default function CourtAutocomplete({
   };
 
   const handleInputFocus = () => {
-    // Don't show suggestions if disabled
     if (disabled) return;
     
-    if (value.length >= 3 && !justSelectedRef.current && suggestions.length > 0) {
-      setShowSuggestions(true);
+    if (value.length >= 3 && !justSelectedRef.current) {
+      if (suggestions.length > 0) {
+        setShowSuggestions(true);
+      } else {
+        // Show the create new option even if no suggestions
+        setShowSuggestions(true);
+      }
     }
   };
 
@@ -143,7 +168,7 @@ export default function CourtAutocomplete({
           <Landmark className="w-5 h-5 text-slate-500 mt-0.5 flex-shrink-0" />
           <div>
             <p className="font-semibold text-slate-900">{selectedCourt.branch_name}</p>
-            <p className="text-sm text-slate-600">{selectedCourt.county}</p>
+            {selectedCourt.county && <p className="text-sm text-slate-600">{selectedCourt.county}</p>}
             {selectedCourt.address?.city && (
               <p className="text-xs text-slate-500">{selectedCourt.address.city}, {selectedCourt.address.state}</p>
             )}
@@ -175,13 +200,13 @@ export default function CourtAutocomplete({
           placeholder={placeholder}
           autoComplete="off"
           data-form-type="other"
-          disabled={disabled} // Pass disabled prop to input
+          disabled={disabled}
           {...props}
         />
         
         <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-2">
           {isLoading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
-          {!isLoading && showSuggestions && !disabled && ( // Don't show X if disabled
+          {!isLoading && showSuggestions && !disabled && (
             <Button
               type="button"
               variant="ghost"
@@ -199,7 +224,7 @@ export default function CourtAutocomplete({
         </div>
       </div>
 
-      {showSuggestions && suggestions.length > 0 && (
+      {showSuggestions && (suggestions.length > 0 || value.length >= 3) && (
         <Card className="absolute top-full left-0 right-0 mt-1 z-50 shadow-lg max-h-60 overflow-y-auto">
           <CardContent ref={suggestionsRef} className="p-2">
             {suggestions.map((court, index) => (
@@ -220,6 +245,22 @@ export default function CourtAutocomplete({
                 </div>
               </div>
             ))}
+            
+            {/* Create new court option */}
+            {value.length >= 3 && (
+              <div
+                className={`flex items-start gap-3 p-3 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors border-t border-slate-200 mt-2 pt-3 ${
+                  selectedIndex === suggestions.length ? 'bg-blue-50' : ''
+                }`}
+                onMouseDown={handleCreateNewCourt}
+              >
+                <Plus className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-blue-700">Create new court</p>
+                  <p className="text-sm text-blue-600">"{value}"</p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

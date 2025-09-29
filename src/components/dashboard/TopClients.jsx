@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,7 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
                 <p className="text-slate-600">Your most valuable clients by revenue and job volume.</p>
               </div>
             </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             {/* Time Period Selector */}
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-500" />
@@ -83,8 +84,8 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
             <TableHeader>
               <TableRow className="bg-slate-50">
                 <TableHead className="w-[60px] text-center font-semibold">Rank</TableHead>
-                <TableHead className="font-semibold">Client</TableHead>
-                <TableHead className="text-right font-semibold">
+                <TableHead className="font-semibold whitespace-nowrap">Client</TableHead>
+                <TableHead className="text-right font-semibold whitespace-nowrap">
                   {viewMode === 'revenue' ? 'Total Revenue' : 'Total Jobs'}
                 </TableHead>
               </TableRow>

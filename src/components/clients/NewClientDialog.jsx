@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+// FIREBASE TRANSITION: Replace these with your Firebase service imports
 import { Client, User } from "@/api/entities";
 import { Plus, Loader2, Trash2 } from "lucide-react";
 
@@ -42,6 +43,13 @@ export default function NewClientDialog({ open, onOpenChange, onClientCreated })
   useEffect(() => {
     const fetchUser = async () => {
       try {
+        // FIREBASE TRANSITION: Replace with Firebase Auth
+        // const auth = getAuth();
+        // const user = auth.currentUser;
+        // if (user) {
+        //   setCurrentUserEmail(user.email);
+        //   setFormData(getInitialState(user.email));
+        // }
         const user = await User.me();
         if (user && user.email) {
           setCurrentUserEmail(user.email);
@@ -118,6 +126,7 @@ export default function NewClientDialog({ open, onOpenChange, onClientCreated })
     setIsSubmitting(true);
 
     try {
+      // FIREBASE TRANSITION: Replace with addDoc(collection(db, "clients"), formData)
       await Client.create(formData);
       
       // Reset form

@@ -1,13 +1,17 @@
 
 import React, { useState, useEffect } from "react";
+// FIREBASE TRANSITION: This component interacts with the 'company_settings' collection.
+// - `loadSettings`: Replace `CompanySettings.filter()` with `getDocs` on a query for specific setting keys.
+// - `saveSettings`: Replace `CompanySettings.update()`/`create()` with Firestore `updateDoc`/`setDoc`.
 import { CompanySettings } from "@/api/entities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea"; // Import Textarea
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Save, Settings, Share2, Receipt, Columns, Building } from "lucide-react"; // Added Building icon
+import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser } from "lucide-react"; // Added 'BookUser' icon
 import AddressAutocomplete from "../jobs/AddressAutocomplete";
 
 export default function CompanySettingsPanel() {
@@ -24,13 +28,7 @@ export default function CompanySettingsPanel() {
     { description: "Rush Fee", rate: 25.00 },
     { description: "Mileage", rate: 0.65 }
   ]);
-  const [kanbanColumns, setKanbanColumns] = useState([
-    { id: "backlog", title: "Backlog", associated_statuses: ["pending"], order: 1 },
-    { id: "assigned", title: "Assigned", associated_statuses: ["assigned"], order: 2 },
-    { id: "in_progress", title: "In Progress", associated_statuses: ["in_progress"], order: 3 },
-    { id: "completed", title: "Completed", associated_statuses: ["served"], order: 4 },
-    { id: "unable", title: "Unable to Serve", associated_statuses: ["unable_to_serve", "cancelled"], order: 5 }
-  ]);
+  // REMOVED: Kanban columns state is no longer managed here.
   const [companyInfo, setCompanyInfo] = useState({
     company_name: '',
     address1: '',
@@ -41,9 +39,14 @@ export default function CompanySettingsPanel() {
     phone: '',
     email: ''
   });
+  // New state for directory settings
+  const [directorySettings, setDirectorySettings] = useState({
+    enabled: true,
+    blurb: ''
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isAddressLoading, setIsAddressLoading] = useState(false); // New state for AddressAutocomplete loading
+  const [isAddressLoading, setIsAddressLoading] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -52,12 +55,14 @@ export default function CompanySettingsPanel() {
   const loadSettings = async () => {
     setIsLoading(true);
     try {
-      const [prioritySettings, jobSharingSettings, invoiceSettings, kanbanSettings, companyInfoSettings] = await Promise.all([
+      // FIREBASE TRANSITION: Fetch multiple settings documents from Firestore.
+      const [prioritySettings, jobSharingSettings, invoiceSettings, companyInfoSettings, directorySettingsData] = await Promise.all([
         CompanySettings.filter({ setting_key: "job_priorities" }),
         CompanySettings.filter({ setting_key: "job_sharing" }),
         CompanySettings.filter({ setting_key: "invoice_settings" }),
-        CompanySettings.filter({ setting_key: "kanban_settings" }),
-        CompanySettings.filter({ setting_key: "company_information" })
+        // REMOVED: No longer fetching "kanban_settings" here.
+        CompanySettings.filter({ setting_key: "company_information" }),
+        CompanySettings.filter({ setting_key: "directory_settings" }) // Fetch new directory settings
       ]);
       
       if (prioritySettings.length > 0) {
@@ -83,9 +88,7 @@ export default function CompanySettingsPanel() {
         }
       }
 
-      if (kanbanSettings.length > 0 && kanbanSettings[0].setting_value.columns) {
-        setKanbanColumns(kanbanSettings[0].setting_value.columns);
-      }
+      // REMOVED: Logic to load Kanban settings.
 
       if (companyInfoSettings.length > 0) {
         setCompanyInfo(companyInfoSettings[0].setting_value || {
@@ -99,6 +102,12 @@ export default function CompanySettingsPanel() {
           email: ''
         });
       }
+
+      // Load directory settings
+      if (directorySettingsData.length > 0) {
+        setDirectorySettings(directorySettingsData[0].setting_value || { enabled: true, blurb: '' });
+      }
+
     } catch (error) {
       console.error("Error loading settings:", error);
     }
@@ -108,6 +117,7 @@ export default function CompanySettingsPanel() {
   const saveSettings = async () => {
     setIsSaving(true);
     try {
+      // FIREBASE TRANSITION: These checks and updates will be Firestore transactions or batched writes.
       const existingPrioritySettings = await CompanySettings.filter({ setting_key: "job_priorities" });
       if (existingPrioritySettings.length > 0) {
         await CompanySettings.update(existingPrioritySettings[0].id, { setting_value: { priorities } });
@@ -130,19 +140,21 @@ export default function CompanySettingsPanel() {
         await CompanySettings.create({ setting_key: "invoice_settings", setting_value: invoiceSettingsValue });
       }
 
-      const existingKanbanSettings = await CompanySettings.filter({ setting_key: "kanban_settings" });
-      const kanbanSettingsValue = { columns: kanbanColumns };
-      if (existingKanbanSettings.length > 0) {
-        await CompanySettings.update(existingKanbanSettings[0].id, { setting_value: kanbanSettingsValue });
-      } else {
-        await CompanySettings.create({ setting_key: "kanban_settings", setting_value: kanbanSettingsValue });
-      }
+      // REMOVED: Logic to save Kanban settings.
 
       const existingCompanyInfoSettings = await CompanySettings.filter({ setting_key: "company_information" });
       if (existingCompanyInfoSettings.length > 0) {
         await CompanySettings.update(existingCompanyInfoSettings[0].id, { setting_value: companyInfo });
       } else {
         await CompanySettings.create({ setting_key: "company_information", setting_value: companyInfo });
+      }
+
+      // Save new directory settings
+      const existingDirectorySettings = await CompanySettings.filter({ setting_key: "directory_settings" });
+      if (existingDirectorySettings.length > 0) {
+        await CompanySettings.update(existingDirectorySettings[0].id, { setting_value: directorySettings });
+      } else {
+        await CompanySettings.create({ setting_key: "directory_settings", setting_value: directorySettings });
       }
 
       alert("Settings saved successfully!");
@@ -173,27 +185,8 @@ export default function CompanySettingsPanel() {
     setInvoicePresets(updated);
   };
 
-  // Kanban column management functions
-  const addKanbanColumn = () => {
-    const newColumn = {
-      id: `column_${Date.now()}`,
-      title: "New Column",
-      associated_statuses: ["pending"],
-      order: kanbanColumns.length + 1
-    };
-    setKanbanColumns([...kanbanColumns, newColumn]);
-  };
-
-  const updateKanbanColumn = (index, field, value) => {
-    const updated = [...kanbanColumns];
-    updated[index][field] = value;
-    setKanbanColumns(updated);
-  };
-
-  const removeKanbanColumn = (index) => {
-    setKanbanColumns(kanbanColumns.filter((_, i) => i !== index));
-  };
-
+  // REMOVED: All Kanban column management functions (`addKanbanColumn`, `updateKanbanColumn`, `removeKanbanColumn`) are gone.
+  
   const availableStatuses = [
     { value: "pending", label: "Pending" },
     { value: "assigned", label: "Assigned" },
@@ -205,6 +198,11 @@ export default function CompanySettingsPanel() {
 
   const updateCompanyInfo = (field, value) => {
     setCompanyInfo(prev => ({ ...prev, [field]: value }));
+  };
+
+  // New handler for directory settings
+  const updateDirectorySettings = (field, value) => {
+    setDirectorySettings(prev => ({ ...prev, [field]: value }));
   };
 
   const handleAddressSelect = (addressDetails) => {
@@ -343,6 +341,36 @@ export default function CompanySettingsPanel() {
         </CardContent>
       </Card>
 
+      {/* New Directory Settings Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><BookUser className="w-5 h-5" />ServeMax Directory</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <div className="text-base font-medium">Add company to the ServeMax Directory</div>
+              <p className="text-sm text-slate-500">Allow other ServeMax users to find your company for collaboration.</p>
+            </div>
+            <Switch checked={directorySettings.enabled} onCheckedChange={(checked) => updateDirectorySettings('enabled', checked)} />
+          </div>
+          {directorySettings.enabled && (
+            <div className="pt-4 mt-4 border-t">
+              <Label htmlFor="directory-blurb">Company Blurb</Label>
+              <Textarea
+                id="directory-blurb"
+                value={directorySettings.blurb}
+                onChange={(e) => updateDirectorySettings('blurb', e.target.value)}
+                placeholder="Write a short description about your company, services, and coverage area..."
+                className="mt-1"
+                maxLength={250}
+              />
+              <p className="text-xs text-slate-500 mt-1 text-right">{250 - (directorySettings.blurb?.length || 0)} characters remaining</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Receipt className="w-5 h-5" />Invoice Settings</CardTitle>
@@ -407,74 +435,7 @@ export default function CompanySettingsPanel() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Columns className="w-5 h-5" />Kanban Board Configuration</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-slate-600 mb-4">Configure columns for the Kanban board view on the Jobs page.</p>
-          
-          <div className="space-y-4">
-            {kanbanColumns.map((column, index) => (
-              <div key={column.id} className="p-4 border rounded-lg bg-slate-50">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                  <div>
-                    <Label>Column Title</Label>
-                    <Input 
-                      value={column.title} 
-                      onChange={(e) => updateKanbanColumn(index, 'title', e.target.value)} 
-                      placeholder="e.g., In Progress"
-                      autoComplete="off"
-                    />
-                  </div>
-                  <div>
-                    <Label>Associated Job Statuses</Label>
-                    <select
-                      multiple
-                      value={column.associated_statuses}
-                      onChange={(e) => {
-                        const selectedValues = Array.from(e.target.selectedOptions, option => option.value);
-                        updateKanbanColumn(index, 'associated_statuses', selectedValues);
-                      }}
-                      className="flex h-20 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {availableStatuses.map(status => (
-                        <option key={status.value} value={status.value}>
-                          {status.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-slate-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
-                  </div>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="icon" 
-                    onClick={() => removeKanbanColumn(index)} 
-                    className="text-red-600"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-                <div className="mt-3 flex items-center gap-2">
-                  <Badge variant="outline">Order: {column.order}</Badge>
-                  <div className="flex gap-1 flex-wrap">
-                    {column.associated_statuses.map(status => (
-                      <Badge key={status} className="bg-blue-100 text-blue-700 text-xs">
-                        {availableStatuses.find(s => s.value === status)?.label}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          
-          <Button type="button" variant="outline" onClick={addKanbanColumn} className="gap-2 mt-4">
-            <Plus className="w-4 h-4" />Add Column
-          </Button>
-        </CardContent>
-      </Card>
+      {/* REMOVED: The entire "Kanban Board Configuration" card has been deleted from this file. */}
 
       <Card>
         <CardHeader>
