@@ -1,5 +1,18 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Job, Client, Employee, CourtCase, User, Invoice, Payment } from "@/api/entities";
+import { useAuth } from "@/components/auth/AuthProvider";
+import {
+  SecureJobAccess,
+  SecureClientAccess,
+  SecureEmployeeAccess,
+  SecureInvoiceAccess,
+  SecurePaymentAccess,
+  MultiTenantAccess
+} from "@/firebase/multiTenantAccess";
+import { getDummyDataState, isDummyDataEnabled } from "@/hooks/useDummyData";
+import { dummyCompany } from "@/data/dummyData";
+import { entities } from "@/firebase/database";
+import { CompanySettings } from "@/api/entities";
+import { DirectoryManager } from "@/firebase/schemas";
 
 const GlobalDataContext = createContext();
 
@@ -12,84 +25,147 @@ export const useGlobalData = () => {
 };
 
 export const GlobalDataProvider = ({ children }) => {
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [jobs, setJobs] = useState([]);
   const [clients, setClients] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [courtCases, setCourtCases] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [companyData, setCompanyData] = useState(null);
   const [myCompanyClientId, setMyCompanyClientId] = useState(null);
+  const [companySettings, setCompanySettings] = useState({
+    priorities: [],
+    jobSharingEnabled: false,
+    directoryListing: null
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(null);
 
   const loadAllData = useCallback(async (forceRefresh = false) => {
+    // Check for dummy data override first
+    const dummyDataOverride = getDummyDataState();
+    if (dummyDataOverride) {
+      setClients(dummyDataOverride.clients);
+      setEmployees(dummyDataOverride.employees);
+      setJobs(dummyDataOverride.jobs.sort((a, b) => new Date(b.created_date || b.created_at) - new Date(a.created_date || a.created_at)));
+      setCourtCases(dummyDataOverride.courtCases);
+      setInvoices(dummyDataOverride.invoices);
+      setPayments(dummyDataOverride.payments);
+      setCompanyData(dummyCompany); // Load company data from dummy data
+      setMyCompanyClientId('company_12345'); // Use dummy company ID
+      setIsLoading(false);
+      setLastRefresh(Date.now());
+      return;
+    }
+
     if (!forceRefresh && lastRefresh && Date.now() - lastRefresh < 30000) { // 30 seconds cache
+      return;
+    }
+
+    // Don't load data if auth is still loading
+    if (authLoading) {
       return;
     }
 
     setIsLoading(true);
     try {
-      let companyId = myCompanyClientId;
-      
-      if (!companyId) {
-        try {
-          const currentUser = await User.me();
-          if (currentUser?.email) {
-            const companyClients = await Client.filter({ job_sharing_email: currentUser.email });
-            if (companyClients.length > 0) {
-              companyId = companyClients[0].id;
-              setMyCompanyClientId(companyId);
-            }
-          }
-        } catch (error) {
-          console.error("Error fetching user/company ID:", error);
-        }
+      // Check if user is authenticated
+      if (!isAuthenticated || !user) {
+        // If no authentication, clear all data
+        setClients([]);
+        setEmployees([]);
+        setJobs([]);
+        setCourtCases([]);
+        setInvoices([]);
+        setPayments([]);
+        setMyCompanyClientId(null);
+        setIsLoading(false);
+        return;
       }
 
+      // Set company ID for context
+      setMyCompanyClientId(user.company_id);
+
+      // Load data using secure multi-tenant access
       const [
-        clientsData, 
-        employeesData, 
-        courtCasesData, 
-        myJobs, 
-        invoicesData, 
-        paymentsData
+        companyDataFromDb,
+        clientsData,
+        employeesData,
+        courtCasesData,
+        jobsData,
+        invoicesData,
+        paymentsData,
+        prioritySettings,
+        jobSharingSettings,
+        directoryListing
       ] = await Promise.all([
-        Client.list(),
-        Employee.list(),
-        CourtCase.list(),
-        Job.list("-created_date"),
-        Invoice.list("-invoice_date"),
-        Payment.list("-payment_date"),
+        entities.Company.findById(user.company_id).catch(() => null),
+        SecureClientAccess.list().catch(() => []), // Graceful fallback for permission errors
+        SecureEmployeeAccess.list().catch(() => []),
+        MultiTenantAccess.getCourtCases().catch(() => []),
+        SecureJobAccess.list().catch(() => []),
+        SecureInvoiceAccess.list().catch(() => []),
+        SecurePaymentAccess.list().catch(() => []),
+        CompanySettings.filter({ setting_key: "job_priorities" }).catch(() => []),
+        CompanySettings.filter({ setting_key: "job_sharing" }).catch(() => []),
+        DirectoryManager.getDirectoryListing(user.company_id).catch(() => null)
       ]);
 
+      setCompanyData(companyDataFromDb);
       setClients(clientsData);
       setEmployees(employeesData);
       setCourtCases(courtCasesData);
+      setJobs(jobsData.sort((a, b) => new Date(b.created_date || b.created_at) - new Date(a.created_date || a.created_at)));
       setInvoices(invoicesData);
       setPayments(paymentsData);
 
-      let sharedJobs = [];
-      if (companyId) {
-        sharedJobs = await Job.filter({ assigned_server_id: companyId });
-      }
+      console.log('[GlobalDataContext] Jobs loaded:', jobsData.length);
+      console.log('[GlobalDataContext] Sample job:', jobsData[0]);
 
-      const allJobsMap = new Map();
-      myJobs.forEach(job => allJobsMap.set(job.id, job));
-      sharedJobs.forEach(job => allJobsMap.set(job.id, job));
-      const combinedJobs = Array.from(allJobsMap.values()).sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+      // Set company settings
+      const loadedPriorities = prioritySettings.length > 0
+        ? prioritySettings[0].setting_value.priorities.map(p => ({
+            ...p,
+            name: p.name || "",
+            first_attempt_days: p.first_attempt_days !== undefined ? p.first_attempt_days : 0
+          }))
+        : [
+            { name: "standard", label: "Standard", days_offset: 14, first_attempt_days: 3 },
+            { name: "rush", label: "Rush", days_offset: 2, first_attempt_days: 1 },
+            { name: "same_day", label: "Same Day", days_offset: 0, first_attempt_days: 0 }
+          ];
 
-      setJobs(combinedJobs);
+      const jobSharing = jobSharingSettings.length > 0
+        ? jobSharingSettings[0].setting_value.enabled || false
+        : false;
+
+      setCompanySettings({
+        priorities: loadedPriorities,
+        jobSharingEnabled: jobSharing,
+        directoryListing: directoryListing
+      });
+
       setLastRefresh(Date.now());
 
     } catch (error) {
       console.error("Error loading global data:", error);
+      // Set empty data on error
+      setClients([]);
+      setEmployees([]);
+      setJobs([]);
+      setCourtCases([]);
+      setInvoices([]);
+      setPayments([]);
     }
     setIsLoading(false);
-  }, [myCompanyClientId, lastRefresh]);
+  }, [isAuthenticated, user, authLoading]);
 
   useEffect(() => {
-    loadAllData();
-  }, [loadAllData]);
+    if (!authLoading) {
+      loadAllData();
+    }
+  }, [loadAllData, authLoading]);
 
   const allAssignableServers = React.useMemo(() => {
     const servers = [...employees];
@@ -106,6 +182,8 @@ export const GlobalDataProvider = ({ children }) => {
     courtCases,
     invoices,
     payments,
+    companyData,
+    companySettings,
     myCompanyClientId,
     allAssignableServers,
     isLoading,

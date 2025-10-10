@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from "react";
-// FIREBASE TRANSITION: This component interacts with the 'company_settings' collection.
-// - `loadSettings`: Replace `CompanySettings.filter()` with `getDocs` on a query for specific setting keys.
-// - `saveSettings`: Replace `CompanySettings.update()`/`create()` with Firestore `updateDoc`/`setDoc`.
 import { CompanySettings } from "@/api/entities";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { entities } from "@/firebase/database";
+import { DirectoryManager, CompanyManager, COMPANY_TYPES } from "@/firebase/schemas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,113 +11,178 @@ import { Textarea } from "@/components/ui/textarea"; // Import Textarea
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser } from "lucide-react"; // Added 'BookUser' icon
+import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser, Globe, Phone } from "lucide-react";
 import AddressAutocomplete from "../jobs/AddressAutocomplete";
+import { useGlobalData } from "@/components/GlobalDataContext";
 
 export default function CompanySettingsPanel() {
-  const [priorities, setPriorities] = useState([
-    { name: "standard", label: "Standard", days_offset: 14, first_attempt_days: 3 },
-    { name: "rush", label: "Rush", days_offset: 2, first_attempt_days: 1 },
-    { name: "same_day", label: "Same Day", days_offset: 0, first_attempt_days: 0 }
-  ]);
+  const { user } = useAuth();
+  const { companyData, companySettings, refreshData } = useGlobalData();
+  const [priorities, setPriorities] = useState([]);
   const [jobSharingEnabled, setJobSharingEnabled] = useState(false);
-  const [invoiceForPrintingEnabled, setInvoiceForPrintingEnabled] = useState(false);
-  const [printingFeePerPage, setPrintingFeePerPage] = useState(0.10);
-  const [invoicePresets, setInvoicePresets] = useState([
-    { description: "Routine Service", rate: 75.00 },
-    { description: "Rush Fee", rate: 25.00 },
-    { description: "Mileage", rate: 0.65 }
-  ]);
-  // REMOVED: Kanban columns state is no longer managed here.
   const [companyInfo, setCompanyInfo] = useState({
     company_name: '',
+    website: '',
+    fax: '',
     address1: '',
     address2: '',
     city: '',
     state: '',
     postal_code: '',
+    county: '',
     phone: '',
     email: ''
   });
-  // New state for directory settings
   const [directorySettings, setDirectorySettings] = useState({
-    enabled: true,
+    enabled: false,
     blurb: ''
   });
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isAddressLoading, setIsAddressLoading] = useState(false);
 
+  // Load settings from global context (already loaded at login)
   useEffect(() => {
-    loadSettings();
-  }, []);
+    if (companyData) {
+      // Get primary address from addresses array or fallback to legacy fields
+      const primaryAddress = companyData.addresses?.find(addr => addr.primary) || companyData.addresses?.[0];
 
-  const loadSettings = async () => {
-    setIsLoading(true);
+      setCompanyInfo({
+        company_name: companyData.name || '',
+        website: companyData.website || '',
+        fax: companyData.fax || '',
+        address1: primaryAddress?.address1 || companyData.address || '',
+        address2: primaryAddress?.address2 || '',
+        city: primaryAddress?.city || companyData.city || '',
+        state: primaryAddress?.state || companyData.state || '',
+        postal_code: primaryAddress?.postal_code || companyData.zip || '',
+        county: primaryAddress?.county || companyData.county || '',
+        phone: companyData.phone || '',
+        email: companyData.email || ''
+      });
+    }
+  }, [companyData]);
+
+  useEffect(() => {
+    if (companySettings) {
+      setPriorities(companySettings.priorities || []);
+      setJobSharingEnabled(companySettings.jobSharingEnabled || false);
+
+      if (companySettings.directoryListing) {
+        setDirectorySettings({
+          enabled: companySettings.directoryListing.is_active || false,
+          blurb: companySettings.directoryListing.blurb || ''
+        });
+      } else if (companyData?.collaboration_settings?.directory_listing_enabled) {
+        setDirectorySettings({
+          enabled: companyData.collaboration_settings.directory_listing_enabled,
+          blurb: ''
+        });
+      }
+    }
+  }, [companySettings, companyData]);
+
+  const saveSettings = async () => {
+    if (!user?.company_id) {
+      alert("No company associated with user");
+      return;
+    }
+
+    setIsSaving(true);
     try {
-      // FIREBASE TRANSITION: Fetch multiple settings documents from Firestore.
-      const [prioritySettings, jobSharingSettings, invoiceSettings, companyInfoSettings, directorySettingsData] = await Promise.all([
-        CompanySettings.filter({ setting_key: "job_priorities" }),
-        CompanySettings.filter({ setting_key: "job_sharing" }),
-        CompanySettings.filter({ setting_key: "invoice_settings" }),
-        // REMOVED: No longer fetching "kanban_settings" here.
-        CompanySettings.filter({ setting_key: "company_information" }),
-        CompanySettings.filter({ setting_key: "directory_settings" }) // Fetch new directory settings
-      ]);
-      
-      if (prioritySettings.length > 0) {
-        const loadedPriorities = prioritySettings[0].setting_value.priorities.map(p => ({
-          ...p,
-          // Ensure 'name' field exists, even if not directly editable in UI
-          name: p.name || "", 
-          first_attempt_days: p.first_attempt_days !== undefined ? p.first_attempt_days : 0
-        }));
-        setPriorities(loadedPriorities);
-      }
+      // Create updated address object
+      const updatedAddress = {
+        label: "Primary",
+        address1: companyInfo.address1,
+        address2: companyInfo.address2,
+        city: companyInfo.city,
+        state: companyInfo.state,
+        postal_code: companyInfo.postal_code,
+        county: companyInfo.county,
+        lat: null, // Will be geocoded later if needed
+        lng: null, // Will be geocoded later if needed
+        primary: true,
+        created_at: companyData?.addresses?.[0]?.created_at || new Date(),
+        updated_at: new Date()
+      };
 
-      if (jobSharingSettings.length > 0) {
-        setJobSharingEnabled(jobSharingSettings[0].setting_value.enabled || false);
-      }
-      
-      if (invoiceSettings.length > 0) {
-        const settingsValue = invoiceSettings[0].setting_value;
-        setInvoiceForPrintingEnabled(settingsValue.enabled || false);
-        setPrintingFeePerPage(settingsValue.fee_per_page !== undefined ? settingsValue.fee_per_page : 0.10);
-        if (Array.isArray(settingsValue.presets) && settingsValue.presets.length > 0) {
-          setInvoicePresets(settingsValue.presets);
+      // Update company information in the companies collection
+      const companyUpdateData = {
+        name: companyInfo.company_name,
+        email: companyInfo.email,
+        phone: companyInfo.phone,
+        website: companyInfo.website,
+        fax: companyInfo.fax,
+
+        // Legacy address fields (for backward compatibility)
+        address: companyInfo.address1,
+        city: companyInfo.city,
+        state: companyInfo.state,
+        zip: companyInfo.postal_code,
+        county: companyInfo.county,
+
+        // Enhanced address system
+        addresses: [updatedAddress],
+
+        collaboration_settings: {
+          ...companyData?.collaboration_settings,
+          directory_listing_enabled: directorySettings.enabled
+        },
+        updated_at: new Date()
+      };
+
+      await CompanyManager.updateCompany(user.company_id, companyUpdateData);
+
+      // Save/update directory listing if enabled
+      if (directorySettings.enabled) {
+        // Check if directory listing exists
+        const existingDirectoryListing = await DirectoryManager.getDirectoryListing(user.company_id);
+
+        if (existingDirectoryListing) {
+          // Update existing directory listing with blurb
+          await DirectoryManager.updateDirectoryListing(user.company_id, {
+            // Keep other existing data first
+            ...existingDirectoryListing,
+            // Then override with new values (including blurb) - ORDER MATTERS!
+            blurb: directorySettings.blurb,
+            name: companyInfo.company_name,
+            email: companyInfo.email,
+            phone: companyInfo.phone,
+            address: companyInfo.address1,
+            city: companyInfo.city,
+            state: companyInfo.state,
+            zip: companyInfo.postal_code,
+            is_active: true
+          });
+        } else {
+          // Create new directory listing
+          const companyType = user.user_type === 'independent_contractor'
+            ? COMPANY_TYPES.INDEPENDENT_CONTRACTOR
+            : COMPANY_TYPES.PROCESS_SERVING;
+
+          await DirectoryManager.addToDirectory(user.company_id, {
+            company_type: companyType,
+            name: companyInfo.company_name,
+            email: companyInfo.email,
+            phone: companyInfo.phone,
+            address: companyInfo.address1,
+            city: companyInfo.city,
+            state: companyInfo.state,
+            zip: companyInfo.postal_code,
+            blurb: directorySettings.blurb,
+            is_active: true
+          });
+        }
+      } else {
+        // Disable directory listing if it exists
+        const existingDirectoryListing = await DirectoryManager.getDirectoryListing(user.company_id);
+        if (existingDirectoryListing) {
+          await DirectoryManager.updateDirectoryListing(user.company_id, {
+            is_active: false
+          });
         }
       }
 
-      // REMOVED: Logic to load Kanban settings.
-
-      if (companyInfoSettings.length > 0) {
-        setCompanyInfo(companyInfoSettings[0].setting_value || {
-          company_name: '',
-          address1: '',
-          address2: '',
-          city: '',
-          state: '',
-          postal_code: '',
-          phone: '',
-          email: ''
-        });
-      }
-
-      // Load directory settings
-      if (directorySettingsData.length > 0) {
-        setDirectorySettings(directorySettingsData[0].setting_value || { enabled: true, blurb: '' });
-      }
-
-    } catch (error) {
-      console.error("Error loading settings:", error);
-    }
-    setIsLoading(false);
-  };
-
-  const saveSettings = async () => {
-    setIsSaving(true);
-    try {
-      // FIREBASE TRANSITION: These checks and updates will be Firestore transactions or batched writes.
+      // Save other settings to CompanySettings collection
       const existingPrioritySettings = await CompanySettings.filter({ setting_key: "job_priorities" });
       if (existingPrioritySettings.length > 0) {
         await CompanySettings.update(existingPrioritySettings[0].id, { setting_value: { priorities } });
@@ -132,31 +197,8 @@ export default function CompanySettingsPanel() {
         await CompanySettings.create({ setting_key: "job_sharing", setting_value: { enabled: jobSharingEnabled } });
       }
 
-      const existingInvoiceSettings = await CompanySettings.filter({ setting_key: "invoice_settings" });
-      const invoiceSettingsValue = { enabled: invoiceForPrintingEnabled, fee_per_page: printingFeePerPage, presets: invoicePresets };
-      if (existingInvoiceSettings.length > 0) {
-        await CompanySettings.update(existingInvoiceSettings[0].id, { setting_value: invoiceSettingsValue });
-      } else {
-        await CompanySettings.create({ setting_key: "invoice_settings", setting_value: invoiceSettingsValue });
-      }
-
-      // REMOVED: Logic to save Kanban settings.
-
-      const existingCompanyInfoSettings = await CompanySettings.filter({ setting_key: "company_information" });
-      if (existingCompanyInfoSettings.length > 0) {
-        await CompanySettings.update(existingCompanyInfoSettings[0].id, { setting_value: companyInfo });
-      } else {
-        await CompanySettings.create({ setting_key: "company_information", setting_value: companyInfo });
-      }
-
-      // Save new directory settings
-      const existingDirectorySettings = await CompanySettings.filter({ setting_key: "directory_settings" });
-      if (existingDirectorySettings.length > 0) {
-        await CompanySettings.update(existingDirectorySettings[0].id, { setting_value: directorySettings });
-      } else {
-        await CompanySettings.create({ setting_key: "directory_settings", setting_value: directorySettings });
-      }
-
+      // Refresh global data to update all components
+      await refreshData();
       alert("Settings saved successfully!");
     } catch (error) {
       console.error("Error saving settings:", error);
@@ -175,14 +217,6 @@ export default function CompanySettingsPanel() {
     const updated = [...priorities];
     updated[index][field] = (field === 'days_offset' || field === 'first_attempt_days') ? parseInt(value) || 0 : value;
     setPriorities(updated);
-  };
-
-  const addInvoicePreset = () => setInvoicePresets([...invoicePresets, { description: "", rate: 0.00 }]);
-  const removeInvoicePreset = (index) => setInvoicePresets(invoicePresets.filter((_, i) => i !== index));
-  const updateInvoicePreset = (index, field, value) => {
-    const updated = [...invoicePresets];
-    updated[index][field] = field === 'rate' ? parseFloat(value) || 0 : value;
-    setInvoicePresets(updated);
   };
 
   // REMOVED: All Kanban column management functions (`addKanbanColumn`, `updateKanbanColumn`, `removeKanbanColumn`) are gone.
@@ -215,10 +249,6 @@ export default function CompanySettingsPanel() {
     }));
   };
 
-  if (isLoading) {
-    return <div>Loading...</div>;
-  }
-
   return (
     <div className="space-y-6">
       <Card>
@@ -230,15 +260,40 @@ export default function CompanySettingsPanel() {
           
           <div>
             <Label htmlFor="company_name">Company Name</Label>
-            <Input 
+            <Input
               id="company_name"
-              value={companyInfo.company_name} 
-              onChange={(e) => updateCompanyInfo('company_name', e.target.value)} 
+              value={companyInfo.company_name}
+              onChange={(e) => updateCompanyInfo('company_name', e.target.value)}
               placeholder="Your Company Name"
               autoComplete="off"
             />
           </div>
-          
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="website">Website (Optional)</Label>
+              <Input
+                id="website"
+                type="url"
+                value={companyInfo.website}
+                onChange={(e) => updateCompanyInfo('website', e.target.value)}
+                placeholder="www.yourcompany.com"
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <Label htmlFor="fax">Fax (Optional)</Label>
+              <Input
+                id="fax"
+                type="tel"
+                value={companyInfo.fax}
+                onChange={(e) => updateCompanyInfo('fax', e.target.value)}
+                placeholder="(555) 123-4567"
+                autoComplete="off"
+              />
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="address1">Street Address</Label>
@@ -264,13 +319,13 @@ export default function CompanySettingsPanel() {
             </div>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <Label htmlFor="city">City</Label>
-              <Input 
+              <Input
                 id="city"
-                value={companyInfo.city} 
-                onChange={(e) => updateCompanyInfo('city', e.target.value)} 
+                value={companyInfo.city}
+                onChange={(e) => updateCompanyInfo('city', e.target.value)}
                 placeholder="Anytown"
                 autoComplete="off"
                 disabled={isAddressLoading}
@@ -278,10 +333,10 @@ export default function CompanySettingsPanel() {
             </div>
             <div>
               <Label htmlFor="state">State</Label>
-              <Input 
+              <Input
                 id="state"
-                value={companyInfo.state} 
-                onChange={(e) => updateCompanyInfo('state', e.target.value)} 
+                value={companyInfo.state}
+                onChange={(e) => updateCompanyInfo('state', e.target.value)}
                 placeholder="CA"
                 autoComplete="off"
                 disabled={isAddressLoading}
@@ -289,11 +344,22 @@ export default function CompanySettingsPanel() {
             </div>
             <div>
               <Label htmlFor="postal_code">ZIP Code</Label>
-              <Input 
+              <Input
                 id="postal_code"
-                value={companyInfo.postal_code} 
+                value={companyInfo.postal_code}
                 onChange={(e) => updateCompanyInfo('postal_code', e.target.value)} 
                 placeholder="12345"
+                autoComplete="off"
+                disabled={isAddressLoading}
+              />
+            </div>
+            <div>
+              <Label htmlFor="county">County</Label>
+              <Input
+                id="county"
+                value={companyInfo.county}
+                onChange={(e) => updateCompanyInfo('county', e.target.value)}
+                placeholder="Los Angeles County"
                 autoComplete="off"
                 disabled={isAddressLoading}
               />
@@ -350,9 +416,18 @@ export default function CompanySettingsPanel() {
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <div className="text-base font-medium">Add company to the ServeMax Directory</div>
-              <p className="text-sm text-slate-500">Allow other ServeMax users to find your company for collaboration.</p>
+              <p className="text-sm text-slate-500">
+                {companyData?.company_type === COMPANY_TYPES.CLIENT
+                  ? "Directory listings are only available for process serving companies and independent contractors."
+                  : "Allow other ServeMax users to find your company for collaboration."
+                }
+              </p>
             </div>
-            <Switch checked={directorySettings.enabled} onCheckedChange={(checked) => updateDirectorySettings('enabled', checked)} />
+            <Switch
+              checked={directorySettings.enabled}
+              onCheckedChange={(checked) => updateDirectorySettings('enabled', checked)}
+              disabled={companyData?.company_type === COMPANY_TYPES.CLIENT}
+            />
           </div>
           {directorySettings.enabled && (
             <div className="pt-4 mt-4 border-t">
@@ -371,70 +446,7 @@ export default function CompanySettingsPanel() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Receipt className="w-5 h-5" />Invoice Settings</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div>
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <div className="text-base font-medium">Invoice For Printing</div>
-                <p className="text-sm text-slate-500">Automatically add a printing cost line item.</p>
-              </div>
-              <Switch checked={invoiceForPrintingEnabled} onCheckedChange={setInvoiceForPrintingEnabled} />
-            </div>
-            {invoiceForPrintingEnabled && (
-              <div className="pt-4 mt-4 border-t">
-                <Label htmlFor="printing-fee">Printing Fee Per Page ($)</Label>
-                <Input 
-                  id="printing-fee" 
-                  type="number" 
-                  step="0.01" 
-                  min="0" 
-                  value={printingFeePerPage} 
-                  onChange={(e) => setPrintingFeePerPage(parseFloat(e.target.value) || 0)} 
-                  className="w-48 mt-1"
-                  autoComplete="off"
-                />
-              </div>
-            )}
-          </div>
-
-          <div className="pt-6 border-t">
-            <h4 className="font-semibold text-slate-900 mb-1">Invoice Presets</h4>
-            <p className="text-sm text-slate-600">Configure default line items for faster invoicing.</p>
-            <div className="space-y-3 mt-4">
-              {invoicePresets.map((preset, index) => (
-                <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                  <div className="md:col-span-2">
-                    <Label>Description</Label>
-                    <Input 
-                      value={preset.description} 
-                      onChange={(e) => updateInvoicePreset(index, 'description', e.target.value)}
-                      autoComplete="off"
-                    />
-                  </div>
-                  <div>
-                    <Label>Default Rate ($)</Label>
-                    <Input 
-                      type="number" 
-                      step="0.01" 
-                      min="0" 
-                      value={preset.rate} 
-                      onChange={(e) => updateInvoicePreset(index, 'rate', e.target.value)}
-                      autoComplete="off"
-                    />
-                  </div>
-                  <Button type="button" variant="outline" size="icon" onClick={() => removeInvoicePreset(index)} className="text-red-600"><Trash2 className="w-4 h-4" /></Button>
-                </div>
-              ))}
-            </div>
-            <Button type="button" variant="outline" onClick={addInvoicePreset} className="gap-2 mt-4"><Plus className="w-4 h-4" />Add Preset</Button>
-          </div>
-        </CardContent>
-      </Card>
-
+      {/* REMOVED: Invoice Settings moved to InvoiceSettingsPanel.jsx */}
       {/* REMOVED: The entire "Kanban Board Configuration" card has been deleted from this file. */}
 
       <Card>

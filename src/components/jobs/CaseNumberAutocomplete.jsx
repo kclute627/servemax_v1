@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CourtCase } from "@/api/entities";
+import { SecureCaseAccess } from "@/firebase/multiTenantAccess";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ export default function CaseNumberAutocomplete({
       return;
     }
 
-    if (!value || value.length < 2) {
+    if (!value || value.length < 3) {
       setSuggestions([]);
       setShowSuggestions(false);
       return;
@@ -52,19 +52,32 @@ export default function CaseNumberAutocomplete({
   const fetchSuggestions = async (query) => {
     setIsLoading(true);
     try {
-      const cases = await CourtCase.list();
-      const filtered = cases.filter(courtCase => 
-        courtCase.case_number?.toLowerCase().includes(query.toLowerCase()) ||
-        courtCase.case_name?.toLowerCase().includes(query.toLowerCase()) ||
-        courtCase.plaintiff?.toLowerCase().includes(query.toLowerCase()) ||
-        courtCase.defendant?.toLowerCase().includes(query.toLowerCase())
+      // Query only cases created by the user's company
+      const cases = await SecureCaseAccess.list();
+
+      const normalizedQuery = query.toLowerCase().trim();
+
+      const filtered = cases.filter(courtCase =>
+        courtCase.case_number?.toLowerCase().includes(normalizedQuery) ||
+        courtCase.case_name?.toLowerCase().includes(normalizedQuery) ||
+        courtCase.plaintiff?.toLowerCase().includes(normalizedQuery) ||
+        courtCase.defendant?.toLowerCase().includes(normalizedQuery)
       );
+
+      console.log('[CaseNumberAutocomplete] Search results:', {
+        query: normalizedQuery,
+        total_cases: cases.length,
+        filtered: filtered.length
+      });
+
       setSuggestions(filtered);
-      setShowSuggestions(true);
+      // Only show suggestions if there are matches
+      setShowSuggestions(filtered.length > 0);
       setSelectedIndex(-1);
     } catch (error) {
       console.error('Error fetching case suggestions:', error);
       setSuggestions([]);
+      setShowSuggestions(false);
     }
     setIsLoading(false);
   };
@@ -115,7 +128,7 @@ export default function CaseNumberAutocomplete({
   };
 
   const handleInputFocus = () => {
-    if (value.length >= 2 && !justSelectedRef.current && suggestions.length > 0) {
+    if (value.length >= 3 && !justSelectedRef.current && suggestions.length > 0) {
       setShowSuggestions(true);
     }
   };

@@ -1,0 +1,19 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Allow authenticated users to upload and read their own files
+    match /{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+                     request.resource.size < 50 * 1024 * 1024 && // Max 50MB
+                     request.resource.contentType.matches('image/.*|application/pdf|video/.*');
+    }
+  }
+}

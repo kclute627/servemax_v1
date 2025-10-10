@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   LayoutDashboard,
@@ -25,8 +25,8 @@ import {
   TooltipTrigger
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { User } from "@/api/entities";
-import { GlobalDataProvider } from "./components/GlobalDataContext";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { getAvailableMenuItems } from "@/utils/permissions";
 
 const navigationItems = [
   {
@@ -73,10 +73,9 @@ const navigationItems = [
 
 export default function Layout({ children, currentPageName }) {
   const location = useLocation();
-  const navigate = useNavigate();
-  const [user, setUser] = useState(null);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const { user, isAuthenticated, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [availableMenuItems, setAvailableMenuItems] = useState([]);
 
   // Persist collapse state in localStorage
   const [isCollapsed, setIsCollapsed] = useState(
@@ -87,32 +86,15 @@ export default function Layout({ children, currentPageName }) {
     localStorage.setItem("sidebarCollapsed", isCollapsed);
   }, [isCollapsed]);
 
-  // Main Authentication Effect - Run once on mount
+  // Update available menu items when user changes
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const currentUser = await User.me();
-        setUser(currentUser);
-        
-        // If authenticated and on Home page, redirect to Dashboard
-        if (currentPageName === 'Home') {
-          navigate(createPageUrl('Dashboard'), { replace: true });
-        }
-      } catch (error) {
-        // User is not authenticated
-        setUser(null);
-        
-        // If trying to access protected page, redirect to Home
-        if (currentPageName !== 'Home') {
-          navigate(createPageUrl('Home'), { replace: true });
-        }
-      } finally {
-        setIsCheckingAuth(false);
-      }
-    };
-    
-    checkAuth();
-  }, [currentPageName, navigate]);
+    if (user) {
+      const menuItems = getAvailableMenuItems(user);
+      setAvailableMenuItems(menuItems);
+    } else {
+      setAvailableMenuItems([]);
+    }
+  }, [user]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -120,24 +102,21 @@ export default function Layout({ children, currentPageName }) {
   }, [location.pathname]);
 
   const handleLogout = async () => {
-    await User.logout();
-    window.location.reload();
+    try {
+      await logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
-  // Show nothing during initial auth check to avoid flash
-  if (isCheckingAuth) {
-    return null;
-  }
-
-  // Unauthenticated: Render children directly (for Home page)
-  if (!user) {
+  // Unauthenticated: Render children directly (for auth pages)
+  if (!isAuthenticated) {
     return <>{children}</>;
   }
   
   // Authenticated: Render full layout with sidebar
   return (
-    <GlobalDataProvider>
-      <TooltipProvider>
+    <TooltipProvider>
         <div className="w-full min-h-screen bg-slate-50">
           <style>{`
             /* Hide number input arrows */
@@ -201,46 +180,48 @@ export default function Layout({ children, currentPageName }) {
                 </div>
                 <div>
                   <nav className="space-y-1">
-                    {navigationItems.map((item) => {
-                      const menuButton = (
-                        <NavLink
-                          key={item.url}
-                          to={item.url}
-                          end
-                          className={({ isActive }) =>
-                            `group flex items-center px-3 py-3 rounded-xl mb-1 hover:bg-white/10 transition-all duration-200 ${
-                              isCollapsed ? 'justify-center' : ''
-                            } ${isActive ? 'bg-white/15 shadow-sm ring-1 ring-white/20 backdrop-blur-sm' : ''}`
-                          }
-                        >
-                          {({ isActive }) => (
-                            <>
-                              <item.icon
-                                className={`w-5 h-5 flex-shrink-0 transition-colors duration-200 ${
-                                  isActive ? 'text-white' : 'text-blue-100 group-hover:text-white'
-                                }`}
-                              />
-                              <span className={`font-medium whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'w-0' : 'w-auto ml-3 delay-100'} ${isActive ? 'text-white' : 'text-blue-100 group-hover:text-white'}`}>
-                                {item.title}
-                              </span>
-                            </>
-                          )}
-                        </NavLink>
-                      );
+                    {navigationItems
+                      .filter(item => availableMenuItems.includes(item.title))
+                      .map((item) => {
+                        const menuButton = (
+                          <NavLink
+                            key={item.url}
+                            to={item.url}
+                            end
+                            className={({ isActive }) =>
+                              `group flex items-center px-3 py-3 rounded-xl mb-1 hover:bg-white/10 transition-all duration-200 ${
+                                isCollapsed ? 'justify-center' : ''
+                              } ${isActive ? 'bg-white/15 shadow-sm ring-1 ring-white/20 backdrop-blur-sm' : ''}`
+                            }
+                          >
+                            {({ isActive }) => (
+                              <>
+                                <item.icon
+                                  className={`w-5 h-5 flex-shrink-0 transition-colors duration-200 ${
+                                    isActive ? 'text-white' : 'text-blue-100 group-hover:text-white'
+                                  }`}
+                                />
+                                <span className={`font-medium whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'w-0' : 'w-auto ml-3 delay-100'} ${isActive ? 'text-white' : 'text-blue-100 group-hover:text-white'}`}>
+                                  {item.title}
+                                </span>
+                              </>
+                            )}
+                          </NavLink>
+                        );
 
-                      return isCollapsed ? (
-                        <Tooltip key={item.url}>
-                          <TooltipTrigger asChild>
-                            {menuButton}
-                          </TooltipTrigger>
-                          <TooltipContent side="right" className="ml-2">
-                            <p>{item.title}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        menuButton
-                      );
-                    })}
+                        return isCollapsed ? (
+                          <Tooltip key={item.url}>
+                            <TooltipTrigger asChild>
+                              {menuButton}
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="ml-2">
+                              <p>{item.title}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          menuButton
+                        );
+                      })}
                   </nav>
                 </div>
               </div>
@@ -257,15 +238,17 @@ export default function Layout({ children, currentPageName }) {
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <div className="w-9 h-9 bg-white/15 rounded-xl flex items-center justify-center flex-shrink-0 ring-1 ring-white/20">
                             <span className="text-white font-semibold text-sm">
-                              {(user.full_name?.trim()?.charAt(0) || 'U').toUpperCase()}
+                              {(user.first_name?.trim()?.charAt(0) || user.full_name?.trim()?.charAt(0) || 'U').toUpperCase()}
                             </span>
                           </div>
                           <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'w-0' : 'w-auto delay-100'}`}>
                             <p className="font-medium text-white text-sm truncate whitespace-nowrap">
-                              {user.full_name || 'User'}
+                              {user.full_name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User'}
                             </p>
                             <p className="text-xs text-blue-200 truncate whitespace-nowrap capitalize">
-                              {user.role || 'Member'}
+                              {user.user_type === 'company_owner' ? 'Company Owner' :
+                               user.employee_role ? user.employee_role.replace('_', ' ') :
+                               user.user_type ? user.user_type.replace('_', ' ') : 'Member'}
                             </p>
                           </div>
                         </div>
@@ -342,6 +325,5 @@ export default function Layout({ children, currentPageName }) {
           </main>
         </div>
       </TooltipProvider>
-    </GlobalDataProvider>
   );
 }

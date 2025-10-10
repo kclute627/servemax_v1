@@ -41,6 +41,7 @@ import JobsMap from "../components/jobs/JobsMap";
 import KanbanView from "../components/jobs/KanbanView";
 import CaseView from "../components/jobs/CaseView";
 import { useGlobalData } from "../components/GlobalDataContext"; // Changed from useJobs to useGlobalData
+import { StatsManager } from "@/firebase/stats";
 
 export default function JobsPage() {
   // Get data from context instead of loading it here
@@ -62,7 +63,8 @@ export default function JobsPage() {
     status: "open", // Default to 'open'
     priority: "all",
     client: "all",
-    assignedServer: "all"
+    assignedServer: "all",
+    needsAttention: false
   });
   const [selectedJobs, setSelectedJobs] = useState([]);
   const [currentView, setCurrentView] = useState('list'); // Add view state
@@ -79,6 +81,8 @@ export default function JobsPage() {
     const params = new URLSearchParams(location.search);
     const clientId = params.get('client_id');
     const status = params.get('status');
+    const priority = params.get('priority');
+    const attention = params.get('attention');
 
     const newFilters = {};
     if (clientId) {
@@ -86,6 +90,12 @@ export default function JobsPage() {
     }
     if (status) {
       newFilters.status = status;
+    }
+    if (priority) {
+      newFilters.priority = priority;
+    }
+    if (attention === 'true') {
+      newFilters.needsAttention = true;
     }
 
     // If a client_id is provided, default status to "all" unless specified otherwise
@@ -169,6 +179,15 @@ export default function JobsPage() {
         filtered = filtered.filter(job => job.assigned_server_id === filters.assignedServer);
       }
     }
+
+    // Needs attention filter
+    if (filters.needsAttention) {
+      filtered = filtered.filter(job => StatsManager.jobNeedsAttention(job));
+    }
+
+    console.log('[Jobs] Total jobs:', jobs.length);
+    console.log('[Jobs] Filtered jobs:', filtered.length);
+    console.log('[Jobs] Current filter:', filters);
 
     setFilteredJobs(filtered);
     // Reset to first page when filters change
@@ -405,7 +424,7 @@ export default function JobsPage() {
                 <span className="text-sm font-medium text-slate-700">
                   {filteredJobs.length} {filteredJobs.length === 1 ? 'job' : 'jobs'} found
                 </span>
-                {(searchTerm || filters.status !== 'open' || filters.priority !== 'all' || filters.client !== 'all' || filters.assignedServer !== 'all') && (
+                {(searchTerm || filters.status !== 'open' || filters.priority !== 'all' || filters.client !== 'all' || filters.assignedServer !== 'all' || filters.needsAttention) && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -415,7 +434,8 @@ export default function JobsPage() {
                         status: "open",
                         priority: "all",
                         client: "all",
-                        assignedServer: "all"
+                        assignedServer: "all",
+                        needsAttention: false
                       });
                     }}
                     className="text-slate-600 hover:text-slate-800"

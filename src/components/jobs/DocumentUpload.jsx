@@ -1,21 +1,27 @@
 
 import React, { useState, useCallback } from 'react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { PDFDocument } from 'pdf-lib';
 import { UploadFile } from "@/api/integrations";
 import { mergePDFs } from "@/api/functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { 
-  Upload, 
-  X, 
-  FileText, 
-  Image, 
+import { Badge } from "@/components/ui/badge";
+import {
+  Upload,
+  X,
+  FileText,
+  Image,
   FileIcon,
   Loader2,
   PlusCircle,
   Combine,
-  AlertTriangle
+  AlertTriangle,
+  GripVertical,
+  ExternalLink,
+  Sparkles
 } from "lucide-react";
 
 export default function DocumentUpload({ documents, onDocumentsChange }) {
@@ -51,6 +57,22 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
     return null;
   };
 
+  const getActualPageCount = async (file) => {
+    try {
+      if (file.type !== 'application/pdf') {
+        return file.type.startsWith('image/') ? 1 : null;
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(arrayBuffer);
+      return pdfDoc.getPageCount();
+    } catch (error) {
+      console.error('Error reading PDF page count:', error);
+      // Fallback to estimation
+      return getEstimatedPageCount(file.size, file.type);
+    }
+  };
+
   const getPDFDocuments = useCallback(() => {
     return (documents || []).filter(doc => 
       doc.content_type === 'application/pdf' && doc.file_url
@@ -59,20 +81,24 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
 
   const uploadFiles = useCallback(async (files) => {
     setIsUploading(true);
-    
+
     try {
       const uploadPromises = files.map(async (file) => {
-        const { file_url } = await UploadFile({ file });
-        
+        // Upload file and get accurate page count in parallel
+        const [{ url }, pageCount] = await Promise.all([
+          UploadFile(file),
+          getActualPageCount(file)
+        ]);
+
         return {
           id: `upload-${Date.now()}-${Math.random()}`,
           title: file.name,
           affidavit_text: file.name, // Default affidavit text to filename
-          file_url: file_url,
+          file_url: url,
           file_size: file.size,
           content_type: file.type,
           document_category: getDocumentCategory(file.name, file.type),
-          page_count: getEstimatedPageCount(file.size, file.type)
+          page_count: pageCount
         };
       });
 
@@ -81,7 +107,7 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
     } catch (error) {
       console.error("Error uploading files:", error);
     }
-    
+
     setIsUploading(false);
   }, [onDocumentsChange]);
 
@@ -100,41 +126,45 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
     try {
       const pdfDocs = getPDFDocuments();
       const fileUrls = pdfDocs.map(doc => doc.file_url);
-      
+
+      // Call the Firebase Cloud Function
       const response = await mergePDFs({
         file_urls: fileUrls,
-        merged_title: 'Merged Service Documents'
+        merged_title: 'Merged_Service_Documents'
       });
 
-      // Create blob from response
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const file = new File([blob], 'Merged_Service_Documents.pdf', { type: 'application/pdf' });
+      // Response format: { success: boolean, url: string, pageCount: number }
+      if (!response.success || !response.url) {
+        throw new Error(response.message || 'Failed to merge PDFs');
+      }
 
-      // Upload the merged file
-      const { file_url } = await UploadFile({ file });
+      // Concatenate all affidavit texts from merged documents
+      const mergedAffidavitText = pdfDocs
+        .map((doc, index) => `${doc.affidavit_text || doc.title || `Document ${index + 1}`}`)
+        .join('; ');
 
       // Create new document entry for merged PDF
       const mergedDoc = {
         id: `merged-${Date.now()}-${Math.random()}`,
         title: 'Merged Service Documents',
-        affidavit_text: 'Merged Service Documents',
-        file_url: file_url,
-        file_size: blob.size,
+        affidavit_text: mergedAffidavitText,
+        file_url: response.url,
+        file_size: null, // Not available from backend
         content_type: 'application/pdf',
         document_category: 'to_be_served',
-        page_count: pdfDocs.reduce((total, doc) => total + (doc.page_count || 1), 0)
+        page_count: response.pageCount || pdfDocs.reduce((total, doc) => total + (doc.page_count || 1), 0)
       };
 
       // Remove original PDF documents and add merged document
-      const nonPdfDocs = (documents || []).filter(doc => 
+      const nonPdfDocs = (documents || []).filter(doc =>
         !(doc.content_type === 'application/pdf' && doc.file_url)
       );
-      
+
       onDocumentsChange([...nonPdfDocs, mergedDoc]);
 
     } catch (error) {
       console.error("Error merging PDFs:", error);
-      alert("Failed to merge PDFs. Please try again.");
+      alert(`Failed to merge PDFs: ${error.message || 'Unknown error'}. Please try again.`);
     }
 
     setIsMerging(false);
@@ -198,6 +228,50 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
 
   const removeDocument = (index) => {
     onDocumentsChange(documents.filter((_, i) => i !== index));
+  };
+
+  // TODO: FUTURE IMPLEMENTATION - Google Document AI Integration
+  // This function will be implemented to extract case information from the main document
+  // using Google Document AI API. It will:
+  // 1. Send the main document PDF to Google Document AI
+  // 2. Extract key information such as:
+  //    - Case number
+  //    - Party names (plaintiff/defendant)
+  //    - Court information
+  //    - Filing dates
+  //    - Service addresses
+  // 3. Auto-populate the job creation form with extracted data
+  // 4. Show a confirmation dialog for user to review/edit extracted info
+  // const handleExtractWithAI = async (documentUrl, documentIndex) => {
+  //   try {
+  //     setIsExtracting(true);
+  //
+  //     // Call Google Document AI API
+  //     const extractedData = await extractDocumentData(documentUrl);
+  //
+  //     // Show confirmation dialog with extracted data
+  //     // User can review and edit before applying
+  //
+  //     // Apply extracted data to job form
+  //     onExtractedDataReady(extractedData);
+  //
+  //   } catch (error) {
+  //     console.error('Error extracting document data:', error);
+  //     alert('Failed to extract document data. Please try again.');
+  //   } finally {
+  //     setIsExtracting(false);
+  //   }
+  // };
+
+  const handleDragEnd = (result) => {
+    if (!result.destination) return;
+    if (result.source.index === result.destination.index) return;
+
+    const reorderedDocs = Array.from(documents);
+    const [removed] = reorderedDocs.splice(result.source.index, 1);
+    reorderedDocs.splice(result.destination.index, 0, removed);
+
+    onDocumentsChange(reorderedDocs);
   };
 
   const formatFileSize = (bytes) => {
@@ -264,43 +338,103 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
       {(documents && documents.length > 0) && (
         <div className="space-y-4">
           <h4 className="font-medium text-slate-700">Documents to Serve ({documents.length})</h4>
-          {documents.map((doc, index) => (
-            <div key={doc.id || index} className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  {getFileIcon(doc.content_type)}
-                  <span className="font-semibold text-slate-800">
-                    {doc.file_url ? 'Uploaded Document' : 'Manual Entry'}
-                  </span>
-                </div>
-                <Button type="button" variant="ghost" size="icon" onClick={() => removeDocument(index)} className="text-slate-400 hover:text-red-600 h-8 w-8">
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-              
-              <div>
-                <Label htmlFor={`affidavit-text-${index}`} className="text-xs font-semibold">Affidavit Text</Label>
-                <Input 
-                  id={`affidavit-text-${index}`} 
-                  value={doc.affidavit_text} 
-                  onChange={(e) => handleDocumentChange(index, 'affidavit_text', e.target.value)} 
-                  placeholder={doc.file_url ? "Text for the affidavit (defaults to filename)" : "e.g., Summons, Complaint"}
-                  required 
-                />
-                {doc.file_url && (
-                  <p className="text-xs font-bold text-slate-600 mt-2">{doc.title}</p>
-                )}
-              </div>
-              
-              {doc.file_url && (
-                <div className="flex items-center gap-4 text-xs text-slate-600 pt-2 border-t border-slate-200">
-                  <span>Size: {formatFileSize(doc.file_size)}</span>
-                  {doc.page_count && <span>Pages: ~{doc.page_count}</span>}
-                  <span className="capitalize">{doc.content_type?.split('/')[1]}</span>
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <Droppable droppableId="documents-list">
+              {(provided) => (
+                <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-3">
+                  {documents.map((doc, index) => (
+                    <Draggable key={doc.id || index} draggableId={doc.id || `doc-${index}`} index={index}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          className={`p-4 rounded-lg border space-y-3 transition-all ${
+                            index === 0
+                              ? 'bg-blue-50 border-blue-300 border-2'
+                              : snapshot.isDragging
+                              ? 'bg-white border-slate-300 shadow-lg'
+                              : 'bg-slate-50 border-slate-200'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-3">
+                              <div {...provided.dragHandleProps} className="cursor-grab active:cursor-grabbing">
+                                <GripVertical className="w-5 h-5 text-slate-400" />
+                              </div>
+                              {getFileIcon(doc.content_type)}
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-slate-800">
+                                    {doc.file_url ? 'Uploaded Document' : 'Manual Entry'}
+                                  </span>
+                                  {index === 0 && (
+                                    <Badge className="bg-blue-600 text-white text-xs">Main Document</Badge>
+                                  )}
+                                  {/* TODO: FUTURE - AI Extraction Button for Main Document */}
+                                  {/* This button will extract case info from the main document using Google Document AI */}
+                                  {index === 0 && doc.content_type === 'application/pdf' && doc.file_url && (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-6 px-2 gap-1 border-purple-300 text-purple-700 hover:bg-purple-50"
+                                      // onClick={() => handleExtractWithAI(doc.file_url, index)}
+                                      disabled={true}
+                                      title="Coming soon: Extract case information with AI"
+                                    >
+                                      <Sparkles className="w-3 h-3" />
+                                      <span className="text-xs">Extract Info</span>
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <Button type="button" variant="ghost" size="icon" onClick={() => removeDocument(index)} className="text-slate-400 hover:text-red-600 h-8 w-8">
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+
+                          <div>
+                            <Label htmlFor={`affidavit-text-${index}`} className="text-xs font-semibold">Affidavit Text</Label>
+                            <Input
+                              id={`affidavit-text-${index}`}
+                              value={doc.affidavit_text}
+                              onChange={(e) => handleDocumentChange(index, 'affidavit_text', e.target.value)}
+                              placeholder={doc.file_url ? "Text for the affidavit (defaults to filename)" : "e.g., Summons, Complaint"}
+                              required
+                            />
+                            {doc.file_url && (
+                              <p className="text-xs font-bold text-slate-600 mt-2">{doc.title}</p>
+                            )}
+                          </div>
+
+                          {doc.file_url && (
+                            <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                              <div className="flex items-center gap-4 text-xs text-slate-600">
+                                <span>Size: {formatFileSize(doc.file_size)}</span>
+                                {doc.page_count && <span>Pages: ~{doc.page_count}</span>}
+                                <span className="capitalize">{doc.content_type?.split('/')[1]}</span>
+                              </div>
+                              <a
+                                href={doc.file_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                              >
+                                View Document
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
                 </div>
               )}
-            </div>
-          ))}
+            </Droppable>
+          </DragDropContext>
         </div>
       )}
 

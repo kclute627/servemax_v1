@@ -14,6 +14,7 @@ const statusColumnsConfig = [
   { status: 'served', title: 'Served' },
   { status: 'needs_affidavit', title: 'Needs Affidavit' },
   { status: 'unable_to_serve', title: 'Unable to Serve' },
+  { status: 'cancelled', title: 'Cancelled' },
 ];
 
 const priorityConfig = {
@@ -22,8 +23,8 @@ const priorityConfig = {
   emergency: { color: "border-red-500" }
 };
 
-const JobCard = ({ job, client, server }) => (
-  <Draggable draggableId={job.id} index={job.id}>
+const JobCard = ({ job, client, server, index }) => (
+  <Draggable draggableId={job.id} index={index}>
     {(provided) => (
       <div
         ref={provided.innerRef}
@@ -45,7 +46,7 @@ const JobCard = ({ job, client, server }) => (
                     <User className="w-3 h-3"/>
                     <span>{server}</span>
                 </div>
-                {job.due_date && 
+                {job.due_date &&
                     <div className="flex items-center gap-1">
                         <Clock className="w-3 h-3"/>
                         <span>{new Date(job.due_date).toLocaleDateString()}</span>
@@ -88,17 +89,25 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
     const { source, destination, draggableId } = result;
 
     if (!destination) return;
-    if (source.droppableId === destination.droppableId) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
+    // Update backend
     onJobStatusChange(draggableId, destination.droppableId);
-    
+
     // Optimistic UI Update
     const sourceColumn = columns[source.droppableId];
     const destColumn = columns[destination.droppableId];
     const sourceItems = [...sourceColumn];
     const destItems = [...destColumn];
+
+    // Remove from source
     const [removed] = sourceItems.splice(source.index, 1);
-    destItems.splice(destination.index, 0, removed);
+
+    // Update the job's status for optimistic UI
+    const updatedJob = { ...removed, status: destination.droppableId };
+
+    // Add to destination
+    destItems.splice(destination.index, 0, updatedJob);
 
     setColumns({
       ...columns,
@@ -139,12 +148,13 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
                       {columns[column.status]?.length || 0}
                     </span>
                   </div>
-                  {columns[column.status]?.map(job => (
-                    <JobCard 
-                      key={job.id} 
-                      job={job} 
-                      client={getClientName(job.client_id)} 
-                      server={getServerName(job.assigned_server_id)} 
+                  {columns[column.status]?.map((job, index) => (
+                    <JobCard
+                      key={job.id}
+                      job={job}
+                      client={getClientName(job.client_id)}
+                      server={getServerName(job.assigned_server_id)}
+                      index={index}
                     />
                   ))}
                   {provided.placeholder}

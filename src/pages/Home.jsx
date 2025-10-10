@@ -1,38 +1,43 @@
-import React from 'react';
+import React from "react";
 import { Button } from "@/components/ui/button";
-import { User } from '@/api/entities';
-import { createPageUrl } from '@/utils';
-import { ShieldCheck, Zap, BarChart, Users, FileText } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { User } from "@/api/entities";
+import { createPageUrl } from "@/utils";
+import { ShieldCheck, Zap, BarChart, Users, FileText } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 
 export default function HomePage() {
-
-  const handleLogin = async () => {
-    // This function will redirect the user to the Google login page.
-    // After successful login, they will be redirected back to the dashboard.
-    await User.loginWithRedirect(window.location.origin + createPageUrl('Dashboard'));
+  const navigate = useNavigate();
+  const handleLogin = () => {
+    navigate(createPageUrl('Login'));
   };
 
+  const handleSignUp = () => {
+    navigate(createPageUrl('SignUp'));
+  };
   const features = [
     {
       icon: <Zap className="w-8 h-8 text-blue-500" />,
       title: "Streamlined Job Management",
-      description: "From creation to completion, track every job with status updates, server assignments, and detailed activity logs.",
+      description:
+        "From creation to completion, track every job with status updates, server assignments, and detailed activity logs.",
     },
     {
       icon: <Users className="w-8 h-8 text-blue-500" />,
       title: "Client & Server Hub",
-      description: "Manage all your clients, employees, and contractors in one centralized location with detailed profiles.",
+      description:
+        "Manage all your clients, employees, and contractors in one centralized location with detailed profiles.",
     },
     {
       icon: <FileText className="w-8 h-8 text-blue-500" />,
       title: "Automated Document Generation",
-      description: "Instantly generate professional affidavits and field sheets, reducing manual paperwork and saving time.",
+      description:
+        "Instantly generate professional affidavits and field sheets, reducing manual paperwork and saving time.",
     },
     {
       icon: <BarChart className="w-8 h-8 text-blue-500" />,
       title: "Insightful Dashboard",
-      description: "Get a real-time overview of your operations with key metrics on jobs, invoices, and top performers.",
+      description:
+        "Get a real-time overview of your operations with key metrics on jobs, invoices, and top performers.",
     },
   ];
 
@@ -43,11 +48,18 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-800 rounded-xl flex items-center justify-center">
-                <FileText className="w-5 h-5 text-white" />
+              <FileText className="w-5 h-5 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-slate-900">ServeMax</h1>
           </div>
-          <Button onClick={handleLogin}>Login</Button>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={handleLogin}>
+              Login
+            </Button>
+            <Button onClick={handleSignUp}>
+              Start Free Trial
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -59,11 +71,25 @@ export default function HomePage() {
               The Modern CRM for Process Servers
             </h2>
             <p className="mt-6 text-lg text-slate-600 max-w-2xl mx-auto">
-              ServeMax is the all-in-one platform designed to streamline your process serving business. Manage jobs, clients, servers, and accounting with ease.
+              ServeMax is the all-in-one platform designed to streamline your
+              process serving business. Manage jobs, clients, servers, and
+              accounting with ease.
             </p>
-            <div className="mt-8">
-              <Button size="lg" onClick={handleLogin} className="text-lg px-8 py-6">
-                Get Started & Login
+            <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
+              <Button
+                size="lg"
+                onClick={handleSignUp}
+                className="text-lg px-8 py-6"
+              >
+                Start Free Trial
+              </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handleLogin}
+                className="text-lg px-8 py-6"
+              >
+                Login
               </Button>
             </div>
           </div>
@@ -73,14 +99,24 @@ export default function HomePage() {
         <section className="py-20">
           <div className="max-w-7xl mx-auto px-6">
             <div className="text-center mb-12">
-                <h3 className="text-4xl font-bold text-slate-900">Everything You Need, All in One Place</h3>
-                <p className="mt-4 text-lg text-slate-600">Powerful features to automate your workflow and grow your business.</p>
+              <h3 className="text-4xl font-bold text-slate-900">
+                Everything You Need, All in One Place
+              </h3>
+              <p className="mt-4 text-lg text-slate-600">
+                Powerful features to automate your workflow and grow your
+                business.
+              </p>
             </div>
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
               {features.map((feature, index) => (
-                <div key={index} className="bg-slate-50 p-8 rounded-xl border border-slate-100">
+                <div
+                  key={index}
+                  className="bg-slate-50 p-8 rounded-xl border border-slate-100"
+                >
                   <div className="mb-4">{feature.icon}</div>
-                  <h4 className="text-xl font-semibold text-slate-900 mb-2">{feature.title}</h4>
+                  <h4 className="text-xl font-semibold text-slate-900 mb-2">
+                    {feature.title}
+                  </h4>
                   <p className="text-slate-600">{feature.description}</p>
                 </div>
               ))}
@@ -92,7 +128,9 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="bg-slate-900 text-white">
         <div className="max-w-7xl mx-auto px-6 py-8 text-center">
-          <p>&copy; {new Date().getFullYear()} ServeMax. All rights reserved.</p>
+          <p>
+            &copy; {new Date().getFullYear()} ServeMax. All rights reserved.
+          </p>
         </div>
       </footer>
     </div>

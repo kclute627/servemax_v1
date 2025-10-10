@@ -10,8 +10,10 @@
 //   - `generateFieldSheet`: Will be a call to your new Firebase Cloud Function.
 
 import React, { useState, useEffect } from "react";
+import { useGlobalData } from "@/components/GlobalDataContext";
 // FIREBASE TRANSITION: Replace with Firebase SDK imports.
 import { Job, Client, Employee, CourtCase, Document, Court, CompanySettings, User, ServerPayRecord, Invoice } from "@/api/entities"; // Added User import, Added ServerPayRecord, Added Invoice
+import { SecureJobAccess, SecureCourtAccess, SecureCaseAccess } from "@/firebase/multiTenantAccess";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +23,8 @@ import {
   SelectItem, // Retained as per outline
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useToast } from "@/components/ui/use-toast";
 import {
   ArrowLeft,
   Loader2,
@@ -35,28 +39,35 @@ import {
   Landmark,
   Pencil,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Store
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 
 import ClientSearchInput from "../components/jobs/ClientSearchInput";
+import SelectedClientBox from "../components/jobs/SelectedClientBox";
 import NewClientQuickForm from "../components/jobs/NewClientQuickForm";
 import DocumentUpload from "../components/jobs/DocumentUpload";
 import NewContactDialog from "../components/jobs/NewContactDialog";
 import AddressAutocomplete from "../components/jobs/AddressAutocomplete";
+import AddressListManager from "../components/jobs/AddressListManager";
 import ServerPayItems from "../components/jobs/ServerPayItems";
 import CourtAutocomplete from "../components/jobs/CourtAutocomplete";
 import ContractorSearchInput from "../components/jobs/ContractorSearchInput";
 import CaseNumberAutocomplete from "../components/jobs/CaseNumberAutocomplete"; // New Import
+import QuickInvoice from "../components/jobs/QuickInvoice";
 // FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { generateFieldSheet } from "@/api/functions"; // Added import for generateFieldSheet
 
 export default function CreateJobPage() {
   const navigate = useNavigate();
+  const { companyData, refreshData } = useGlobalData();
+  const { toast } = useToast();
   const [formData, setFormData] = useState({
     client_id: "",
     client_job_number: "",
+    contact_id: "",
     contact_email: "",
     plaintiff: "",
     defendant: "",
@@ -66,13 +77,18 @@ export default function CreateJobPage() {
     court_address: {},
     recipient_name: "",
     recipient_type: "individual",
-    address1: "",
-    address2: "",
-    city: "",
-    state: "",
-    postal_code: "",
-    latitude: null,
-    longitude: null,
+    // Updated to support multiple addresses
+    addresses: [{
+      label: "Service Address",
+      address1: "",
+      address2: "",
+      city: "",
+      state: "",
+      postal_code: "",
+      latitude: null,
+      longitude: null,
+      primary: true
+    }],
     service_instructions: "",
     server_type: "employee",
     assigned_server_id: "unassigned",
@@ -98,6 +114,7 @@ export default function CreateJobPage() {
   const [isEditingExistingCourt, setIsEditingExistingCourt] = useState(false);
   const [selectedClient, setSelectedClient] = useState(null);
   const [uploadedDocuments, setUploadedDocuments] = useState([]);
+  const [invoiceData, setInvoiceData] = useState(null);
   const [clientSearchText, setClientSearchText] = useState("");
   const [lastAddedContact, setLastAddedContact] = useState(null);
   const [selectedCourtFromAutocomplete, setSelectedCourtFromAutocomplete] = useState(null);
@@ -268,18 +285,6 @@ export default function CreateJobPage() {
     }));
   };
 
-  const handleAddressSelect = (addressDetails) => {
-    setFormData(prev => ({
-      ...prev,
-      address1: addressDetails.address1 || '',
-      city: addressDetails.city || '',
-      state: addressDetails.state || '',
-      postal_code: addressDetails.postal_code || '',
-      latitude: addressDetails.latitude || null,
-      longitude: addressDetails.longitude || null
-    }));
-  };
-
   const handleCourtAddressSelect = (addressDetails) => {
     setFormData(prev => ({
       ...prev,
@@ -341,13 +346,23 @@ export default function CreateJobPage() {
       court_county: court.county,
       court_address: court.address || {}
     }));
-    
-    // Show court details section if address exists or if it's a new court
-    if (court.address?.address1 || court.isNew) {
-      setShowCourtDetails(true);
-    }
 
-    setSelectedCourtFromAutocomplete(court);
+    // If it's a new court being created
+    if (court.isNew) {
+      // Enable edit mode and show court details section
+      setIsEditingExistingCourt(true);
+      setShowCourtDetails(true);
+      // Don't set selectedCourtFromAutocomplete so the name field stays editable
+      setSelectedCourtFromAutocomplete(null);
+    } else {
+      // Existing court selected - lock it in read-only mode
+      setSelectedCourtFromAutocomplete(court);
+      setIsEditingExistingCourt(false);
+      // Show court details if address exists
+      if (court.address?.address1) {
+        setShowCourtDetails(true);
+      }
+    }
   };
 
   const handleClearCourtSelection = () => {
@@ -405,6 +420,7 @@ export default function CreateJobPage() {
     setFormData(prev => ({
       ...prev,
       client_id: client.id,
+      contact_id: primaryContact?.id || "",
       contact_email: primaryContact?.email || ""
     }));
     setSelectedClient(client);
@@ -419,6 +435,7 @@ export default function CreateJobPage() {
     setFormData(prev => ({
       ...prev,
       client_id: newClient.id,
+      contact_id: primaryContact?.id || "",
       contact_email: primaryContact?.email || ""
     }));
     setClientContacts(newClient.contacts || []);
@@ -427,12 +444,67 @@ export default function CreateJobPage() {
     setClientSearchText(newClient.company_name);
   };
 
+  const handleRemoveClient = () => {
+    setSelectedClient(null);
+    setClientContacts([]);
+    setClientSearchText("");
+    setFormData(prev => ({
+      ...prev,
+      client_id: "",
+      contact_id: "",
+      contact_email: ""
+    }));
+  };
+
+  // Check if marketplace is available based on requirements
+  const isMarketplaceAvailable = () => {
+    // Check if at least one document is uploaded
+    const hasDocuments = uploadedDocuments && uploadedDocuments.length > 0;
+
+    // Check if primary address is valid
+    const primaryAddress = formData.addresses?.find(a => a.primary) || formData.addresses?.[0];
+    const hasValidAddress = primaryAddress &&
+      primaryAddress.address1 &&
+      primaryAddress.city &&
+      primaryAddress.state &&
+      primaryAddress.postal_code;
+
+    return hasDocuments && hasValidAddress;
+  };
+
+  // Get specific reason why marketplace is disabled
+  const getMarketplaceDisabledReason = () => {
+    const hasDocuments = uploadedDocuments && uploadedDocuments.length > 0;
+    const primaryAddress = formData.addresses?.find(a => a.primary) || formData.addresses?.[0];
+    const hasValidAddress = primaryAddress &&
+      primaryAddress.address1 &&
+      primaryAddress.city &&
+      primaryAddress.state &&
+      primaryAddress.postal_code;
+
+    if (!hasDocuments && !hasValidAddress) {
+      return "Upload service documents and complete the service address to enable marketplace";
+    } else if (!hasDocuments) {
+      return "Upload at least one service document to enable marketplace";
+    } else if (!hasValidAddress) {
+      return "Complete the service address (street, city, state, ZIP) to enable marketplace";
+    }
+    return "";
+  };
+
   const handleNewContactCreated = (newContact) => {
     setClientContacts(prevContacts => [...prevContacts, newContact]);
 
     setSelectedClient(prevClient => ({
       ...prevClient,
       contacts: [...(prevClient?.contacts || []), newContact],
+    }));
+
+    // Auto-select the newly created contact
+    setFormData(prev => ({
+      ...prev,
+      contact_id: newContact.id,
+      contact_email: newContact.email || ""
     }));
 
     setLastAddedContact(newContact);
@@ -456,6 +528,14 @@ export default function CreateJobPage() {
       setIsSubmitting(false);
       return;
     }
+
+    // Validate marketplace requirements
+    if (formData.server_type === 'marketplace' && !isMarketplaceAvailable()) {
+      alert("Cannot post to marketplace: Please upload service documents and complete the service address.");
+      setIsSubmitting(false);
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -482,13 +562,25 @@ export default function CreateJobPage() {
                                    selectedContractor.job_sharing_opt_in === true;
       }
 
-      // --- Enhanced Case & Court Handling ---
-      let courtCaseId;
+      // ============================================================================
+      // CRITICAL ORDER: Court → Case → Job
+      // ============================================================================
+      // When creating a new job, we MUST follow this order:
+      // 1. FIRST: Create/get Court (saves to courts collection with created_by)
+      // 2. SECOND: Create/get Case WITH court_id (saves to court_cases with created_by)
+      // 3. THIRD: Create Job WITH case_id (saves to jobs collection)
+      //
+      // This ensures proper relationships: Job → Case → Court
+      // ============================================================================
 
-      // 1. Handle Court Update (if edited)
+      let courtId = null;
+      let courtCaseId = null;
+
+      // STEP 1: Handle Court (Create new or use existing)
       if (formData.court_name && isEditingExistingCourt) {
-        const existingCourts = await Court.filter({ branch_name: formData.court_name });
+        const existingCourts = await SecureCourtAccess.filter({ branch_name: formData.court_name });
         if (existingCourts.length > 0) {
+          courtId = existingCourts[0].id;
           await Court.update(existingCourts[0].id, {
             county: formData.court_county,
             address: formData.court_address
@@ -496,17 +588,23 @@ export default function CreateJobPage() {
         }
       } else if (formData.court_name && !selectedCourtFromAutocomplete) {
         // Handle creation of a brand new court not previously in DB
-        const existingCourts = await Court.filter({ branch_name: formData.court_name });
+        const existingCourts = await SecureCourtAccess.filter({ branch_name: formData.court_name });
         if (existingCourts.length === 0) {
-           await Court.create({
+          const newCourt = await SecureCourtAccess.create({
             branch_name: formData.court_name,
             county: formData.court_county || "Unknown County",
             address: formData.court_address
           });
+          courtId = newCourt.id;
+        } else {
+          courtId = existingCourts[0].id;
         }
+      } else if (selectedCourtFromAutocomplete) {
+        courtId = selectedCourtFromAutocomplete.id;
       }
-      
-      // 2. Handle CourtCase (Update existing or Create new)
+
+      // STEP 2: Handle CourtCase (Create new or use existing)
+      // IMPORTANT: Case MUST have court_id set before being created
       if (selectedCase && isEditingCase) {
         // User EDITED an existing case
         const caseUpdateData = {
@@ -514,6 +612,7 @@ export default function CreateJobPage() {
           case_number: formData.case_number,
           plaintiff: formData.plaintiff,
           defendant: formData.defendant,
+          court_id: courtId, // Link to court
           court_name: formData.court_name,
           court_county: formData.court_county,
           court_address: JSON.stringify(formData.court_address)
@@ -526,18 +625,20 @@ export default function CreateJobPage() {
       } else {
         // User is CREATING a new case from scratch
         const caseName = `${formData.plaintiff} vs ${formData.defendant}`;
-        const newCourtCase = await CourtCase.create({
+        const newCourtCase = await SecureCaseAccess.create({
           case_name: caseName,
           case_number: formData.case_number,
           plaintiff: formData.plaintiff,
           defendant: formData.defendant,
+          court_id: courtId, // CRITICAL: Link case to court
           court_name: formData.court_name,
           court_county: formData.court_county,
           court_address: JSON.stringify(formData.court_address)
         });
         courtCaseId = newCourtCase.id;
       }
-      // --- End of Enhanced Handling ---
+
+      // STEP 3: Create Job with case_id (handled below in newJobData)
 
       // Fix for Assigned Server Display: Ensure assigned_server_id is always a string ('unassigned' or actual ID)
       const serverIdForSubmission = (formData.assigned_server_id === "unassigned" || !formData.assigned_server_id) ? "unassigned" : String(formData.assigned_server_id);
@@ -555,25 +656,14 @@ export default function CreateJobPage() {
         job_number: jobNumber,
         client_job_number: formData.client_job_number,
         client_id: formData.client_id,
+        contact_id: formData.contact_id,
         contact_email: formData.contact_email,
         court_case_id: courtCaseId,
         recipient: {
           name: formData.recipient_name,
           type: formData.recipient_type
         },
-        addresses: [
-          {
-            label: "Primary",
-            address1: formData.address1,
-            address2: formData.address2,
-            city: formData.city,
-            state: formData.state,
-            postal_code: formData.postal_code,
-            latitude: formData.latitude,
-            longitude: formData.longitude,
-            primary: true,
-          }
-        ],
+        addresses: formData.addresses,
         service_instructions: formData.service_instructions,
         first_attempt_instructions: formData.first_attempt_instructions,
         first_attempt_due_date: formData.first_attempt_due_date,
@@ -589,6 +679,7 @@ export default function CreateJobPage() {
         total_server_pay: totalServerPay,
         // Adjust status logic to use the new string value for assigned_server_id
         status: serverIdForSubmission !== "unassigned" ? "assigned" : "pending",
+        is_closed: false,
         activity_log: [initialLogEntry]
       };
 
@@ -601,7 +692,7 @@ export default function CreateJobPage() {
         newJobData.shared_job_status = null;
       }
 
-      const newJob = await Job.create(newJobData);
+      const newJob = await SecureJobAccess.create(newJobData);
 
       // Create ServerPayRecord if there's server pay
       if (totalServerPay > 0 && serverIdForSubmission !== "unassigned") {
@@ -740,6 +831,16 @@ export default function CreateJobPage() {
         // Don't block job creation if field sheet generation fails
       }
 
+      // Show success toast
+      toast({
+        variant: "success",
+        title: "Job created successfully",
+        description: `Job ${newJob.job_number} has been created`,
+      });
+
+      // Refresh data to show the new job in the list
+      await refreshData();
+
       navigate(createPageUrl("Jobs"));
     } catch (error) {
       console.error("Error creating job:", error);
@@ -749,14 +850,7 @@ export default function CreateJobPage() {
     setIsSubmitting(false);
   };
 
-  const isFormValid = formData.client_id &&
-    formData.plaintiff &&
-    formData.defendant &&
-    formData.recipient_name &&
-    formData.address1 &&
-    formData.city &&
-    formData.state &&
-    formData.postal_code;
+  const isFormValid = formData.client_id;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -799,61 +893,37 @@ export default function CreateJobPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-4">
-                  <div>
-                    <Label>Client</Label>
-                    <ClientSearchInput
-                      value={clientSearchText}
-                      onValueChange={setClientSearchText}
-                      onClientSelected={handleClientSelected}
-                      onShowNewClient={() => setShowNewClientForm(true)}
-                      selectedClient={selectedClient}
-                    />
-                  </div>
-
-                  {clientContacts.length > 0 && (
+                  {!showNewClientForm && !selectedClient && (
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <Label htmlFor="contact_email">Job Contact</Label>
-                        {selectedClient && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="gap-1.5 text-xs h-7"
-                            onClick={() => setShowNewContactDialog(true)}
-                          >
-                            <UserPlus className="w-3 h-3" />
-                            New
-                          </Button>
-                        )}
-                      </div>
-                      <select
-                        id="contact_email"
-                        value={formData.contact_email}
-                        onChange={(e) => handleInputChange('contact_email', e.target.value)}
-                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <option value="">Select a contact</option>
-                        {clientContacts.map((contact, index) => (
-                          <option key={contact.email || index} value={contact.email}>
-                            {contact.first_name} {contact.last_name} {contact.primary && '(Primary)'}
-                          </option>
-                        ))}
-                      </select>
+                      <Label>Client</Label>
+                      <ClientSearchInput
+                        value={clientSearchText}
+                        onValueChange={setClientSearchText}
+                        onClientSelected={handleClientSelected}
+                        onShowNewClient={() => setShowNewClientForm(true)}
+                        selectedClient={selectedClient}
+                      />
                     </div>
                   )}
 
-                  {clientContacts.length === 0 && formData.client_id && (
-                    <div className="text-center bg-slate-50 p-4 rounded-md">
-                        <p className="text-sm text-slate-600 mb-2">This client has no contacts yet.</p>
-                        <Button
-                          type="button"
-                          onClick={() => setShowNewContactDialog(true)}
-                          className="gap-2"
-                        >
-                           <UserPlus className="w-4 h-4" /> Add First Contact
-                        </Button>
-                    </div>
+                  {selectedClient && !showNewClientForm && (
+                    <SelectedClientBox
+                      client={selectedClient}
+                      contacts={clientContacts}
+                      selectedContactId={formData.contact_id}
+                      onContactChange={(contactId) => {
+                        const selectedContact = clientContacts.find(c => c.id === contactId);
+                        if (selectedContact) {
+                          setFormData(prev => ({
+                            ...prev,
+                            contact_id: selectedContact.id,
+                            contact_email: selectedContact.email
+                          }));
+                        }
+                      }}
+                      onRemoveClient={handleRemoveClient}
+                      onAddContact={() => setShowNewContactDialog(true)}
+                    />
                   )}
 
                   <div>
@@ -870,7 +940,11 @@ export default function CreateJobPage() {
                 {showNewClientForm && (
                   <NewClientQuickForm
                     onClientCreated={handleNewClientCreated}
-                    onCancel={() => setShowNewClientForm(false)}
+                    onCancel={() => {
+                      setShowNewClientForm(false);
+                      setClientSearchText("");
+                    }}
+                    initialCompanyName={clientSearchText}
                   />
                 )}
               </CardContent>
@@ -1031,7 +1105,7 @@ export default function CreateJobPage() {
                             selectedCourt={selectedCourtFromAutocomplete}
                             onClearSelection={handleClearCourtSelection}
                             placeholder="e.g., 12th Judicial Circuit Court"
-                            disabled={isEditingExistingCourt || (selectedCase && !isEditingCase)}
+                            disabled={(selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew) || (selectedCase && !isEditingCase)}
                           />
                         </div>
                         {isEditingExistingCourt && (
@@ -1044,6 +1118,30 @@ export default function CreateJobPage() {
                             title="Cancel edit"
                           >
                             <X className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew && !isEditingExistingCourt && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 flex-shrink-0"
+                            onClick={async () => {
+                              // Count cases linked to this court
+                              try {
+                                const cases = await CourtCase.filter({ court_id: selectedCourtFromAutocomplete.id });
+                                setAssociatedJobsCount(cases.length);
+                                setShowCourtEditWarning(true);
+                              } catch (error) {
+                                console.error('Error counting linked cases:', error);
+                                // Proceed with edit even if count fails
+                                setAssociatedJobsCount(0);
+                                setShowCourtEditWarning(true);
+                              }
+                            }}
+                          >
+                            <Pencil className="w-4 h-4" />
+                            Edit Court
                           </Button>
                         )}
                       </div>
@@ -1178,71 +1276,19 @@ export default function CreateJobPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="md:col-span-3">
-                    <Label htmlFor="address1">Street Address</Label>
-                    <AddressAutocomplete
-                      id="address1"
-                      value={formData.address1}
-                      onChange={(value) => handleInputChange('address1', value)}
-                      onAddressSelect={handleAddressSelect}
-                      onLoadingChange={setIsAddressLoading}
-                      placeholder="Start typing an address..."
-                      required
-                    />
-                  </div>
-                  <div className="relative">
-                    <Label htmlFor="postal_code">ZIP Code</Label>
-                    <Input
-                      id="postal_code"
-                      value={formData.postal_code}
-                      onChange={(e) => handleInputChange('postal_code', e.target.value)}
-                      required
-                      autoComplete="nope"
-                      disabled={isAddressLoading}
-                    />
-                    {isAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="address2">Address Line 2 (Optional)</Label>
-                  <Input
-                    id="address2"
-                    value={formData.address2}
-                    onChange={(e) => handleInputChange('address2', e.target.value)}
-                    placeholder="Apartment, suite, etc."
-                    autoComplete="nope"
-                    disabled={isAddressLoading}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="relative">
-                    <Label htmlFor="city">City</Label>
-                    <Input
-                      id="city"
-                      value={formData.city}
-                      onChange={(e) => handleInputChange('city', e.target.value)}
-                      required
-                      autoComplete="nope"
-                      disabled={isAddressLoading}
-                    />
-                    {isAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
-                  </div>
-                  <div className="relative">
-                    <Label htmlFor="state">State</Label>
-                    <Input
-                      id="state"
-                      value={formData.state}
-                      onChange={(e) => handleInputChange('state', e.target.value)}
-                      required
-                      autoComplete="nope"
-                      disabled={isAddressLoading}
-                    />
-                    {isAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
-                  </div>
-                </div>
+                <AddressListManager
+                  addresses={formData.addresses}
+                  onChange={(addresses) => {
+                    console.log('[CreateJob] Updating addresses:', addresses);
+                    setFormData(prev => {
+                      const updated = { ...prev, addresses };
+                      console.log('[CreateJob] Updated formData:', updated);
+                      return updated;
+                    });
+                  }}
+                  isAddressLoading={isAddressLoading}
+                  setIsAddressLoading={setIsAddressLoading}
+                />
               </CardContent>
             </Card>
 
@@ -1310,7 +1356,7 @@ export default function CreateJobPage() {
               <CardContent className="space-y-4">
                 <div>
                   <Label>Server Type</Label>
-                  <div className="grid grid-cols-2 gap-2 rounded-md bg-slate-100 p-1 mt-1">
+                  <div className="grid grid-cols-3 gap-2 rounded-md bg-slate-100 p-1 mt-1">
                       <Button
                           type="button"
                           onClick={() => {
@@ -1339,6 +1385,8 @@ export default function CreateJobPage() {
                           onClick={() => {
                               handleInputChange('server_type', 'contractor');
                               handleInputChange('assigned_server_id', 'unassigned');
+                              setSelectedContractor(null);
+                              setContractorSearchText("");
                           }}
                           className={`gap-2 justify-center transition-colors ${
                               formData.server_type === 'contractor'
@@ -1350,101 +1398,152 @@ export default function CreateJobPage() {
                           <HardHat className="w-4 h-4" />
                           Contractor
                       </Button>
+                      <Tooltip delayDuration={0}>
+                        <TooltipTrigger asChild>
+                          <span
+                            className="inline-block w-full"
+                            style={!isMarketplaceAvailable() ? { cursor: 'not-allowed' } : undefined}
+                          >
+                            <Button
+                                type="button"
+                                onClick={() => {
+                                    handleInputChange('server_type', 'marketplace');
+                                    handleInputChange('assigned_server_id', 'marketplace');
+                                    setSelectedContractor(null);
+                                    setContractorSearchText("");
+                                }}
+                                disabled={!isMarketplaceAvailable()}
+                                className={`w-full gap-2 justify-center transition-colors ${
+                                    formData.server_type === 'marketplace'
+                                        ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
+                                        : 'bg-transparent text-slate-600 hover:bg-slate-200'
+                                }`}
+                                variant="ghost"
+                            >
+                                <Store className="w-4 h-4" />
+                                Marketplace
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs">
+                          {!isMarketplaceAvailable() ? (
+                            <p>{getMarketplaceDisabledReason()}</p>
+                          ) : (
+                            <p>Post this job to the marketplace for other companies to bid on</p>
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
                   </div>
                 </div>
 
-                <div>
-                  <Label htmlFor="assigned_server_id">
-                    Assign To {formData.server_type === 'employee' ? 'Employee' : 'Contractor'}
-                  </Label>
-                  {formData.server_type === 'employee' ? (
-                    <select
-                      id="assigned_server_id"
-                      value={String(formData.assigned_server_id || 'unassigned')}
-                      onChange={(e) => handleInputChange('assigned_server_id', e.target.value)}
-                      className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <option value="unassigned">Unassigned</option>
-                      {employees.map(employee => (
-                        <option key={employee.id} value={String(employee.id)}>
-                          {employee.first_name} {employee.last_name} {employee.is_default_server ? '★' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <ContractorSearchInput
-                      value={contractorSearchText}
-                      onValueChange={setContractorSearchText}
-                      onContractorSelected={handleContractorSelected}
-                      selectedContractor={selectedContractor}
-                      currentClientId={formData.client_id}
-                    />
-                  )}
-                </div>
+                {formData.server_type !== 'marketplace' && (
+                  <div>
+                    <Label htmlFor="assigned_server_id">
+                      Assign To {formData.server_type === 'employee' ? 'Employee' : 'Contractor'}
+                    </Label>
+                    {formData.server_type === 'employee' ? (
+                      <select
+                        id="assigned_server_id"
+                        value={String(formData.assigned_server_id || 'unassigned')}
+                        onChange={(e) => handleInputChange('assigned_server_id', e.target.value)}
+                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="unassigned">Unassigned</option>
+                        {employees.map(employee => (
+                          <option key={employee.id} value={String(employee.id)}>
+                            {employee.first_name} {employee.last_name} {employee.is_default_server ? '★' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <ContractorSearchInput
+                        value={contractorSearchText}
+                        onValueChange={setContractorSearchText}
+                        onContractorSelected={handleContractorSelected}
+                        selectedContractor={selectedContractor}
+                        currentClientId={formData.client_id}
+                      />
+                    )}
+                  </div>
+                )}
 
-                <ServerPayItems
-                  items={formData.server_pay_items}
-                  onItemsChange={(newItems) => handleInputChange('server_pay_items', newItems)}
-                  defaultItems={
-                    formData.server_type === 'employee'
-                      ? employees.find(e => String(e.id) === formData.assigned_server_id)?.default_pay_items || []
-                      : selectedContractor && String(selectedContractor.id) === formData.assigned_server_id
-                        ? selectedContractor.default_pay_items || []
-                        : []
-                  }
-                />
+                {formData.server_type === 'marketplace' && (
+                  <div className={`transition-all duration-300 ease-in-out rounded-lg border p-4 space-y-3 ${isMarketplaceAvailable() ? "bg-blue-50 border-blue-200" : "bg-amber-50 border-amber-200"}`}>
+                      {!isMarketplaceAvailable() ? (
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-slate-900 mb-1">Requirements Not Met</h4>
+                            <p className="text-sm text-slate-600 mb-2">
+                              To post to the marketplace, you must complete:
+                            </p>
+                            <ul className="text-sm text-slate-700 space-y-1.5 ml-4 list-disc">
+                              {(!uploadedDocuments || uploadedDocuments.length === 0) && (
+                                <li>Upload at least one service document</li>
+                              )}
+                              {(() => {
+                                const primaryAddress = formData.addresses?.find(a => a.primary) || formData.addresses?.[0];
+                                const hasValidAddress = primaryAddress &&
+                                  primaryAddress.address1 &&
+                                  primaryAddress.city &&
+                                  primaryAddress.state &&
+                                  primaryAddress.postal_code;
+                                return !hasValidAddress ? <li>Complete the service address (street, city, state, ZIP)</li> : null;
+                              })()}
+                            </ul>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-3">
+                          <Store className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-slate-900 mb-1">Post to Marketplace</h4>
+                            <p className="text-sm text-slate-600 mb-2">
+                              Your job will be visible to all ServeMax companies. Other companies can place anonymous bids,
+                              and you can select the best offer.
+                            </p>
+                            <div className="text-xs text-slate-500 space-y-1">
+                              <p>• Street address will NOT be shown (only city, state, ZIP)</p>
+                              <p>• You'll see which company places each bid</p>
+                              <p>• You'll be notified when bids are placed</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                )}
+
+                {formData.server_type !== 'marketplace' && (
+                  <div className="transition-all duration-300 ease-in-out">
+                    <ServerPayItems
+                      items={formData.server_pay_items}
+                      onItemsChange={(newItems) => handleInputChange('server_pay_items', newItems)}
+                      defaultItems={
+                        formData.server_type === 'employee'
+                          ? employees.find(e => String(e.id) === formData.assigned_server_id)?.default_pay_items || []
+                          : selectedContractor && String(selectedContractor.id) === formData.assigned_server_id
+                            ? selectedContractor.default_pay_items || []
+                            : []
+                      }
+                    />
+                  </div>
+                )}
 
               </CardContent>
             </Card>
 
-            {/* Pricing */}
+            {/* Quick Invoice */}
             <Card>
               <CardHeader>
-                <CardTitle>Pricing</CardTitle>
+                <CardTitle>Quick Invoice</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <Label htmlFor="service_fee">Service Fee ($)</Label>
-                    <Input
-                      id="service_fee"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.service_fee}
-                      onChange={(e) => handleInputChange('service_fee', parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="rush_fee">Rush Fee ($)</Label>
-                    <Input
-                      id="rush_fee"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.rush_fee}
-                      onChange={(e) => handleInputChange('rush_fee', parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="mileage_fee">Mileage Fee ($)</Label>
-                    <Input
-                      id="mileage_fee"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.mileage_fee}
-                      onChange={(e) => handleInputChange('mileage_fee', parseFloat(e.target.value) || 0)}
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-slate-200">
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold text-slate-900">Total Fee:</span>
-                    <span className="text-2xl font-bold text-slate-900">${calculateTotalFee().toFixed(2)}</span>
-                  </div>
-                </div>
+              <CardContent>
+                <QuickInvoice
+                  documents={uploadedDocuments}
+                  priority={formData.priority}
+                  invoiceSettings={companyData?.invoice_settings}
+                  onChange={setInvoiceData}
+                />
               </CardContent>
             </Card>
 
@@ -1528,12 +1627,11 @@ export default function CreateJobPage() {
               <div>
                 <h3 className="font-semibold text-slate-900 mb-2">Edit Court Information</h3>
                 <p className="text-sm text-slate-600 mb-3">
-                  Editing this court information will update it for <strong>all jobs</strong> that use this court,
-                  not just this case.
+                  Editing this court will also update <strong>{associatedJobsCount} {associatedJobsCount === 1 ? 'case' : 'cases'}</strong> that {associatedJobsCount === 1 ? 'is' : 'are'} linked to this court.
                 </p>
                 <p className="text-sm text-slate-600">
-                  If you need changes only for this case, click the <strong>X button</strong> to clear the selection
-                  and manually enter court details instead.
+                  If you need changes only for this case, click <strong>Cancel</strong> and clear the selection
+                  to manually enter court details instead.
                 </p>
               </div>
             </div>

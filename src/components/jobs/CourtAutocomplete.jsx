@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Court } from "@/api/entities";
+import { SecureCourtAccess } from "@/firebase/multiTenantAccess";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,17 +62,31 @@ export default function CourtAutocomplete({
   const fetchSuggestions = async (query) => {
     setIsLoading(true);
     try {
-      const courts = await Court.list();
-      const filtered = courts.filter(court => 
-        court.branch_name.toLowerCase().includes(query.toLowerCase()) ||
-        (court.county && court.county.toLowerCase().includes(query.toLowerCase()))
+      // Query only courts created by the user's company
+      const courts = await SecureCourtAccess.list();
+
+      const normalizedQuery = query.toLowerCase().trim();
+
+      const filtered = courts.filter(court =>
+        court.branch_name?.toLowerCase().includes(normalizedQuery) ||
+        court.county?.toLowerCase().includes(normalizedQuery) ||
+        court.court_name?.toLowerCase().includes(normalizedQuery)
       );
+
+      console.log('[CourtAutocomplete] Search results:', {
+        query: normalizedQuery,
+        total_courts: courts.length,
+        filtered: filtered.length
+      });
+
       setSuggestions(filtered);
+      // Show suggestions dropdown when query is 3+ characters
       setShowSuggestions(true);
       setSelectedIndex(-1);
     } catch (error) {
       console.error('Error fetching court suggestions:', error);
       setSuggestions([]);
+      setShowSuggestions(false);
     }
     setIsLoading(false);
   };

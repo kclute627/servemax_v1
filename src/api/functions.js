@@ -1,17 +1,17 @@
-import { base44 } from './base44Client';
+import { FirebaseFunctions } from '../firebase';
 
+// Export Firebase functions to maintain compatibility with existing code
+export const googlePlaces = FirebaseFunctions.googlePlaces;
 
-export const googlePlaces = base44.functions.googlePlaces;
+export const googlePlaceDetails = FirebaseFunctions.googlePlaceDetails;
 
-export const googlePlaceDetails = base44.functions.googlePlaceDetails;
+export const updateSharedJobStatus = FirebaseFunctions.updateSharedJobStatus;
 
-export const updateSharedJobStatus = base44.functions.updateSharedJobStatus;
+export const generateFieldSheet = FirebaseFunctions.generateFieldSheet;
 
-export const generateFieldSheet = base44.functions.generateFieldSheet;
+export const generateAffidavit = FirebaseFunctions.generateAffidavit;
 
-export const generateAffidavit = base44.functions.generateAffidavit;
+export const findDirectoryCompanies = FirebaseFunctions.findDirectoryCompanies;
 
-export const findDirectoryCompanies = base44.functions.findDirectoryCompanies;
-
-export const mergePDFs = base44.functions.mergePDFs;
+export const mergePDFs = FirebaseFunctions.mergePDFs;
 
