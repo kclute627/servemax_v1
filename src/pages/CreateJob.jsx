@@ -14,6 +14,8 @@ import { useGlobalData } from "@/components/GlobalDataContext";
 // FIREBASE TRANSITION: Replace with Firebase SDK imports.
 import { Job, Client, Employee, CourtCase, Document, Court, CompanySettings, User, ServerPayRecord, Invoice } from "@/api/entities"; // Added User import, Added ServerPayRecord, Added Invoice
 import { SecureJobAccess, SecureCourtAccess, SecureCaseAccess } from "@/firebase/multiTenantAccess";
+import { StatsManager } from "@/firebase/stats";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -62,7 +64,8 @@ import { generateFieldSheet } from "@/api/functions"; // Added import for genera
 
 export default function CreateJobPage() {
   const navigate = useNavigate();
-  const { companyData, refreshData } = useGlobalData();
+  const { user } = useAuth();
+  const { companyData, companySettings, refreshData } = useGlobalData();
   const { toast } = useToast();
   const [formData, setFormData] = useState({
     client_id: "",
@@ -645,6 +648,29 @@ export default function CreateJobPage() {
 
       const totalServerPay = formData.server_pay_items.reduce((sum, item) => sum + (item.total || 0), 0);
 
+      // Helper function to get appropriate kanban column ID based on assignment status
+      const getInitialStatusColumn = (isAssigned) => {
+        const columns = companySettings?.kanbanBoard?.columns || [];
+        if (columns.length === 0) {
+          // Fallback: use string status if no kanban columns configured
+          return isAssigned ? "assigned" : "pending";
+        }
+
+        if (isAssigned) {
+          // Find "Assigned" column or second column
+          const assignedColumn = columns.find(col =>
+            col.title.toLowerCase().includes('assigned')
+          );
+          return assignedColumn ? assignedColumn.id : (columns[1]?.id || columns[0]?.id);
+        } else {
+          // Find "Pending" column or first column
+          const pendingColumn = columns.find(col =>
+            col.title.toLowerCase().includes('pending')
+          );
+          return pendingColumn ? pendingColumn.id : columns[0]?.id;
+        }
+      };
+
       const initialLogEntry = {
         timestamp: new Date().toISOString(),
         user_name: currentUser?.full_name || "System",
@@ -677,8 +703,8 @@ export default function CreateJobPage() {
         total_fee: calculateTotalFee(),
         server_pay_items: formData.server_pay_items,
         total_server_pay: totalServerPay,
-        // Adjust status logic to use the new string value for assigned_server_id
-        status: serverIdForSubmission !== "unassigned" ? "assigned" : "pending",
+        // Set status using kanban column UUID
+        status: getInitialStatusColumn(serverIdForSubmission !== "unassigned"),
         is_closed: false,
         activity_log: [initialLogEntry]
       };
@@ -693,6 +719,18 @@ export default function CreateJobPage() {
       }
 
       const newJob = await SecureJobAccess.create(newJobData);
+
+      // Track job creation in stats
+      try {
+        await StatsManager.recordJobCreated(
+          user.company_id,
+          newJob.client_id,
+          serverIdForSubmission !== "unassigned" ? serverIdForSubmission : null
+        );
+      } catch (statsError) {
+        console.error('Failed to record job creation stats:', statsError);
+        // Don't block job creation if stats fail
+      }
 
       // Create ServerPayRecord if there's server pay
       if (totalServerPay > 0 && serverIdForSubmission !== "unassigned") {

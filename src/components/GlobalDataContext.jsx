@@ -37,6 +37,7 @@ export const GlobalDataProvider = ({ children }) => {
   const [companySettings, setCompanySettings] = useState({
     priorities: [],
     jobSharingEnabled: false,
+    kanbanBoard: { enabled: true, columns: [] },
     directoryListing: null
   });
   const [isLoading, setIsLoading] = useState(true);
@@ -98,6 +99,7 @@ export const GlobalDataProvider = ({ children }) => {
         paymentsData,
         prioritySettings,
         jobSharingSettings,
+        kanbanSettings,
         directoryListing
       ] = await Promise.all([
         entities.Company.findById(user.company_id).catch(() => null),
@@ -109,6 +111,7 @@ export const GlobalDataProvider = ({ children }) => {
         SecurePaymentAccess.list().catch(() => []),
         CompanySettings.filter({ setting_key: "job_priorities" }).catch(() => []),
         CompanySettings.filter({ setting_key: "job_sharing" }).catch(() => []),
+        CompanySettings.filter({ setting_key: "kanban_board" }).catch(() => []),
         DirectoryManager.getDirectoryListing(user.company_id).catch(() => null)
       ]);
 
@@ -140,9 +143,25 @@ export const GlobalDataProvider = ({ children }) => {
         ? jobSharingSettings[0].setting_value.enabled || false
         : false;
 
+      const loadedKanbanBoard = kanbanSettings.length > 0
+        ? kanbanSettings[0].setting_value
+        : {
+            enabled: true,
+            columns: [
+              { id: crypto.randomUUID(), title: 'Pending', order: 0 },
+              { id: crypto.randomUUID(), title: 'Assigned', order: 1 },
+              { id: crypto.randomUUID(), title: 'In Progress', order: 2 },
+              { id: crypto.randomUUID(), title: 'Served', order: 3 },
+              { id: crypto.randomUUID(), title: 'Needs Affidavit', order: 4 },
+              { id: crypto.randomUUID(), title: 'Unable to Serve', order: 5 },
+              { id: crypto.randomUUID(), title: 'Cancelled', order: 6 },
+            ]
+          };
+
       setCompanySettings({
         priorities: loadedPriorities,
         jobSharingEnabled: jobSharing,
+        kanbanBoard: loadedKanbanBoard,
         directoryListing: directoryListing
       });
 

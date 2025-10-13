@@ -2,7 +2,8 @@
 import { useState, useEffect, createContext, useContext } from "react";
 
 const TOAST_LIMIT = 20;
-const TOAST_REMOVE_DELAY = 5000; // 5 seconds
+const TOAST_REMOVE_DELAY = 300; // 300ms - delay between dismiss and removal
+const TOAST_AUTO_DISMISS_DELAY = 1500; // 1.5 seconds - auto-dismiss timer
 
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",
@@ -133,6 +134,11 @@ function toast({ ...props }) {
       },
     },
   });
+
+  // Auto-dismiss after 1.5 seconds
+  setTimeout(() => {
+    dismiss();
+  }, TOAST_AUTO_DISMISS_DELAY);
 
   return {
     id,

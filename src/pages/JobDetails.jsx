@@ -55,14 +55,15 @@ import {
   Ruler, // New icon for height
   Weight, // New icon for weight
   Scissors, // New icon for hair color
-  Target // New icon for GPS accuracy
+  Target, // New icon for GPS accuracy
+  Combine // Icon for merge PDFs
 } from 'lucide-react';
 import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
 import NewContactDialog from '../components/jobs/NewContactDialog';
 import ContractorSearchInput from '../components/jobs/ContractorSearchInput';
 // FIREBASE TRANSITION: This will become a call to a Firebase Cloud Function.
-import { generateFieldSheet } from "@/api/functions";
+import { generateFieldSheet, mergePDFs } from "@/api/functions";
 // FIREBASE TRANSITION: This will be replaced with Firebase Storage's `uploadBytes` and `getDownloadURL`.
 import { UploadFile } from "@/api/integrations";
 import { motion, AnimatePresence } from 'framer-motion';
@@ -334,6 +335,7 @@ export default function JobDetailsPage() {
   // State for async operations
   const [isGeneratingFieldSheet, setIsGeneratingFieldSheet] = useState(false); // Tracks status of field sheet generation.
   const [expandedAttemptId, setExpandedAttemptId] = useState(null); // Tracks which attempt's details are expanded in the UI. THIS STATE IS NO LONGER USED, AS AttemptWithMap MANAGES ITS OWN EXPANSION
+  const [isMergingServiceDocs, setIsMergingServiceDocs] = useState(false); // Tracks status of merging service documents
 
   const location = useLocation();
 
@@ -496,7 +498,7 @@ export default function JobDetailsPage() {
     setError(null);
     try {
       // FIREBASE TRANSITION: Replace with `getDoc(doc(db, 'jobs', jobId))`
-      const jobData = await Job.get(jobId);
+      const jobData = await Job.findById(jobId);
       if (!jobData) {
         throw new Error("Job not found");
       }
@@ -513,8 +515,8 @@ export default function JobDetailsPage() {
         clientsList,
         invoiceSettingsData,
       ] = await Promise.all([
-        jobData.client_id ? Client.get(jobData.client_id) : Promise.resolve(null),
-        jobData.court_case_id ? CourtCase.get(jobData.court_case_id) : Promise.resolve(null),
+        jobData.client_id ? Client.findById(jobData.client_id) : Promise.resolve(null),
+        jobData.court_case_id ? CourtCase.findById(jobData.court_case_id) : Promise.resolve(null),
         Document.filter({ job_id: jobId }).catch(e => { console.error("Error loading documents:", e); return []; }),
         Attempt.filter({ job_id: jobId }).catch(e => { console.error("Error loading attempts:", e); return []; }),
         Invoice.filter({ job_ids: jobId }).catch(e => { console.error("Error loading invoices:", e); return []; }),
@@ -1075,8 +1077,8 @@ export default function JobDetailsPage() {
     return allDocs.filter(doc => doc.document_category === category);
   };
 
-  const serviceDocuments = getDocumentsByCategory('to_be_served');
-  const affidavitDocuments = getDocumentsByCategory('affidavit');
+  const serviceDocuments = getDocumentsByCategory('affidavit');
+  const affidavitDocuments = getDocumentsByCategory('to_be_served');
   const photoDocuments = getDocumentsByCategory('photo');
   const fieldSheetDocuments = getDocumentsByCategory('field_sheet');
 
@@ -1283,6 +1285,53 @@ export default function JobDetailsPage() {
     setIsGeneratingFieldSheet(false);
   };
 
+  /**
+   * Merge multiple service document PDFs into a single document
+   */
+  const handleMergeServiceDocuments = async () => {
+    setIsMergingServiceDocs(true);
+    try {
+      const pdfDocs = serviceDocuments.filter(doc =>
+        doc.content_type === 'application/pdf' && doc.file_url
+      );
+
+      if (pdfDocs.length < 2) {
+        alert('Need at least 2 PDF documents to merge');
+        return;
+      }
+
+      const fileUrls = pdfDocs.map(doc => doc.file_url);
+
+      // Call the Firebase Cloud Function
+      const response = await mergePDFs({
+        file_urls: fileUrls,
+        merged_title: 'Merged_Service_Documents'
+      });
+
+      if (!response.success || !response.url) {
+        throw new Error(response.message || 'Failed to merge PDFs');
+      }
+
+      // Create new document entry for merged PDF
+      const mergedDoc = await Document.create({
+        job_id: job.id,
+        title: 'Merged Service Documents',
+        file_url: response.url,
+        document_category: 'affidavit', // Note: swapped category for service docs
+        content_type: 'application/pdf',
+        page_count: response.pageCount || pdfDocs.reduce((total, doc) => total + (doc.page_count || 1), 0),
+        received_at: new Date().toISOString()
+      });
+
+      // Update local state
+      setDocuments(prev => [...prev, mergedDoc]);
+
+    } catch (error) {
+      console.error("Error merging service documents:", error);
+      alert(`Failed to merge PDFs: ${error.message || 'Unknown error'}. Please try again.`);
+    }
+    setIsMergingServiceDocs(false);
+  };
 
   // --- Render Logic ---
   // The JSX below is for rendering the UI. The structure will remain the same.
@@ -1804,68 +1853,57 @@ export default function JobDetailsPage() {
               </Card>
             </div>
 
-            {/* Field Sheet Card */}
+            {/* Service Attempts Card */}
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <QrCode className="w-6 h-6 text-blue-600" />
-                    <div>
-                      <CardTitle>Field Sheet</CardTitle>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={handleGenerateFieldSheet}
-                    disabled={isGeneratingFieldSheet}
-                    className="gap-2"
-                  >
-                    {isGeneratingFieldSheet ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4" />
-                        Generate New Sheet
-                      </>
-                    )}
-                  </Button>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="w-5 h-5" />
+                    Service Attempts ({Array.isArray(attempts) ? attempts.length : 0})
+                  </CardTitle>
+                  <Link to={`${createPageUrl('LogAttempt')}?jobId=${job.id}`}>
+                    <Button size="sm" className="gap-2">
+                      <Plus className="w-4 h-4" />
+                      Log Attempt
+                    </Button>
+                  </Link>
                 </div>
+                <CardDescription>
+                  History of all service attempts for this job
+                </CardDescription>
               </CardHeader>
-              <CardContent>
-                {fieldSheetDocuments.length > 0 ? (
-                  <div className="space-y-2">
-                    <h4 className="text-sm font-medium text-slate-600 mb-2">Generated Sheets:</h4>
-                    {fieldSheetDocuments.slice().sort((a, b) => {
-                      const dateA = new Date(a.received_at || a.created_date);
-                      const dateB = new Date(b.received_at || b.created_date);
-                      return dateB - dateA;
-                    }).map(doc => {
-                      const docDate = doc.received_at || doc.created_date;
-                      return (
-                        <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50 border">
-                          <div className="flex items-center gap-2">
-                            <FileClock className="w-4 h-4 text-slate-500" />
-                            <div>
-                              <p className="font-medium text-slate-800 text-sm">{doc.title}</p>
-                              <p className="text-xs text-slate-500">
-                                {docDate ? `Generated on ${format(new Date(docDate), 'MMM d, yyyy @ h:mm a')}` : 'Date unknown'}
-                              </p>
-                            </div>
-                          </div>
-                          <Button variant="outline" size="sm" asChild>
-                            <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="gap-2">
-                              <Download className="w-3 h-3" />
-                              Download
-                            </a>
-                          </Button>
-                        </div>
-                      );
-                    })}
+              <CardContent className="space-y-4">
+                {/* Attempt Time Coverage - only show for individuals with attempts */}
+                {job?.recipient?.type === 'individual' && attempts && attempts.length > 0 && (
+                  <div className="pb-4 border-b border-slate-200">
+                    <h4 className="text-sm font-semibold text-slate-700 mb-3">Attempt Time Coverage</h4>
+                    <AttemptTimeIndicator attempts={attempts} />
+                  </div>
+                )}
+
+                {Array.isArray(attempts) && attempts.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <Clock className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+                    <p className="font-medium">No service attempts yet</p>
+                    <p className="text-sm">Log the first attempt to get started</p>
                   </div>
                 ) : (
-                  <p className="text-slate-500 text-sm text-center py-4">No field sheets have been generated for this job yet.</p>
+                  <div className="space-y-4">
+                    {attempts
+                      .sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))
+                      .map(attempt => {
+                        return (
+                          <AttemptWithMap
+                            key={attempt.id}
+                            attempt={attempt}
+                            jobId={job.id}
+                            jobAddress={jobAddressString}
+                            jobCoordinates={jobCoordinates}
+                            employees={allEmployees}
+                          />
+                        );
+                      })}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -2025,19 +2063,52 @@ export default function JobDetailsPage() {
             {/* Service Documents Card */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="w-5 h-5" />
-                  Service Documents ({serviceDocuments.length})
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5" />
+                    Service Documents ({serviceDocuments.length})
+                  </CardTitle>
+                  {serviceDocuments.filter(doc => doc.content_type === 'application/pdf' && doc.file_url).length > 1 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleMergeServiceDocuments}
+                      disabled={isMergingServiceDocs}
+                      className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+                    >
+                      {isMergingServiceDocs ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Combine className="w-4 h-4" />
+                      )}
+                      {isMergingServiceDocs ? 'Merging...' : `Merge ${serviceDocuments.filter(doc => doc.content_type === 'application/pdf' && doc.file_url).length} PDFs`}
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {serviceDocuments.length > 0 ? (
                   <div className="space-y-2">
-                    {serviceDocuments.map(doc => (
-                      <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50">
+                    {serviceDocuments.map((doc, index) => (
+                      <div
+                        key={doc.id}
+                        className={`flex items-center justify-between p-3 rounded-md ${
+                          index === 0
+                            ? 'bg-blue-50 border-2 border-blue-300'
+                            : 'bg-slate-50 border border-slate-200'
+                        }`}
+                      >
                         <div className="flex items-center gap-2">
                           <FileText className="w-4 h-4 text-slate-600"/>
-                          <span className="font-medium">{doc.title}</span>
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{doc.title}</span>
+                              {index === 0 && (
+                                <Badge className="bg-blue-600 text-white text-xs">Main Document</Badge>
+                              )}
+                            </div>
+                          </div>
                         </div>
                         <Button variant="outline" size="sm" asChild>
                           <a href={doc.file_url} target="_blank" rel="noopener noreferrer">View</a>
@@ -2312,65 +2383,71 @@ export default function JobDetailsPage() {
 
           {/* Right Column - Service History */}
           <div className="lg:col-span-1 space-y-6">
-            {/* Service Attempts Card */}
+            {/* Field Sheet Card */}
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Clock className="w-5 h-5" />
-                    Service Attempts ({Array.isArray(attempts) ? attempts.length : 0})
-                  </CardTitle>
-                  <Link to={`${createPageUrl('LogAttempt')}?jobId=${job.id}`}>
-                    <Button size="sm" className="gap-2">
-                      <Plus className="w-4 h-4" />
-                      Log Attempt
-                    </Button>
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <QrCode className="w-6 h-6 text-blue-600" />
+                    <div>
+                      <CardTitle>Field Sheet</CardTitle>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleGenerateFieldSheet}
+                    disabled={isGeneratingFieldSheet}
+                    className="gap-2"
+                  >
+                    {isGeneratingFieldSheet ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        Generate New Sheet
+                      </>
+                    )}
+                  </Button>
                 </div>
-                <CardDescription>
-                  History of all service attempts for this job
-                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {Array.isArray(attempts) && attempts.length === 0 ? (
-                  <div className="text-center py-8 text-slate-500">
-                    <Clock className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-                    <p className="font-medium">No service attempts yet</p>
-                    <p className="text-sm">Log the first attempt to get started</p>
+              <CardContent>
+                {fieldSheetDocuments.length > 0 ? (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium text-slate-600 mb-2">Generated Sheets:</h4>
+                    {fieldSheetDocuments.slice().sort((a, b) => {
+                      const dateA = new Date(a.received_at || a.created_date);
+                      const dateB = new Date(b.received_at || b.created_date);
+                      return dateB - dateA;
+                    }).map(doc => {
+                      const docDate = doc.received_at || doc.created_date;
+                      return (
+                        <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50 border">
+                          <div className="flex items-center gap-2">
+                            <FileClock className="w-4 h-4 text-slate-500" />
+                            <div>
+                              <p className="font-medium text-slate-800 text-sm">{doc.title}</p>
+                              <p className="text-xs text-slate-500">
+                                {docDate ? `Generated on ${format(new Date(docDate), 'MMM d, yyyy @ h:mm a')}` : 'Date unknown'}
+                              </p>
+                            </div>
+                          </div>
+                          <Button variant="outline" size="sm" asChild>
+                            <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="gap-2">
+                              <Download className="w-3 h-3" />
+                              Download
+                            </a>
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {attempts
-                      .sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))
-                      .map(attempt => {
-                        return (
-                          <AttemptWithMap
-                            key={attempt.id}
-                            attempt={attempt}
-                            jobId={job.id}
-                            jobAddress={jobAddressString}
-                            jobCoordinates={jobCoordinates}
-                            employees={allEmployees}
-                          />
-                        );
-                      })}
-                  </div>
+                  <p className="text-slate-500 text-sm text-center py-4">No field sheets have been generated for this job yet.</p>
                 )}
               </CardContent>
             </Card>
-            
-            {/* Attempt Time Indicator */}
-            {job?.recipient?.type === 'individual' && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Attempt Time Coverage</CardTitle>
-                  <CardDescription>Visual summary of service attempt times.</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-2">
-                  <AttemptTimeIndicator attempts={attempts} />
-                </CardContent>
-              </Card>
-            )}
 
             {/* Job Activity Card */}
             <Card>

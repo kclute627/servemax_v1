@@ -22,10 +22,10 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
     if (!serversData) return [];
 
     return [...serversData]
-      .filter(stat => stat.completedJobs > 0 || stat.rating > 0 || (stat.profit !== undefined && stat.profit !== 0)) // Filter out servers with no activity
+      .filter(stat => stat.jobs > 0 || stat.completedJobs > 0 || stat.rating > 0 || (stat.profit !== undefined && stat.profit !== 0)) // Show servers with any assigned jobs
       .sort((a, b) => {
         if (viewMode === 'jobs') {
-          return b.completedJobs - a.completedJobs; // Sort by completedJobs
+          return (b.jobs || 0) - (a.jobs || 0); // Sort by total assigned jobs
         } else if (viewMode === 'revenue') {
           // Sort by profit first, then by completedJobs as tiebreaker
           const profitA = a.profit || 0;
@@ -142,7 +142,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                   <>
                     <TableHead className="text-center font-semibold">Jobs</TableHead>
                     <TableHead className="text-right font-semibold whitespace-nowrap">
-                      {viewMode === 'jobs' ? 'Completed Jobs' : 'Rating'}
+                      {viewMode === 'jobs' ? 'Total Jobs' : 'Rating'}
                     </TableHead>
                   </>
                 )}
@@ -222,7 +222,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                         <>
                           <TableCell className="text-center text-slate-600">
                             <AnimatedNumber
-                              value={item.completedJobs}
+                              value={item.jobs || 0}
                               delay={index * 20 + 60}
                               className="inline-block"
                             />
@@ -230,7 +230,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                           <TableCell className="text-right">
                             {viewMode === 'jobs' ? (
                               <AnimatedNumber
-                                value={item.completedJobs}
+                                value={item.jobs || 0}
                                 className="font-bold text-slate-900 inline-block"
                                 delay={index * 20 + 80}
                               />

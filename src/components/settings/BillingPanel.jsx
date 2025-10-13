@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { Job } from "@/api/entities";
+import React from "react";
+import { useGlobalData } from "@/components/GlobalDataContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,18 +24,19 @@ import {
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 
 export default function BillingPanel() {
-  const [currentUsage, setCurrentUsage] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const { companyData } = useGlobalData();
 
-  // Mock subscription data - in a real app this would come from your billing provider
+  // Real subscription data from company document
   const subscription = {
-    plan_name: "Professional",
-    monthly_job_limit: 100,
+    plan_name: companyData?.plan_name || "Professional",
+    monthly_job_limit: companyData?.monthly_job_limit || 100,
     monthly_rate: 28.99,
     current_period_start: startOfMonth(new Date()),
     current_period_end: endOfMonth(new Date()),
-    status: "active"
+    status: companyData?.subscription_status || "active"
   };
+
+  const currentUsage = companyData?.current_month_job_count || 0;
 
   // Mock billing history - in a real app this would come from your billing system
   const billingHistory = [
@@ -64,30 +65,6 @@ export default function BillingPanel() {
       jobs_used: 78
     }
   ];
-
-  useEffect(() => {
-    loadUsageData();
-  }, []);
-
-  const loadUsageData = async () => {
-    setIsLoading(true);
-    try {
-      // Get jobs created this month
-      const jobs = await Job.list();
-      const currentMonth = new Date().getMonth();
-      const currentYear = new Date().getFullYear();
-      
-      const thisMonthJobs = jobs.filter(job => {
-        const jobDate = new Date(job.created_date);
-        return jobDate.getMonth() === currentMonth && jobDate.getFullYear() === currentYear;
-      });
-      
-      setCurrentUsage(thisMonthJobs.length);
-    } catch (error) {
-      console.error("Error loading usage data:", error);
-    }
-    setIsLoading(false);
-  };
 
   const usagePercentage = (currentUsage / subscription.monthly_job_limit) * 100;
   const remainingJobs = subscription.monthly_job_limit - currentUsage;

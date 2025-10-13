@@ -833,8 +833,8 @@ export class StatsManager {
 
       jobs.forEach(job => {
         // Count jobs created in period
-        if (job.created_date) {
-          const createdDate = new Date(job.created_date);
+        if (job.created_at) {
+          const createdDate = new Date(job.created_at);
           if (createdDate >= startDate && createdDate < endDate) {
             counts.jobs_created++;
           }

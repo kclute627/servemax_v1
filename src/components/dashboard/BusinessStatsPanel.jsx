@@ -74,12 +74,6 @@ export default function BusinessStatsPanel() {
     { value: 'all_time', label: 'All Time' },
   ];
 
-  useEffect(() => {
-    if (user?.company_id) {
-      loadBusinessStats();
-    }
-  }, [user, selectedPeriod]);
-
   // Calculate real-time job counts whenever jobs data changes
   useEffect(() => {
     if (jobs && jobs.length >= 0) {
@@ -90,6 +84,111 @@ export default function BusinessStatsPanel() {
       setJobActivity(activityCounts);
     }
   }, [jobs, selectedPeriod]);
+
+  // Calculate real-time business stats from jobs and invoices
+  useEffect(() => {
+    if (jobs && invoices) {
+      setIsLoadingStats(true);
+      calculateRealTimeStats();
+    }
+  }, [jobs, invoices, selectedPeriod]);
+
+  const calculateRealTimeStats = () => {
+    try {
+      const now = new Date();
+      let startDate, endDate;
+
+      // Determine date range based on selected period
+      switch (selectedPeriod) {
+        case 'today':
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+          break;
+        case 'yesterday':
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+          endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          break;
+        case 'this_month':
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+          break;
+        case 'last_month':
+          startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          endDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          break;
+        case 'this_year':
+          startDate = new Date(now.getFullYear(), 0, 1);
+          endDate = new Date(now.getFullYear() + 1, 0, 1);
+          break;
+        case 'last_year':
+          startDate = new Date(now.getFullYear() - 1, 0, 1);
+          endDate = new Date(now.getFullYear(), 0, 1);
+          break;
+        case 'all_time':
+          startDate = null;
+          endDate = null;
+          break;
+        default:
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      }
+
+      // Filter jobs by period
+      const jobsInPeriod = startDate
+        ? jobs.filter(job => {
+            const createdAt = new Date(job.created_at);
+            return createdAt >= startDate && createdAt < endDate;
+          })
+        : jobs;
+
+      // Filter invoices by period (use created_at for invoices)
+      const invoicesInPeriod = startDate
+        ? invoices.filter(inv => {
+            const createdAt = new Date(inv.created_at || inv.invoice_date);
+            return createdAt >= startDate && createdAt < endDate;
+          })
+        : invoices;
+
+      // Calculate job counts
+      const totalJobs = jobsInPeriod.length;
+      const completedJobs = jobsInPeriod.filter(j => j.status === 'served').length;
+      const inProgressJobs = jobsInPeriod.filter(j => !j.is_closed && j.status !== 'served').length;
+      const cancelledJobs = jobsInPeriod.filter(j => j.status === 'cancelled').length;
+
+      // Calculate financial metrics
+      const totalBilled = invoicesInPeriod.reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
+      const totalCollected = invoicesInPeriod
+        .filter(inv => inv.status === 'paid')
+        .reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
+      const outstanding = totalBilled - totalCollected;
+
+      // Calculate performance changes (simplified - just show 0 for now)
+      const realTimeStats = {
+        company_id: user?.company_id,
+        jobs: {
+          total: totalJobs,
+          completed: completedJobs,
+          in_progress: inProgressJobs,
+          cancelled: cancelledJobs
+        },
+        financial: {
+          total_billed: totalBilled,
+          total_collected: totalCollected,
+          outstanding: outstanding
+        },
+        performance: {
+          billing_change_mom: 0,
+          volume_change_mom: 0
+        }
+      };
+
+      setStats(realTimeStats);
+      setIsLoadingStats(false);
+    } catch (error) {
+      console.error('Error calculating real-time stats:', error);
+      setIsLoadingStats(false);
+    }
+  };
 
   // Helper function for date ranges
   const getDateRangeForTopData = (period) => {
@@ -124,12 +223,12 @@ export default function BusinessStatsPanel() {
         return acc;
     }, {});
 
-    // Calculate jobs: Count jobs that were SERVED in the period
-    const servedJobsToConsider = dateRange
-        ? jobs.filter(job => job.status === 'served' && job.service_date && isWithinInterval(new Date(job.service_date), dateRange))
-        : jobs.filter(job => job.status === 'served');
+    // Calculate jobs: Count all jobs CREATED in the period (not just served)
+    const jobsToConsider = dateRange
+        ? jobs.filter(job => job.created_date && isWithinInterval(new Date(job.created_date), dateRange))
+        : jobs;
 
-    servedJobsToConsider.forEach(job => {
+    jobsToConsider.forEach(job => {
         if (job.client_id && clientStats[job.client_id]) {
             clientStats[job.client_id].jobs += 1;
         }

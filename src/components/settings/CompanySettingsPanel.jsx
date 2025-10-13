@@ -11,15 +11,21 @@ import { Textarea } from "@/components/ui/textarea"; // Import Textarea
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser, Globe, Phone } from "lucide-react";
+import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser, Globe, Phone, Briefcase } from "lucide-react";
 import AddressAutocomplete from "../jobs/AddressAutocomplete";
 import { useGlobalData } from "@/components/GlobalDataContext";
+import { useToast } from "@/components/ui/use-toast";
 
 export default function CompanySettingsPanel() {
   const { user } = useAuth();
   const { companyData, companySettings, refreshData } = useGlobalData();
+  const { toast } = useToast();
   const [priorities, setPriorities] = useState([]);
   const [jobSharingEnabled, setJobSharingEnabled] = useState(false);
+  const [kanbanBoard, setKanbanBoard] = useState({
+    enabled: true,
+    columns: []
+  });
   const [companyInfo, setCompanyInfo] = useState({
     company_name: '',
     website: '',
@@ -67,6 +73,25 @@ export default function CompanySettingsPanel() {
       setPriorities(companySettings.priorities || []);
       setJobSharingEnabled(companySettings.jobSharingEnabled || false);
 
+      // Load kanban settings with defaults if none exist
+      if (companySettings.kanbanBoard) {
+        setKanbanBoard(companySettings.kanbanBoard);
+      } else {
+        // Provide default kanban columns with UUIDs
+        setKanbanBoard({
+          enabled: true,
+          columns: [
+            { id: crypto.randomUUID(), title: 'Pending', order: 0 },
+            { id: crypto.randomUUID(), title: 'Assigned', order: 1 },
+            { id: crypto.randomUUID(), title: 'In Progress', order: 2 },
+            { id: crypto.randomUUID(), title: 'Served', order: 3 },
+            { id: crypto.randomUUID(), title: 'Needs Affidavit', order: 4 },
+            { id: crypto.randomUUID(), title: 'Unable to Serve', order: 5 },
+            { id: crypto.randomUUID(), title: 'Cancelled', order: 6 },
+          ]
+        });
+      }
+
       if (companySettings.directoryListing) {
         setDirectorySettings({
           enabled: companySettings.directoryListing.is_active || false,
@@ -83,7 +108,11 @@ export default function CompanySettingsPanel() {
 
   const saveSettings = async () => {
     if (!user?.company_id) {
-      alert("No company associated with user");
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No company associated with user",
+      });
       return;
     }
 
@@ -197,12 +226,28 @@ export default function CompanySettingsPanel() {
         await CompanySettings.create({ setting_key: "job_sharing", setting_value: { enabled: jobSharingEnabled } });
       }
 
+      // Save kanban board settings
+      const existingKanbanSettings = await CompanySettings.filter({ setting_key: "kanban_board" });
+      if (existingKanbanSettings.length > 0) {
+        await CompanySettings.update(existingKanbanSettings[0].id, { setting_value: kanbanBoard });
+      } else {
+        await CompanySettings.create({ setting_key: "kanban_board", setting_value: kanbanBoard });
+      }
+
       // Refresh global data to update all components
       await refreshData();
-      alert("Settings saved successfully!");
+      toast({
+        variant: "success",
+        title: "Settings saved successfully",
+        description: "Your company settings have been updated",
+      });
     } catch (error) {
       console.error("Error saving settings:", error);
-      alert("Failed to save settings");
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save settings",
+      });
     }
     setIsSaving(false);
   };
@@ -219,7 +264,31 @@ export default function CompanySettingsPanel() {
     setPriorities(updated);
   };
 
-  // REMOVED: All Kanban column management functions (`addKanbanColumn`, `updateKanbanColumn`, `removeKanbanColumn`) are gone.
+  // Kanban column management functions
+  const addKanbanColumn = () => {
+    const newColumn = {
+      id: crypto.randomUUID(),
+      title: '',
+      order: kanbanBoard.columns.length
+    };
+    setKanbanBoard(prev => ({
+      ...prev,
+      columns: [...prev.columns, newColumn]
+    }));
+  };
+
+  const updateKanbanColumn = (index, field, value) => {
+    const updated = [...kanbanBoard.columns];
+    updated[index][field] = value;
+    setKanbanBoard(prev => ({ ...prev, columns: updated }));
+  };
+
+  const removeKanbanColumn = (index) => {
+    const updated = kanbanBoard.columns.filter((_, i) => i !== index);
+    // Reorder remaining columns
+    const reordered = updated.map((col, i) => ({ ...col, order: i }));
+    setKanbanBoard(prev => ({ ...prev, columns: reordered }));
+  };
   
   const availableStatuses = [
     { value: "pending", label: "Pending" },
@@ -447,7 +516,64 @@ export default function CompanySettingsPanel() {
       </Card>
 
       {/* REMOVED: Invoice Settings moved to InvoiceSettingsPanel.jsx */}
-      {/* REMOVED: The entire "Kanban Board Configuration" card has been deleted from this file. */}
+
+      {/* Kanban Board Configuration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Briefcase className="w-5 h-5" />Kanban Board</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <div className="text-base font-medium">Enable Kanban View</div>
+              <p className="text-sm text-slate-500">Allow users to view and manage jobs using a kanban board.</p>
+            </div>
+            <Switch
+              checked={kanbanBoard.enabled}
+              onCheckedChange={(checked) => setKanbanBoard(prev => ({ ...prev, enabled: checked }))}
+            />
+          </div>
+
+          {kanbanBoard.enabled && (
+            <div className="pt-4 border-t">
+              <p className="text-sm text-slate-600 mb-4">Configure kanban board columns. Jobs will be organized by these status columns.</p>
+              <div className="space-y-4">
+                {kanbanBoard.columns.map((column, index) => (
+                  <div key={column.id} className="p-4 border rounded-lg bg-slate-50 flex items-center gap-4">
+                    <div className="flex-1">
+                      <Label>Column Title</Label>
+                      <Input
+                        value={column.title}
+                        onChange={(e) => updateKanbanColumn(index, 'title', e.target.value)}
+                        placeholder="e.g. Pending, In Progress, etc."
+                        autoComplete="off"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => removeKanbanColumn(index)}
+                      className="text-red-600 mt-6"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={addKanbanColumn}
+                className="gap-2 mt-4"
+              >
+                <Plus className="w-4 h-4" />
+                Add Column
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

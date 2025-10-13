@@ -1,6 +1,6 @@
 import { entities } from './database';
 import { FirebaseAuth } from './auth';
-import { USER_TYPES, getAccessibleCompanies } from './schemas';
+import { USER_TYPES, getAccessibleCompanies, CompanyManager } from './schemas';
 import {
   canAccessJob,
   canViewAllClients,
@@ -111,6 +111,13 @@ export class MultiTenantAccess {
       await FirebaseAuth.incrementTrialJobUsage();
     } catch (error) {
       console.warn('Could not update trial usage:', error);
+    }
+
+    // Update monthly job metrics for billing tracking
+    try {
+      await CompanyManager.updateJobMetrics(user.company_id, 1);
+    } catch (error) {
+      console.warn('Could not update job metrics:', error);
     }
 
     return newJob;

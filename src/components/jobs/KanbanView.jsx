@@ -7,16 +7,6 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Briefcase, User, Clock } from 'lucide-react';
 
-const statusColumnsConfig = [
-  { status: 'pending', title: 'Pending' },
-  { status: 'assigned', title: 'Assigned' },
-  { status: 'in_progress', title: 'In Progress' },
-  { status: 'served', title: 'Served' },
-  { status: 'needs_affidavit', title: 'Needs Affidavit' },
-  { status: 'unable_to_serve', title: 'Unable to Serve' },
-  { status: 'cancelled', title: 'Cancelled' },
-];
-
 const priorityConfig = {
   standard: { color: "border-transparent" },
   rush: { color: "border-orange-400" },
@@ -60,15 +50,15 @@ const JobCard = ({ job, client, server, index }) => (
   </Draggable>
 );
 
-export default function KanbanView({ jobs, clients, employees, onJobStatusChange, isLoading }) {
+export default function KanbanView({ jobs, clients, employees, onJobStatusChange, isLoading, statusColumns = [] }) {
   const [columns, setColumns] = useState({});
 
   useEffect(() => {
-    const groupedJobs = statusColumnsConfig.reduce((acc, col) => {
-      acc[col.status] = [];
+    const groupedJobs = statusColumns.reduce((acc, col) => {
+      acc[col.id] = [];
       return acc;
     }, {});
-    
+
     jobs.forEach(job => {
       if (groupedJobs[job.status]) {
         groupedJobs[job.status].push(job);
@@ -76,7 +66,7 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
     });
 
     setColumns(groupedJobs);
-  }, [jobs]);
+  }, [jobs, statusColumns]);
 
   const getClientName = (clientId) => clients.find(c => c.id === clientId);
   const getServerName = (serverId) => {
@@ -133,9 +123,9 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <div className="flex gap-4 overflow-x-auto p-2">
-        {statusColumnsConfig.map(column => (
-          <div key={column.status} className="w-80 flex-shrink-0 bg-slate-100 rounded-xl">
-            <Droppable droppableId={column.status}>
+        {statusColumns.map(column => (
+          <div key={column.id} className="w-80 flex-shrink-0 bg-slate-100 rounded-xl">
+            <Droppable droppableId={column.id}>
               {(provided, snapshot) => (
                 <div
                   ref={provided.innerRef}
@@ -145,10 +135,10 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
                   <div className="flex items-center justify-between px-2 pb-3 mb-3 border-b">
                     <h3 className="font-semibold text-slate-800">{column.title}</h3>
                     <span className="text-sm font-medium bg-slate-200 text-slate-600 rounded-full px-2 py-0.5">
-                      {columns[column.status]?.length || 0}
+                      {columns[column.id]?.length || 0}
                     </span>
                   </div>
-                  {columns[column.status]?.map((job, index) => (
+                  {columns[column.id]?.map((job, index) => (
                     <JobCard
                       key={job.id}
                       job={job}

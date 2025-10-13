@@ -436,14 +436,31 @@ export class CompanyManager {
       const company = await entities.Company.findById(companyId);
       if (!company) return;
 
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+
+      // Check if we need to reset for a new month
+      let currentCount = company.current_month_job_count || 0;
+
+      if (company.last_job_created_at) {
+        const lastJobDate = company.last_job_created_at.toDate ? company.last_job_created_at.toDate() : new Date(company.last_job_created_at);
+        const lastMonth = lastJobDate.getMonth();
+        const lastYear = lastJobDate.getFullYear();
+
+        // Reset count if we're in a new month
+        if (lastMonth !== currentMonth || lastYear !== currentYear) {
+          currentCount = 0;
+        }
+      }
+
       // Update current month job count
-      const currentCount = company.current_month_job_count || 0;
       const newCount = Math.max(0, currentCount + increment);
 
       await this.updateCompany(companyId, {
         current_month_job_count: newCount,
-        last_job_created_at: increment > 0 ? new Date() : company.last_job_created_at,
-        first_job_created_at: company.first_job_created_at || (increment > 0 ? new Date() : null)
+        last_job_created_at: increment > 0 ? now : company.last_job_created_at,
+        first_job_created_at: company.first_job_created_at || (increment > 0 ? now : null)
       });
     } catch (error) {
       console.error('Failed to update job metrics:', error);

@@ -51,6 +51,7 @@ export default function JobsPage() {
     employees,
     allAssignableServers,
     myCompanyClientId,
+    companySettings,
     isLoading,
     refreshData
   } = useGlobalData(); // Changed from useJobs() to useGlobalData()
@@ -284,13 +285,16 @@ export default function JobsPage() {
   };
 
   // New handler for Kanban drag-and-drop status updates
-  const handleJobStatusUpdate = useCallback((jobId, newStatus) => {
+  const handleJobStatusUpdate = useCallback(async (jobId, newStatus) => {
     // Note: We can't directly update context state here,
     // but the KanbanView component can handle optimistic UI updates locally.
-    Job.update(jobId, { status: newStatus }).catch(error => {
+    try {
+      await Job.update(jobId, { status: newStatus });
+      await refreshData(); // Refresh to update global context with new status
+    } catch (error) {
       console.error("Failed to update job status via Kanban drag-and-drop:", error);
-      refreshData(); // Refresh on error to revert optimistic update or resync
-    });
+      await refreshData(); // Refresh on error to revert optimistic update
+    }
   }, [refreshData]);
 
   const exportJobs = () => {
@@ -406,15 +410,17 @@ export default function JobsPage() {
                   <Briefcase className="w-4 h-4" />
                   Case
                 </Button>
-                <Button
-                  variant={currentView === 'kanban' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setCurrentView('kanban')}
-                  className={`gap-2 h-9 px-4 ${currentView === 'kanban' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-600 hover:text-slate-800'}`}
-                >
-                  <Columns className="w-4 h-4" />
-                  Kanban
-                </Button>
+                {companySettings?.kanbanBoard?.enabled && (
+                  <Button
+                    variant={currentView === 'kanban' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setCurrentView('kanban')}
+                    className={`gap-2 h-9 px-4 ${currentView === 'kanban' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-600 hover:text-slate-800'}`}
+                  >
+                    <Columns className="w-4 h-4" />
+                    Kanban
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -567,6 +573,7 @@ export default function JobsPage() {
               employees={employees} // Keep employees as it's likely used for display/filtering within Kanban
               onJobStatusChange={handleJobStatusUpdate} // Pass the new handler
               isLoading={isLoading}
+              statusColumns={companySettings?.kanbanBoard?.columns || []}
             />
           )}
         </div>
