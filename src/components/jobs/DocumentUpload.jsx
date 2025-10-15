@@ -97,7 +97,7 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
           file_url: url,
           file_size: file.size,
           content_type: file.type,
-          document_category: getDocumentCategory(file.name, file.type),
+          document_category: 'to_be_served',
           page_count: pageCount
         };
       });

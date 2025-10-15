@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Job, Client, Employee, CourtCase, Document, Attempt, Invoice, CompanySettings, User } from '@/api/entities';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { calculateDistance } from '@/utils/geolocation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -62,6 +63,7 @@ import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
 import NewContactDialog from '../components/jobs/NewContactDialog';
 import ContractorSearchInput from '../components/jobs/ContractorSearchInput';
+import DocumentUpload from '../components/jobs/DocumentUpload';
 // FIREBASE TRANSITION: This will become a call to a Firebase Cloud Function.
 import { generateFieldSheet, mergePDFs } from "@/api/functions";
 // FIREBASE TRANSITION: This will be replaced with Firebase Storage's `uploadBytes` and `getDownloadURL`.
@@ -148,8 +150,8 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
   }
   if (!serverName) serverName = 'N/A';
 
-  const mapLink = attempt.gps_coordinates?.latitude && attempt.gps_coordinates?.longitude
-    ? `https://www.google.com/maps/search/?api=1&query=${attempt.gps_coordinates.latitude},${attempt.gps_coordinates.longitude}`
+  const mapLink = attempt.gps_lat && attempt.gps_lon
+    ? `https://www.google.com/maps/search/?api=1&query=${attempt.gps_lat},${attempt.gps_lon}`
     : null;
 
   return (
@@ -160,6 +162,31 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
             <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" /> :
             <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
           }
+
+          {/* Indicator icons for GPS and Photos */}
+          <div className="flex items-center gap-1">
+            {attempt.gps_lat && attempt.gps_lon && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help">
+                    <MapPin className="w-3.5 h-3.5 text-blue-500" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>GPS Location Logged</TooltipContent>
+              </Tooltip>
+            )}
+            {Array.isArray(attempt.uploaded_files) && attempt.uploaded_files.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help">
+                    <Camera className="w-3.5 h-3.5 text-purple-500" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>{attempt.uploaded_files.length} Photo(s)</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+
           <div>
               <span className="font-medium capitalize">{attempt.status.replace(/_/g, ' ')}</span>
               <span className="text-sm text-slate-500">
@@ -213,6 +240,9 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
                       <div>
                           <h4 className="font-semibold text-slate-700 mb-2">Person Served Details</h4>
                           <div className="p-3 bg-slate-100 rounded-md grid grid-cols-2 md:grid-cols-3 gap-4">
+                              <div className="col-span-full">
+                                <DetailItem icon={UserIcon} label="Name" value={attempt.person_served_name} />
+                              </div>
                               <DetailItem icon={UserSquare} label="Relationship" value={attempt.relationship_to_recipient} />
                               <DetailItem icon={Hash} label="Age" value={attempt.person_served_age} />
                               <DetailItem icon={Ruler} label="Height" value={attempt.person_served_height} />
@@ -226,7 +256,7 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
                       </div>
                   )}
 
-                  {attempt.gps_coordinates?.latitude && attempt.gps_coordinates?.longitude && (
+                  {attempt.gps_lat && attempt.gps_lon && (
                       <div>
                           <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
                               <MapPin className="w-4 h-4" />
@@ -234,9 +264,16 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
                           </h4>
                           <div className="p-3 bg-slate-100 rounded-md space-y-2">
                               <div className="grid grid-cols-2 gap-x-4">
-                                <DetailItem icon={MapPin} label="Latitude" value={attempt.gps_coordinates.latitude} />
-                                <DetailItem icon={MapPin} label="Longitude" value={attempt.gps_coordinates.longitude} />
+                                <DetailItem icon={MapPin} label="Latitude" value={attempt.gps_lat} />
+                                <DetailItem icon={MapPin} label="Longitude" value={attempt.gps_lon} />
                                 {attempt.gps_accuracy && <DetailItem icon={Target} label="Accuracy" value={`${attempt.gps_accuracy} meters`} />}
+                                {attempt.address_lat && attempt.address_lon && (
+                                  <DetailItem
+                                    icon={MapPin}
+                                    label="Distance from Address"
+                                    value={`${calculateDistance(attempt.gps_lat, attempt.gps_lon, attempt.address_lat, attempt.address_lon)} miles`}
+                                  />
+                                )}
                               </div>
                               {mapLink && (
                                   <a
@@ -313,10 +350,12 @@ export default function JobDetailsPage() {
   const [isEditingCaseInfo, setIsEditingCaseInfo] = useState(false);
   const [isEditingServiceDetails, setIsEditingServiceDetails] = useState(false);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [isEditingServiceDocuments, setIsEditingServiceDocuments] = useState(false);
   const [isNewContactDialogOpen, setIsNewContactDialogOpen] = useState(false);
 
   // Form-specific state
   const [editFormData, setEditFormData] = useState({}); // A temporary object to hold changes during an edit session.
+  const [editedDocuments, setEditedDocuments] = useState([]); // State for edited service documents.
   const [jobNotes, setJobNotes] = useState(''); // State for the notes textarea.
   const [selectedContractor, setSelectedContractor] = useState(null); // State for the contractor search component.
   const [contractorSearchValue, setContractorSearchValue] = useState("");
@@ -767,6 +806,14 @@ export default function JobDetailsPage() {
         });
         setIsEditingServiceDetails(true);
         break;
+      case 'serviceDocuments':
+        // Load current service documents into editable state
+        const currentServiceDocs = Array.isArray(documents)
+          ? documents.filter(doc => doc.document_category === 'to_be_served')
+          : [];
+        setEditedDocuments(JSON.parse(JSON.stringify(currentServiceDocs)));
+        setIsEditingServiceDocuments(true);
+        break;
     }
   };
 
@@ -792,6 +839,10 @@ export default function JobDetailsPage() {
         break;
       case 'serviceDetails':
         setIsEditingServiceDetails(false);
+        break;
+      case 'serviceDocuments':
+        setIsEditingServiceDocuments(false);
+        setEditedDocuments([]);
         break;
     }
   };
@@ -871,6 +922,47 @@ export default function JobDetailsPage() {
             first_attempt_instructions: editFormData.first_attempt_instructions
           };
           logDescription = 'Service details updated.';
+          break;
+        case 'serviceDocuments':
+          // Handle document changes
+          const originalDocs = Array.isArray(documents)
+            ? documents.filter(doc => doc.document_category === 'to_be_served')
+            : [];
+
+          // Find documents to delete (in original but not in edited)
+          const docsToDelete = originalDocs.filter(
+            originalDoc => !editedDocuments.some(editedDoc => editedDoc.id === originalDoc.id)
+          );
+
+          // Find documents to create (new documents without a database ID)
+          const docsToCreate = editedDocuments.filter(
+            editedDoc => !editedDoc.id || editedDoc.id.startsWith('upload-') || editedDoc.id.startsWith('manual-')
+          );
+
+          // Delete removed documents
+          for (const doc of docsToDelete) {
+            await Document.delete(doc.id);
+          }
+
+          // Create new documents
+          if (docsToCreate.length > 0) {
+            const documentsToCreate = docsToCreate.map(doc => ({
+              job_id: job.id,
+              title: doc.title,
+              affidavit_text: doc.affidavit_text,
+              file_url: doc.file_url,
+              document_category: 'to_be_served',
+              page_count: doc.page_count,
+              content_type: doc.content_type,
+              file_size: doc.file_size,
+              received_at: new Date().toISOString()
+            }));
+            await Document.bulkCreate(documentsToCreate);
+          }
+
+          // Reload job details to refresh documents
+          await loadJobDetails(job.id);
+          logDescription = 'Service documents updated.';
           break;
       }
 
@@ -1077,8 +1169,8 @@ export default function JobDetailsPage() {
     return allDocs.filter(doc => doc.document_category === category);
   };
 
-  const serviceDocuments = getDocumentsByCategory('affidavit');
-  const affidavitDocuments = getDocumentsByCategory('to_be_served');
+  const serviceDocuments = getDocumentsByCategory('to_be_served');
+  const affidavitDocuments = getDocumentsByCategory('affidavit');
   const photoDocuments = getDocumentsByCategory('photo');
   const fieldSheetDocuments = getDocumentsByCategory('field_sheet');
 
@@ -1230,59 +1322,29 @@ export default function JobDetailsPage() {
   };
 
   /**
-   * Generates and saves a field sheet. This is a multi-step process.
-   * FIREBASE TRANSITION: This will require significant changes.
-   * 1. `generateFieldSheet`: This will become a call to a Firebase Cloud Function (`httpsCallable`).
-   * 2. The returned PDF blob will then be uploaded using Firebase Storage's `uploadBytes`.
-   * 3. `getDownloadURL`: After uploading, you'll get the public URL for the file.
-   * 4. `Document.create`: You will use `addDoc(collection(db, 'documents'), { ... })` to create the new document record in Firestore, storing the download URL.
+   * Generates a field sheet PDF for the job.
+   * The Cloud Function handles PDF creation, upload to Storage, and Document record creation.
    */
   const handleGenerateFieldSheet = async () => {
     setIsGeneratingFieldSheet(true);
     try {
-      // 1. FIREBASE: Call your Cloud Function here.
+      // Call Cloud Function - it handles PDF creation, upload, and Document record
       const response = await generateFieldSheet({ job_id: job.id });
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const formattedDateForFilename = format(new Date(), 'yyyy-MM-dd-HH-mm-ss');
-      const fileName = `field-sheet-${job.job_number}-${formattedDateForFilename}.pdf`;
 
-      // 2. Create a File object to upload
-      const fileToUpload = new File([blob], fileName, { type: 'application/pdf' });
-
-      // 3. FIREBASE: Replace `UploadFile` with Firebase Storage's `uploadBytes` and `getDownloadURL`.
-      const { file_url } = await UploadFile({ file: fileToUpload });
-
-      if (!file_url) {
-        throw new Error("File upload failed, could not get a file URL.");
+      if (!response.success) {
+        throw new Error(response.message || "Failed to generate field sheet");
       }
 
-      // 4. FIREBASE: Replace `Document.create` with `addDoc` to your 'documents' collection in Firestore.
-      const newDocument = await Document.create({
-        job_id: job.id,
-        title: `Field Sheet - ${format(new Date(), 'MMM d, yyyy h:mm a')}`,
-        file_url: file_url, // This will be the URL from Firebase Storage.
-        document_category: 'field_sheet',
-        received_at: new Date().toISOString()
-      });
+      console.log('Field sheet generated successfully:', response);
 
-      // 5. Update local state (this part remains the same).
-      setDocuments(prev => [...prev, newDocument]);
-
-      // 6. Trigger the download for the user (this part remains the same).
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(downloadUrl);
-      a.remove();
-
+      // Reload job details to show the new field sheet
+      await loadJobDetails(job.id);
     } catch (error) {
-      console.error('Error generating and saving field sheet:', error);
-      alert('Failed to generate and save field sheet: ' + error.message);
+      console.error('Failed to generate field sheet:', error);
+      alert(`Failed to generate field sheet: ${error.message}`);
+    } finally {
+      setIsGeneratingFieldSheet(false);
     }
-    setIsGeneratingFieldSheet(false);
   };
 
   /**
@@ -2066,58 +2128,85 @@ export default function JobDetailsPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <FileText className="w-5 h-5" />
-                    Service Documents ({serviceDocuments.length})
+                    Service Documents ({isEditingServiceDocuments ? editedDocuments.length : serviceDocuments.length})
                   </CardTitle>
-                  {serviceDocuments.filter(doc => doc.content_type === 'application/pdf' && doc.file_url).length > 1 && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleMergeServiceDocuments}
-                      disabled={isMergingServiceDocs}
-                      className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
-                    >
-                      {isMergingServiceDocs ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Combine className="w-4 h-4" />
+                  {!isEditingServiceDocuments && (
+                    <div className="flex items-center gap-2">
+                      {serviceDocuments.filter(doc => doc.content_type === 'application/pdf' && doc.file_url).length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleMergeServiceDocuments}
+                          disabled={isMergingServiceDocs}
+                          className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+                        >
+                          {isMergingServiceDocs ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Combine className="w-4 h-4" />
+                          )}
+                          {isMergingServiceDocs ? 'Merging...' : `Merge ${serviceDocuments.filter(doc => doc.content_type === 'application/pdf' && doc.file_url).length} PDFs`}
+                        </Button>
                       )}
-                      {isMergingServiceDocs ? 'Merging...' : `Merge ${serviceDocuments.filter(doc => doc.content_type === 'application/pdf' && doc.file_url).length} PDFs`}
-                    </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleStartEdit('serviceDocuments')} className="gap-2">
+                        <Pencil className="w-4 h-4" />
+                        Edit
+                      </Button>
+                    </div>
                   )}
                 </div>
               </CardHeader>
               <CardContent>
-                {serviceDocuments.length > 0 ? (
-                  <div className="space-y-2">
-                    {serviceDocuments.map((doc, index) => (
-                      <div
-                        key={doc.id}
-                        className={`flex items-center justify-between p-3 rounded-md ${
-                          index === 0
-                            ? 'bg-blue-50 border-2 border-blue-300'
-                            : 'bg-slate-50 border border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-4 h-4 text-slate-600"/>
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{doc.title}</span>
-                              {index === 0 && (
-                                <Badge className="bg-blue-600 text-white text-xs">Main Document</Badge>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <Button variant="outline" size="sm" asChild>
-                          <a href={doc.file_url} target="_blank" rel="noopener noreferrer">View</a>
-                        </Button>
-                      </div>
-                    ))}
+                {isEditingServiceDocuments ? (
+                  <div className="space-y-4">
+                    <DocumentUpload
+                      documents={editedDocuments}
+                      onDocumentsChange={setEditedDocuments}
+                    />
+                    <div className="flex gap-3 pt-4">
+                      <Button onClick={() => handleSaveEdit('serviceDocuments')}>
+                        Save Changes
+                      </Button>
+                      <Button variant="outline" onClick={() => handleCancelEdit('serviceDocuments')}>
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
                 ) : (
-                  <p className="text-slate-500 text-center py-4">No service documents uploaded.</p>
+                  <>
+                    {serviceDocuments.length > 0 ? (
+                      <div className="space-y-2">
+                        {serviceDocuments.map((doc, index) => (
+                          <div
+                            key={doc.id}
+                            className={`flex items-center justify-between p-3 rounded-md ${
+                              index === 0
+                                ? 'bg-blue-50 border-2 border-blue-300'
+                                : 'bg-slate-50 border border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <FileText className="w-4 h-4 text-slate-600"/>
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">{doc.title}</span>
+                                  {index === 0 && (
+                                    <Badge className="bg-blue-600 text-white text-xs">Main Document</Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <Button variant="outline" size="sm" asChild>
+                              <a href={doc.file_url} target="_blank" rel="noopener noreferrer">View</a>
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-slate-500 text-center py-4">No service documents uploaded.</p>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>

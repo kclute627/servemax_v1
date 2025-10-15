@@ -225,7 +225,7 @@ export default function BusinessStatsPanel() {
 
     // Calculate jobs: Count all jobs CREATED in the period (not just served)
     const jobsToConsider = dateRange
-        ? jobs.filter(job => job.created_date && isWithinInterval(new Date(job.created_date), dateRange))
+        ? jobs.filter(job => job.created_at && isWithinInterval(new Date(job.created_at), dateRange))
         : jobs;
 
     jobsToConsider.forEach(job => {
@@ -234,12 +234,15 @@ export default function BusinessStatsPanel() {
         }
     });
 
-    // Calculate revenue from paid invoices: Count invoices PAID in the period
-    const paidInvoicesToConsider = dateRange
-        ? invoices.filter(inv => inv.status === 'paid' && inv.payment_date && isWithinInterval(new Date(inv.payment_date), dateRange))
-        : invoices.filter(inv => inv.status === 'paid');
+    // Calculate revenue from ALL invoices (not just paid) - show total billed amount
+    const invoicesToConsider = dateRange
+        ? invoices.filter(inv => {
+            const invoiceDate = new Date(inv.created_at || inv.invoice_date);
+            return isWithinInterval(invoiceDate, dateRange);
+          })
+        : invoices;
 
-    paidInvoicesToConsider.forEach(invoice => {
+    invoicesToConsider.forEach(invoice => {
         if (invoice.client_id && clientStats[invoice.client_id]) {
             clientStats[invoice.client_id].revenue += invoice.total_amount || 0;
         }
@@ -263,7 +266,8 @@ export default function BusinessStatsPanel() {
     setIsTopServersLoading(true);
 
     const dateRange = getDateRangeForTopData(topServersPeriod);
-    const processServers = employees.filter(emp => emp.role === 'process_server');
+    // Show all employees (removed role filter since employees may not have role field)
+    const processServers = employees;
 
     const serverStats = processServers.reduce((acc, server) => {
         acc[server.id] = {
@@ -280,7 +284,7 @@ export default function BusinessStatsPanel() {
 
     // 1. Count jobs COMPLETED (served) by each server within the period
     const servedJobsInPeriod = dateRange
-        ? jobs.filter(job => job.status === 'served' && job.service_date && isWithinInterval(new Date(job.service_date), dateRange))
+        ? jobs.filter(job => job.status === 'served' && job.updated_at && isWithinInterval(new Date(job.updated_at), dateRange))
         : jobs.filter(job => job.status === 'served');
 
     servedJobsInPeriod.forEach(job => {
@@ -299,7 +303,7 @@ export default function BusinessStatsPanel() {
 
     // 2. Count all jobs ASSIGNED to each server within the period (for completion rate)
     const assignedJobsInPeriod = dateRange
-        ? jobs.filter(job => job.created_date && isWithinInterval(new Date(job.created_date), dateRange))
+        ? jobs.filter(job => job.created_at && isWithinInterval(new Date(job.created_at), dateRange))
         : jobs;
 
     assignedJobsInPeriod.forEach(job => {

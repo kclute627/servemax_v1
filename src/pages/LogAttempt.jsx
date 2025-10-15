@@ -147,6 +147,26 @@ export default function LogAttemptPage() {
     fetchServiceTypes();
   }, []);
 
+  // Auto-populate person served name for personal/individual service
+  useEffect(() => {
+    // Only auto-fill if:
+    // 1. We have job data with recipient name
+    // 2. Service type contains "personal" or "individual"
+    // 3. Person served name is currently empty (don't overwrite user input)
+    if (
+      job?.recipient?.name &&
+      formData.service_type_detail &&
+      (formData.service_type_detail.toLowerCase().includes('personal') ||
+       formData.service_type_detail.toLowerCase().includes('individual')) &&
+      !formData.person_served_name
+    ) {
+      setFormData(prev => ({
+        ...prev,
+        person_served_name: job.recipient.name
+      }));
+    }
+  }, [job, formData.service_type_detail]);
+
   // Main data loading function (replaces loadInitialData)
   const loadJobData = useCallback(async (jobId, attemptId = null) => {
     setIsLoading(true);
@@ -269,7 +289,7 @@ export default function LogAttemptPage() {
           job_id: jobData.id,
           server_id: initialServerId,
           server_name_manual: initialServerNameManual,
-          attempt_date: now.toISOString().split('T')[0],
+          attempt_date: now.toLocaleDateString('en-CA'), // YYYY-MM-DD format in local timezone
           attempt_time: now.toTimeString().slice(0, 5),
           address_of_attempt: defaultAddress,
         };
@@ -357,9 +377,21 @@ export default function LogAttemptPage() {
     } else {
       // Existing address selected
       const selectedAddress = job.addresses?.find(addr => addr.address1 === value);
+      console.log('[LogAttempt] Selected address from job:', selectedAddress);
       if (selectedAddress) {
         const fullAddress = `${selectedAddress.address1}, ${selectedAddress.city}, ${selectedAddress.state} ${selectedAddress.postal_code}`.trim();
         setFormData(prev => ({ ...prev, address_of_attempt: fullAddress }));
+
+        // Populate newAddressData with coordinates from selected address
+        console.log('[LogAttempt] Setting coordinates:', {
+          latitude: selectedAddress.latitude,
+          longitude: selectedAddress.longitude
+        });
+        setNewAddressData(prev => ({
+          ...prev,
+          latitude: selectedAddress.latitude || null,
+          longitude: selectedAddress.longitude || null
+        }));
       }
     }
   };
@@ -538,8 +570,19 @@ export default function LogAttemptPage() {
         relationship_to_recipient: formData.relationship_to_recipient,
         gps_lat: formData.gps_lat,
         gps_lon: formData.gps_lon,
+        address_lat: newAddressData.latitude,
+        address_lon: newAddressData.longitude,
         uploaded_files: uploadedFiles // Use the separate uploadedFiles state
       };
+
+      // Debug logging to diagnose distance calculation issue
+      console.log('Attempt data being saved:', {
+        address_of_attempt: attemptData.address_of_attempt,
+        address_lat: attemptData.address_lat,
+        address_lon: attemptData.address_lon,
+        newAddressData: newAddressData,
+        selectedAddressType: selectedAddressType
+      });
 
       let newAttempt;
       if (isEditMode && editingAttemptId) {
@@ -674,66 +717,77 @@ export default function LogAttemptPage() {
                 Attempt Details
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Process Server Selection */}
-              <div>
-                <Label htmlFor="server">Process Server</Label>
-                <Select
-                  id="server"
-                  value={formData.server_id}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setFormData(prev => ({ ...prev, server_id: value }));
-                    if (value !== 'manual') {
-                      setFormData(prev => ({ ...prev, server_name_manual: '' }));
-                    }
-                  }}
-                  className="w-full h-12 mt-1"
-                >
-                  {employees.map(employee => (
-                    <SelectItem key={employee.id} value={String(employee.id)}>
-                      {employee.first_name} {employee.last_name}
-                    </SelectItem>
-                  ))}
-                  <SelectSeparator />
-                  <SelectItem value="manual">Type in manually</SelectItem>
-                </Select>
+            <CardContent className="space-y-4">
+              {/* Process Server, Date, and Time - Combined Row */}
+              <div className="grid grid-cols-12 gap-4">
+                {/* Process Server */}
+                <div className="col-span-12 md:col-span-5">
+                  <Label htmlFor="server">Process Server</Label>
+                  <Select
+                    id="server"
+                    value={formData.server_id}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFormData(prev => ({ ...prev, server_id: value }));
+                      if (value !== 'manual') {
+                        setFormData(prev => ({ ...prev, server_name_manual: '' }));
+                      }
+                    }}
+                    className="w-full h-12 mt-1"
+                  >
+                    {employees.map(employee => (
+                      <SelectItem key={employee.id} value={String(employee.id)}>
+                        {employee.first_name} {employee.last_name}
+                      </SelectItem>
+                    ))}
+                    <SelectSeparator />
+                    <SelectItem value="manual">Type in manually</SelectItem>
+                  </Select>
+                </div>
 
-                {formData.server_id === 'manual' && (
-                  <div className="mt-2">
-                    <Input
-                      type="text"
-                      name="server_name_manual"
-                      placeholder="Enter server's full name"
-                      value={formData.server_name_manual}
-                      onChange={handleInputChange}
-                      required
-                      className="h-12"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Date and Time */}
-              <div>
-                <Label>Date & Time of Attempt</Label>
-                <div className="flex items-center gap-4 mt-1">
+                {/* Date */}
+                <div className="col-span-12 md:col-span-4">
+                  <Label htmlFor="attempt_date">Date</Label>
                   <Input
+                    id="attempt_date"
                     type="date"
                     name="attempt_date"
                     value={formData.attempt_date}
                     onChange={handleInputChange}
-                    className="w-[240px] h-12"
+                    className="w-full h-12 mt-1"
                   />
+                </div>
+
+                {/* Time */}
+                <div className="col-span-12 md:col-span-3">
+                  <Label htmlFor="attempt_time">Time</Label>
                   <Input
+                    id="attempt_time"
                     type="time"
                     name="attempt_time"
                     value={formData.attempt_time}
                     onChange={handleInputChange}
-                    className="w-[140px] h-12"
+                    className="w-full h-12 mt-1"
                   />
                 </div>
               </div>
+
+              {/* Manual Server Name Input (if manual is selected) */}
+              {formData.server_id === 'manual' && (
+                <div>
+                  <Label htmlFor="server_name_manual">Server Name</Label>
+                  <Input
+                    id="server_name_manual"
+                    type="text"
+                    name="server_name_manual"
+                    placeholder="Enter server's full name"
+                    value={formData.server_name_manual}
+                    onChange={handleInputChange}
+                    required
+                    className="h-12 mt-1"
+                  />
+                </div>
+              )}
 
               {/* Attempt Outcome */}
               <div>
@@ -840,8 +894,8 @@ export default function LogAttemptPage() {
                       </div>
                     )}
 
-                    {/* Physical Description Fields (quick selectors removed) */}
-                    <div className="space-y-4 pt-4">
+                    {/* Physical Description Fields - Grid Layout */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
                       <div>
                         <Label htmlFor="person-age">Approximate Age</Label>
                         <Input
@@ -892,19 +946,19 @@ export default function LogAttemptPage() {
 
                       <div>
                         <Label htmlFor="person-sex">Sex</Label>
-                        <select
+                        <Select
                           id="person-sex"
                           name="person_served_sex"
                           value={formData.person_served_sex}
                           onChange={handleInputChange}
-                          className="w-full mt-1 h-12 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full h-12 mt-1"
                         >
-                          <option value="">Select...</option>
-                          <option value="Male">Male</option>
-                          <option value="Female">Female</option>
-                          <option value="Non-binary">Non-binary</option>
-                          <option value="Other">Other</option>
-                        </select>
+                          <SelectItem value="">Select...</SelectItem>
+                          <SelectItem value="Male">Male</SelectItem>
+                          <SelectItem value="Female">Female</SelectItem>
+                          <SelectItem value="Non-binary">Non-binary</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
+                        </Select>
                       </div>
                     </div>
 
