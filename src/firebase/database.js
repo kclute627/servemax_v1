@@ -299,5 +299,7 @@ export const entities = {
   FieldSheetTemplate: new FirebaseEntity('field_sheet_templates'),
   BusinessFormTemplate: new FirebaseEntity('business_form_templates'),
   // Pricing & Plans (for super admin)
-  PricingPlan: new FirebaseEntity('pricing_plans')
+  PricingPlan: new FirebaseEntity('pricing_plans'),
+  // Email Templates (for super admin and company-specific)
+  EmailTemplate: new FirebaseEntity('email_templates')
 };

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { FileText, Receipt, ClipboardList, File } from "lucide-react";
+import { FileText, Receipt, ClipboardList, File, Mail } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isSuperAdmin } from "@/utils/permissions";
 import { Navigate } from "react-router-dom";
@@ -11,6 +11,7 @@ import AffidavitTemplatesList from "../components/templates/AffidavitTemplatesLi
 import InvoiceTemplatesList from "../components/templates/InvoiceTemplatesList";
 import FieldSheetTemplatesList from "../components/templates/FieldSheetTemplatesList";
 import BusinessFormsTemplatesList from "../components/templates/BusinessFormsTemplatesList";
+import EmailTemplatesList from "../components/templates/EmailTemplatesList";
 
 export default function TemplatesManagement() {
   const { user } = useAuth();
@@ -50,7 +51,7 @@ export default function TemplatesManagement() {
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-slate-900 mb-2">Template Management</h1>
             <p className="text-slate-600">
-              Manage system-wide templates for affidavits, invoices, field sheets, and business forms
+              Manage system-wide templates for affidavits, invoices, field sheets, business forms, and email notifications
             </p>
           </div>
 
@@ -61,6 +62,7 @@ export default function TemplatesManagement() {
               <TabButton tabName="invoices" label="Invoices" icon={Receipt} />
               <TabButton tabName="fieldSheets" label="Field Sheets" icon={ClipboardList} />
               <TabButton tabName="businessForms" label="Business Forms" icon={File} />
+              <TabButton tabName="emailTemplates" label="Email Templates" icon={Mail} />
             </div>
           </div>
 
@@ -70,6 +72,7 @@ export default function TemplatesManagement() {
             {activeTab === 'invoices' && <InvoiceTemplatesList />}
             {activeTab === 'fieldSheets' && <FieldSheetTemplatesList />}
             {activeTab === 'businessForms' && <BusinessFormsTemplatesList />}
+            {activeTab === 'emailTemplates' && <EmailTemplatesList />}
           </div>
         </div>
       </div>
