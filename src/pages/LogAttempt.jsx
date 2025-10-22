@@ -516,13 +516,6 @@ export default function LogAttemptPage() {
     );
   };
 
-  const handleDocumentUploadSuccess = useCallback((uploadedDocs) => {
-    setUploadedFiles(prev => [...prev, ...uploadedDocs]);
-  }, []);
-
-  const handleRemoveUploadedFile = useCallback((fileToRemoveId) => {
-    setUploadedFiles(prev => prev.filter(file => file.id !== fileToRemoveId));
-  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1351,10 +1344,10 @@ export default function LogAttemptPage() {
                 <Label>Photos & Videos</Label>
                 <CardDescription className="mb-3">Upload photos, videos, or other documentation from this attempt</CardDescription>
                 <DocumentUpload
-                  jobId={job.id} // Assuming DocumentUpload needs jobId to associate files
-                  onUploadSuccess={handleDocumentUploadSuccess}
-                  existingFiles={uploadedFiles} // Use separate uploadedFiles state
-                  onRemoveFile={handleRemoveUploadedFile}
+                  documents={uploadedFiles}
+                  onDocumentsChange={setUploadedFiles}
+                  hideManualEntry={true}
+                  jobId={job.id}
                 />
               </div>
             </CardContent>

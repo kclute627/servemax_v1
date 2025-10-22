@@ -4,6 +4,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { PDFDocument } from 'pdf-lib';
 import { UploadFile } from "@/api/integrations";
 import { mergePDFs } from "@/api/functions";
+import { Document } from "@/api/entities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +25,7 @@ import {
   Sparkles
 } from "lucide-react";
 
-export default function DocumentUpload({ documents, onDocumentsChange }) {
+export default function DocumentUpload({ documents, onDocumentsChange, hideManualEntry = false, jobId = null }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
@@ -90,26 +91,41 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
           getActualPageCount(file)
         ]);
 
-        return {
-          id: `upload-${Date.now()}-${Math.random()}`,
+        const docData = {
           title: file.name,
           affidavit_text: file.name, // Default affidavit text to filename
           file_url: url,
           file_size: file.size,
           content_type: file.type,
-          document_category: 'to_be_served',
+          document_category: hideManualEntry ? 'photo' : 'to_be_served', // Photos for service attempts, docs for jobs
           page_count: pageCount
         };
+
+        // If jobId is provided, create a Document entity in the database
+        if (jobId) {
+          const createdDoc = await Document.create({
+            ...docData,
+            job_id: jobId
+          });
+          return createdDoc;
+        } else {
+          // For job creation, return a local object with temp ID
+          return {
+            id: `upload-${Date.now()}-${Math.random()}`,
+            ...docData
+          };
+        }
       });
 
       const uploadedDocs = await Promise.all(uploadPromises);
       onDocumentsChange(prevDocs => [...(prevDocs || []), ...uploadedDocs]);
     } catch (error) {
       console.error("Error uploading files:", error);
+      alert(`Failed to upload files: ${error.message || 'Unknown error'}`);
     }
 
     setIsUploading(false);
-  }, [onDocumentsChange]);
+  }, [onDocumentsChange, jobId, hideManualEntry]);
 
   const handleMergeClick = () => {
     if (dontShowMergeWarning) {
@@ -226,7 +242,20 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
     onDocumentsChange(newDocuments);
   };
 
-  const removeDocument = (index) => {
+  const removeDocument = async (index) => {
+    const docToRemove = documents[index];
+
+    // If this is a real Document entity (has a numeric ID), delete it from the database
+    if (jobId && docToRemove.id && !docToRemove.id.toString().startsWith('upload-') && !docToRemove.id.toString().startsWith('manual-')) {
+      try {
+        await Document.delete(docToRemove.id);
+      } catch (error) {
+        console.error("Error deleting document:", error);
+        alert(`Failed to delete document: ${error.message || 'Unknown error'}`);
+        return;
+      }
+    }
+
     onDocumentsChange(documents.filter((_, i) => i !== index));
   };
 
@@ -310,30 +339,32 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
         </Button>
       </div>
 
-      <div className="flex justify-between items-center">
-        <Button type="button" variant="outline" size="sm" onClick={handleManualAdd}>
-          <PlusCircle className="w-4 h-4 mr-2" />
-          Add Manual Document Entry
-        </Button>
-
-        {getPDFDocuments().length > 1 && (
-          <Button 
-            type="button" 
-            variant="outline" 
-            size="sm" 
-            onClick={handleMergeClick}
-            disabled={isMerging}
-            className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
-          >
-            {isMerging ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Combine className="w-4 h-4" />
-            )}
-            {isMerging ? 'Merging...' : `Merge ${getPDFDocuments().length} PDFs`}
+      {!hideManualEntry && (
+        <div className="flex justify-between items-center">
+          <Button type="button" variant="outline" size="sm" onClick={handleManualAdd}>
+            <PlusCircle className="w-4 h-4 mr-2" />
+            Add Manual Document Entry
           </Button>
-        )}
-      </div>
+
+          {getPDFDocuments().length > 1 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleMergeClick}
+              disabled={isMerging}
+              className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+            >
+              {isMerging ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Combine className="w-4 h-4" />
+              )}
+              {isMerging ? 'Merging...' : `Merge ${getPDFDocuments().length} PDFs`}
+            </Button>
+          )}
+        </div>
+      )}
 
       {(documents && documents.length > 0) && (
         <div className="space-y-4">
