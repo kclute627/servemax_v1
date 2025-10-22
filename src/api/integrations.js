@@ -1,23 +1,30 @@
-import { base44 } from './base44Client';
+import { FirebaseFunctions, FirebaseStorage } from '../firebase';
 
+// Core integrations using Firebase Functions and Storage
+export const Core = {
+  InvokeLLM: FirebaseFunctions.invokeLLM.bind(FirebaseFunctions),
+  SendEmail: FirebaseFunctions.sendEmail.bind(FirebaseFunctions),
+  UploadFile: FirebaseStorage.uploadFile.bind(FirebaseStorage),
+  GenerateImage: FirebaseFunctions.generateImage.bind(FirebaseFunctions),
+  ExtractDataFromUploadedFile: FirebaseFunctions.extractDataFromUploadedFile.bind(FirebaseFunctions),
+  CreateFileSignedUrl: FirebaseStorage.createFileSignedUrl.bind(FirebaseStorage),
+  UploadPrivateFile: FirebaseStorage.uploadPrivateFile.bind(FirebaseStorage)
+};
 
+// Export individual functions for compatibility
+export const InvokeLLM = Core.InvokeLLM;
 
+export const SendEmail = Core.SendEmail;
 
-export const Core = base44.integrations.Core;
+export const UploadFile = Core.UploadFile;
 
-export const InvokeLLM = base44.integrations.Core.InvokeLLM;
+export const GenerateImage = Core.GenerateImage;
 
-export const SendEmail = base44.integrations.Core.SendEmail;
+export const ExtractDataFromUploadedFile = Core.ExtractDataFromUploadedFile;
 
-export const UploadFile = base44.integrations.Core.UploadFile;
+export const CreateFileSignedUrl = Core.CreateFileSignedUrl;
 
-export const GenerateImage = base44.integrations.Core.GenerateImage;
-
-export const ExtractDataFromUploadedFile = base44.integrations.Core.ExtractDataFromUploadedFile;
-
-export const CreateFileSignedUrl = base44.integrations.Core.CreateFileSignedUrl;
-
-export const UploadPrivateFile = base44.integrations.Core.UploadPrivateFile;
+export const UploadPrivateFile = Core.UploadPrivateFile;
 
 
 

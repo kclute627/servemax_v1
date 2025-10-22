@@ -4,22 +4,21 @@ import { Client, User } from "@/api/entities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectItem } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, X, Plus } from "lucide-react";
+import AddressAutocomplete from "./AddressAutocomplete";
+import { generateClientSearchTerms } from "@/utils/searchTerms";
+import { useToast } from "@/components/ui/use-toast";
 
-export default function NewClientQuickForm({ onClientCreated, onCancel }) {
+export default function NewClientQuickForm({ onClientCreated, onCancel, initialCompanyName = "" }) {
+  const { toast } = useToast();
   const [formData, setFormData] = useState({
-    company_name: "",
+    company_name: initialCompanyName,
     company_type: "law_firm",
     status: "active",
     contacts: [{
+      id: crypto.randomUUID(),
       first_name: "",
       last_name: "",
       email: "",
@@ -38,6 +37,7 @@ export default function NewClientQuickForm({ onClientCreated, onCancel }) {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState("");
+  const [isAddressLoading, setIsAddressLoading] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -80,8 +80,20 @@ export default function NewClientQuickForm({ onClientCreated, onCancel }) {
     }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleAddressSelect = (addressDetails) => {
+    setFormData(prev => ({
+      ...prev,
+      addresses: [{
+        ...prev.addresses[0],
+        address1: addressDetails.address1 || '',
+        city: addressDetails.city || '',
+        state: addressDetails.state || '',
+        postal_code: addressDetails.postal_code || ''
+      }]
+    }));
+  };
+
+  const handleSubmit = async () => {
     setIsSubmitting(true);
 
     try {
@@ -89,12 +101,34 @@ export default function NewClientQuickForm({ onClientCreated, onCancel }) {
         ...formData,
         job_sharing_email: currentUserEmail,
       };
-      const newClient = await Client.create(dataToSubmit);
+
+      // Generate search terms for efficient searching
+      const search_terms = generateClientSearchTerms(dataToSubmit);
+      const clientDataWithSearch = {
+        ...dataToSubmit,
+        search_terms
+      };
+
+      console.log('[NewClientQuickForm] Creating client with search_terms:', {
+        company_name: clientDataWithSearch.company_name,
+        search_terms: clientDataWithSearch.search_terms
+      });
+
+      const newClient = await Client.create(clientDataWithSearch);
+
+      console.log('[NewClientQuickForm] Client created:', {
+        id: newClient.id,
+        company_name: newClient.company_name,
+        search_terms: newClient.search_terms
+      });
+
       onClientCreated(newClient);
     } catch (error) {
       console.error("Error creating client:", error);
+      // Show error message
+      alert("⚠ Failed to create client. Please try again.");
     }
-    
+
     setIsSubmitting(false);
   };
 
@@ -114,33 +148,30 @@ export default function NewClientQuickForm({ onClientCreated, onCancel }) {
         </div>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-4">
           {/* Company Info */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="new_company_name">Company Name</Label>
-              <Input 
+              <Input
                 id="new_company_name"
                 value={formData.company_name}
                 onChange={(e) => handleInputChange('company_name', e.target.value)}
                 required
                 placeholder="Enter company name"
+                autoComplete="off"
               />
             </div>
             <div>
               <Label htmlFor="new_company_type">Company Type</Label>
-              <Select value={formData.company_type} onValueChange={(value) => handleInputChange('company_type', value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="law_firm">Law Firm</SelectItem>
-                  <SelectItem value="insurance">Insurance Company</SelectItem>
-                  <SelectItem value="corporate">Corporate</SelectItem>
-                  <SelectItem value="government">Government</SelectItem>
-                  <SelectItem value="individual">Individual</SelectItem>
-                  <SelectItem value="process_server">Process Server</SelectItem>
-                </SelectContent>
+              <Select
+                id="new_company_type"
+                value={formData.company_type}
+                onChange={(e) => handleInputChange('company_type', e.target.value)}
+              >
+                <SelectItem value="law_firm">Law Firm</SelectItem>
+                <SelectItem value="process_serving">Process Serving Company</SelectItem>
+                <SelectItem value="independent_contractor">Independent Process Server</SelectItem>
               </Select>
             </div>
           </div>
@@ -151,33 +182,37 @@ export default function NewClientQuickForm({ onClientCreated, onCancel }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label>First Name</Label>
-                <Input 
+                <Input
                   value={formData.contacts[0].first_name}
                   onChange={(e) => handleContactChange('first_name', e.target.value)}
                   required
+                  autoComplete="off"
                 />
               </div>
               <div>
                 <Label>Last Name</Label>
-                <Input 
+                <Input
                   value={formData.contacts[0].last_name}
                   onChange={(e) => handleContactChange('last_name', e.target.value)}
                   required
+                  autoComplete="off"
                 />
               </div>
               <div>
                 <Label>Email</Label>
-                <Input 
+                <Input
                   type="email"
                   value={formData.contacts[0].email}
                   onChange={(e) => handleContactChange('email', e.target.value)}
+                  autoComplete="off"
                 />
               </div>
               <div>
                 <Label>Phone</Label>
-                <Input 
+                <Input
                   value={formData.contacts[0].phone}
                   onChange={(e) => handleContactChange('phone', e.target.value)}
+                  autoComplete="off"
                 />
               </div>
             </div>
@@ -186,34 +221,53 @@ export default function NewClientQuickForm({ onClientCreated, onCancel }) {
           {/* Primary Address */}
           <div className="space-y-3">
             <h4 className="font-medium text-slate-700">Address</h4>
-            <div>
-              <Label>Street Address</Label>
-              <Input 
-                value={formData.addresses[0].address1}
-                onChange={(e) => handleAddressChange('address1', e.target.value)}
-                placeholder="Street address"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="md:col-span-3">
+                <Label>Street Address</Label>
+                <AddressAutocomplete
+                  value={formData.addresses[0].address1}
+                  onChange={(value) => handleAddressChange('address1', value)}
+                  onAddressSelect={handleAddressSelect}
+                  onLoadingChange={setIsAddressLoading}
+                  placeholder="Start typing an address..."
+                />
+              </div>
+              <div>
+                <Label>Suite/Unit</Label>
+                <Input
+                  value={formData.addresses[0].address2}
+                  onChange={(e) => handleAddressChange('address2', e.target.value)}
+                  placeholder="Apt, Suite, etc."
+                  autoComplete="off"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Label>City</Label>
-                <Input 
+                <Input
                   value={formData.addresses[0].city}
                   onChange={(e) => handleAddressChange('city', e.target.value)}
+                  autoComplete="off"
+                  disabled={isAddressLoading}
                 />
               </div>
               <div>
                 <Label>State</Label>
-                <Input 
+                <Input
                   value={formData.addresses[0].state}
                   onChange={(e) => handleAddressChange('state', e.target.value)}
+                  autoComplete="off"
+                  disabled={isAddressLoading}
                 />
               </div>
               <div>
                 <Label>ZIP Code</Label>
-                <Input 
+                <Input
                   value={formData.addresses[0].postal_code}
                   onChange={(e) => handleAddressChange('postal_code', e.target.value)}
+                  autoComplete="off"
+                  disabled={isAddressLoading}
                 />
               </div>
             </div>
@@ -224,8 +278,9 @@ export default function NewClientQuickForm({ onClientCreated, onCancel }) {
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>
-            <Button 
-              type="submit" 
+            <Button
+              type="button"
+              onClick={handleSubmit}
               disabled={isSubmitting}
               className="bg-blue-600 hover:bg-blue-700"
             >
@@ -242,7 +297,7 @@ export default function NewClientQuickForm({ onClientCreated, onCancel }) {
               )}
             </Button>
           </div>
-        </form>
+        </div>
       </CardContent>
     </Card>
   );

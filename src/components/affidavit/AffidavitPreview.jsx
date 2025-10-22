@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { User } from '@/api/entities';
 import { Button } from '@/components/ui/button';
 import { Pencil } from 'lucide-react';
+import { replacePlaceholders, renderHTMLTemplate } from '@/utils/templateEngine';
 
 const EditableField = ({ value, isEditing, onChange, as = 'input', className = '', ...props }) => {
     const Component = as;
@@ -34,7 +35,7 @@ const EditableField = ({ value, isEditing, onChange, as = 'input', className = '
     return <div className={className} style={{ fontFamily: 'Times, serif', fontSize: '10pt', lineHeight: '12pt' }}>{value}</div>;
 };
 
-export default function AffidavitPreview({ affidavitData, isEditing, onDataChange }) {
+export default function AffidavitPreview({ affidavitData, template, isEditing, onDataChange }) {
     const [user, setUser] = useState(null);
     const [placedSignature, setPlacedSignature] = useState(affidavitData?.placed_signature || null);
     const [isDragging, setIsDragging] = useState(false);
@@ -194,6 +195,47 @@ export default function AffidavitPreview({ affidavitData, isEditing, onDataChang
         lineHeight: '12pt'
     };
 
+    // Render HTML template if template has HTML mode
+    if (template?.template_mode === 'html' && template?.html_content) {
+        const renderedHTML = renderHTMLTemplate(template.html_content, affidavitData);
+
+        // If not editing, just render static HTML
+        if (!isEditing) {
+            return (
+                <div
+                    style={{
+                        width: '612pt',
+                        minHeight: '792pt',
+                        backgroundColor: '#FFFFFF'
+                    }}
+                    dangerouslySetInnerHTML={{ __html: renderedHTML }}
+                />
+            );
+        }
+
+        // In edit mode: Parse HTML and make editable fields interactive
+        return (
+            <div
+                style={{
+                    width: '612pt',
+                    minHeight: '792pt',
+                    backgroundColor: '#FFFFFF'
+                }}
+                className="html-template-editable"
+                contentEditable={true}
+                suppressContentEditableWarning={true}
+                onInput={(e) => {
+                    // Capture changes to the HTML content
+                    if (onDataChange) {
+                        onDataChange('html_content_edited', e.currentTarget.innerHTML);
+                    }
+                }}
+                dangerouslySetInnerHTML={{ __html: renderedHTML }}
+            />
+        );
+    }
+
+    // Legacy rendering for text-based templates
     return (
         <div style={documentStyle}>
             {/* Document Title */}
@@ -245,16 +287,22 @@ export default function AffidavitPreview({ affidavitData, isEditing, onDataChang
                 </tbody>
             </table>
 
-            {/* Main Declaration */}
-            <div style={{ marginBottom: '20pt', fontSize: '10pt', lineHeight: '1.5' }}>
-                I, <EditableField
-                    value={server_name}
-                    isEditing={isEditing}
-                    onChange={e => handleFieldChange('server_name', e.target.value)}
-                    className="inline-block"
-                    style={{ display: 'inline', minWidth: '120pt', ...singleLineInputStyle }}
-                />, being duly sworn, depose and say: I am over the age of 18 years and not a party to this action, and that within the boundaries of the state where service was effected, I was authorized by law to make service of the documents and informed said person of the contents herein.
-            </div>
+            {/* Main Declaration - Template Body or Default */}
+            {template?.body ? (
+                <div style={{ marginBottom: '20pt', fontSize: '10pt', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                    {replacePlaceholders(template.body, affidavitData)}
+                </div>
+            ) : (
+                <div style={{ marginBottom: '20pt', fontSize: '10pt', lineHeight: '1.5' }}>
+                    I, <EditableField
+                        value={server_name}
+                        isEditing={isEditing}
+                        onChange={e => handleFieldChange('server_name', e.target.value)}
+                        className="inline-block"
+                        style={{ display: 'inline', minWidth: '120pt', ...singleLineInputStyle }}
+                    />, being duly sworn, depose and say: I am over the age of 18 years and not a party to this action, and that within the boundaries of the state where service was effected, I was authorized by law to make service of the documents and informed said person of the contents herein.
+                </div>
+            )}
 
             {/* Service Details Table */}
             <table style={tableStyle}>
@@ -300,7 +348,11 @@ export default function AffidavitPreview({ affidavitData, isEditing, onDataChang
 
             {/* Declaration & Signature Area */}
             <div style={{ fontSize: '10pt', lineHeight: '1.5', width: '100%' }}>
-                <p style={{ marginBottom: '25pt' }}>I declare under penalty of perjury that the foregoing is true and correct.</p>
+                {template?.footer_text ? (
+                    <p style={{ marginBottom: '25pt', whiteSpace: 'pre-wrap' }}>{replacePlaceholders(template.footer_text, affidavitData)}</p>
+                ) : (
+                    <p style={{ marginBottom: '25pt' }}>I declare under penalty of perjury that the foregoing is true and correct.</p>
+                )}
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
 

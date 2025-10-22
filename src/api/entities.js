@@ -1,31 +1,42 @@
-import { base44 } from './base44Client';
+import { entities, FirebaseAuth } from '../firebase';
+import { SecureClientAccess, SecureEmployeeAccess, SecureCompanyAccess } from '../firebase/multiTenantAccess';
 
+// Export Firebase entities to maintain compatibility with existing code
+// Client now uses Company entity through SecureClientAccess
+export const Client = SecureClientAccess;
 
-export const Client = base44.entities.Client;
+export const Job = entities.Job;
 
-export const Job = base44.entities.Job;
+export const Employee = SecureEmployeeAccess;
 
-export const Employee = base44.entities.Employee;
+export const Invoice = entities.Invoice;
 
-export const Invoice = base44.entities.Invoice;
+export const Payment = entities.Payment;
 
-export const Payment = base44.entities.Payment;
+export const StripeCustomer = entities.StripeCustomer;
 
-export const StripeCustomer = base44.entities.StripeCustomer;
+export const CourtCase = entities.CourtCase;
 
-export const CourtCase = base44.entities.CourtCase;
+export const Document = entities.Document;
 
-export const Document = base44.entities.Document;
+export const Attempt = entities.Attempt;
 
-export const Attempt = base44.entities.Attempt;
+export const Court = entities.Court;
 
-export const Court = base44.entities.Court;
+export const CompanySettings = entities.CompanySettings;
 
-export const CompanySettings = base44.entities.CompanySettings;
+export const ServerPayRecord = entities.ServerPayRecord;
 
-export const ServerPayRecord = base44.entities.ServerPayRecord;
+// New multi-tenant entities
+export const Company = SecureCompanyAccess;
 
+export const Invitation = entities.Invitation;
 
+export const Subscription = entities.Subscription;
 
-// auth sdk:
-export const User = base44.auth;
+// Affidavit template entities
+export const AffidavitTemplate = entities.AffidavitTemplate;
+export const SystemAffidavitTemplate = entities.SystemAffidavitTemplate;
+
+// Firebase Auth replaces Base44 auth
+export const User = FirebaseAuth;

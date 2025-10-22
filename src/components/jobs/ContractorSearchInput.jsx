@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Client, Job } from "@/api/entities";
+import { Company, Job } from "@/api/entities";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,18 +18,44 @@ const getConsistentRating = (contractor) => {
   return (4.1 + ((contractor.id.charCodeAt(contractor.id.length - 1) % 9) / 10)).toFixed(1);
 };
 
+// Helper to get company type display label
+const getCompanyTypeLabel = (company) => {
+  const typeMap = {
+    'law_firm': 'Law Firm',
+    'insurance': 'Insurance Company',
+    'corporate': 'Corporate',
+    'government': 'Government',
+    'process_serving': 'Process Serving Company',
+    'independent_contractor': 'Independent Process Server',
+    'client': 'Client'
+  };
+
+  return typeMap[company.company_type] || 'Company';
+};
+
+// Helper to get badge color for company type
+const getCompanyTypeBadgeColor = (companyType) => {
+  const colorMap = {
+    'law_firm': 'bg-blue-100 text-blue-700',
+    'insurance': 'bg-green-100 text-green-700',
+    'corporate': 'bg-purple-100 text-purple-700',
+    'government': 'bg-amber-100 text-amber-700',
+    'process_serving': 'bg-orange-100 text-orange-700',
+    'independent_contractor': 'bg-teal-100 text-teal-700',
+    'client': 'bg-slate-100 text-slate-700'
+  };
+
+  return colorMap[companyType] || 'bg-slate-100 text-slate-700';
+};
+
 export default function ContractorSearchInput({ value, onValueChange, onContractorSelected, selectedContractor, currentClientId }) {
-  const [contractors, setContractors] = useState([]);
   const [filteredContractors, setFilteredContractors] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [contractorStats, setContractorStats] = useState(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const inputRef = useRef(null);
-
-  useEffect(() => {
-    loadContractors();
-  }, []);
+  const searchTimeoutRef = useRef(null);
 
   const loadContractorStats = useCallback(async (contractorId) => {
     if (!selectedContractor) return;
@@ -57,41 +83,66 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
     }
   }, [selectedContractor, loadContractorStats]);
 
-  const loadContractors = async () => {
+  // Search contractors with debounce - only queries when user types
+  const searchContractors = useCallback(async (searchTerm) => {
+    if (!searchTerm || searchTerm.length < 2) {
+      setFilteredContractors([]);
+      setShowDropdown(false);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const allClients = await Client.list();
-      console.log("All clients:", allClients); // Debug log
-      
-      // Filter for process servers - check both company_type and job_sharing_opt_in
-      const serverCompanies = allClients.filter(c => 
-        c.company_type === 'process_server' || c.job_sharing_opt_in === true
-      );
-      
-      console.log("Filtered contractors:", serverCompanies); // Debug log
-      setContractors(serverCompanies);
-    } catch (error) {
-      console.error("Error loading contractors:", error);
-      setContractors([]);
-    }
-    setIsLoading(false);
-  };
+      // Query companies - Firestore doesn't support case-insensitive search natively
+      // so we fetch all and filter client-side (but only when user searches, not on mount)
+      const allCompanies = await Company.list();
 
-  useEffect(() => {
-    if (value && value.length >= 2) { // Reduced from 3 to 2 characters
-      const filtered = contractors.filter(c => {
-        const matchesSearch = c.company_name.toLowerCase().includes(value.toLowerCase());
+      const filtered = allCompanies.filter(c => {
+        const matchesSearch = c.company_name.toLowerCase().includes(searchTerm.toLowerCase());
         const notCurrentClient = c.id !== currentClientId;
         return matchesSearch && notCurrentClient;
       });
-      console.log("Search term:", value, "Filtered results:", filtered); // Debug log
+
+      console.log("Search term:", searchTerm, "Filtered results:", filtered.length, "companies"); // Debug log
       setFilteredContractors(filtered);
       setShowDropdown(true);
-    } else {
+    } catch (error) {
+      console.error("Error searching contractors:", error);
+      setFilteredContractors([]);
+    }
+    setIsLoading(false);
+  }, [currentClientId]);
+
+  // Debounced search effect - waits 300ms after user stops typing
+  useEffect(() => {
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (!value || value.length < 2) {
       setFilteredContractors([]);
       setShowDropdown(false);
+      setIsLoading(false);
+      return;
     }
-  }, [value, contractors, currentClientId]);
+
+    // Set loading state immediately for better UX
+    setIsLoading(true);
+
+    // Debounce search by 300ms
+    searchTimeoutRef.current = setTimeout(() => {
+      searchContractors(value);
+    }, 300);
+
+    // Cleanup
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [value, searchContractors]);
 
   const handleSelect = (contractor) => {
     onValueChange(contractor.company_name);
@@ -145,7 +196,9 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
                     <Users className="w-4 h-4 text-blue-600" title="Accepting jobs from ServeMax users" />
                   )}
                 </div>
-                <Badge className="bg-orange-100 text-orange-700 mt-1">Process Server</Badge>
+                <Badge className={`mt-1 ${getCompanyTypeBadgeColor(selectedContractor.company_type)}`}>
+                  {getCompanyTypeLabel(selectedContractor)}
+                </Badge>
               </div>
             </div>
             <Button 
@@ -254,8 +307,11 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <HardHat className="w-4 h-4 text-slate-400 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-medium text-slate-900 truncate">{contractor.company_name}</p>
+                            <Badge className={`text-xs ${getCompanyTypeBadgeColor(contractor.company_type)}`}>
+                              {getCompanyTypeLabel(contractor)}
+                            </Badge>
                             {contractor.job_sharing_opt_in && (
                               <Users className="w-3 h-3 text-blue-600 flex-shrink-0" title="Accepting jobs from ServeMax users" />
                             )}

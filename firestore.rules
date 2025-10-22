@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user owns or has access to company data
+    function hasCompanyAccess(companyId) {
+      return isAuthenticated() &&
+             (resource.data.company_id == companyId ||
+              request.auth.token.company_id == companyId);
+    }
+
+    // Users collection - users can read/write their own data
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Companies collection - company owners and employees can access
+    match /companies/{companyId} {
+      allow read, write: if isAuthenticated() &&
+                           (request.auth.token.company_id == companyId ||
+                            request.auth.token.user_type == 'company_owner');
+    }
+
+    // Stats collections - company members can read their company's stats
+    match /company_stats/{docId} {
+      allow read: if isAuthenticated() &&
+                    (resource.data.company_id == request.auth.token.company_id ||
+                     request.auth.token.user_type == 'company_owner');
+      allow write: if false; // Stats are written by server-side functions only
+    }
+
+    match /client_stats/{docId} {
+      allow read: if isAuthenticated() &&
+                    (resource.data.company_id == request.auth.token.company_id ||
+                     request.auth.token.user_type == 'company_owner');
+      allow write: if false; // Stats are written by server-side functions only
+    }
+
+    match /server_stats/{docId} {
+      allow read: if isAuthenticated() &&
+                    (resource.data.company_id == request.auth.token.company_id ||
+                     request.auth.token.user_type == 'company_owner');
+      allow write: if false; // Stats are written by server-side functions only
+    }
+
+    // Directory collection - public read, company owners can write their own
+    match /directory/{companyId} {
+      allow read: if true; // Public directory
+      allow write: if isAuthenticated() &&
+                     (resource.data.company_id == request.auth.token.company_id ||
+                      request.auth.token.user_type == 'company_owner');
+    }
+
+    // Invitations - company admins can create, invited users can read/accept
+    match /invitations/{invitationId} {
+      allow read: if isAuthenticated() &&
+                    (resource.data.email == request.auth.token.email ||
+                     resource.data.company_id == request.auth.token.company_id);
+      allow create: if isAuthenticated() &&
+                      request.auth.token.user_type == 'company_owner';
+      allow update: if isAuthenticated() &&
+                      resource.data.email == request.auth.token.email;
+    }
+
+    // Other collections that might exist - default to company-based access
+    match /{collection}/{docId} {
+      allow read, write: if isAuthenticated() &&
+                           hasCompanyAccess(resource.data.company_id);
+    }
+  }
+}

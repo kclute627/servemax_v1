@@ -185,7 +185,9 @@ export default function ClientsTable({ clients, isLoading, onClientUpdate }) {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-slate-600">
-                    {format(new Date(client.created_date), "MMM d, yyyy")}
+                    {client.created_date && !isNaN(new Date(client.created_date).getTime())
+                      ? format(new Date(client.created_date), "MMM d, yyyy")
+                      : "N/A"}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>

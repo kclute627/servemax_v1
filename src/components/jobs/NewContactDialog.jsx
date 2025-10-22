@@ -36,17 +36,17 @@ export default function NewContactDialog({ open, onOpenChange, client, onContact
 
     setIsSubmitting(true);
     try {
-      const newContact = { 
+      const newContact = {
+        id: crypto.randomUUID(), // Generate unique ID for the contact
         ...contactData,
         primary: client.contacts?.length === 0, // Make primary if it's the first contact
         title: "" // default title
       };
-      
+
       const updatedContacts = [...(client.contacts || []), newContact];
-      
-      // FIREBASE TRANSITION: Replace this `Client.update` call with `updateDoc(doc(db, "clients", client.id), { contacts: updatedContacts });`
+
       await Client.update(client.id, { contacts: updatedContacts });
-      
+
       onContactCreated(newContact);
 
       // Reset form and close dialog

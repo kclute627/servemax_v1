@@ -3,6 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AnimatedNumber } from '@/components/ui/animated-number';
+import { motion, AnimatePresence, stagger } from 'framer-motion';
 import {
   Table,
   TableBody,
@@ -55,21 +57,37 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
               </select>
             </div>
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg relative">
+              <motion.div
+                animate={{
+                  x: viewMode === 'revenue' ? 0 : '100%'
+                }}
+                transition={{
+                  type: "spring",
+                  stiffness: 400,
+                  damping: 30
+                }}
+                className="absolute inset-y-1 left-1 bg-white rounded-md shadow-sm"
+                style={{ width: 'calc(50% - 4px)' }}
+              />
               <Button
-                variant={viewMode === 'revenue' ? 'default' : 'ghost'}
+                variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('revenue')}
-                className={`gap-2 h-8 px-3 ${viewMode === 'revenue' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 ${
+                  viewMode === 'revenue' ? 'text-slate-900' : 'text-slate-600 hover:text-slate-800'
+                }`}
               >
                 <DollarSign className="w-4 h-4" />
                 Revenue
               </Button>
               <Button
-                variant={viewMode === 'jobs' ? 'default' : 'ghost'}
+                variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('jobs')}
-                className={`gap-2 h-8 px-3 ${viewMode === 'jobs' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}
+                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 ${
+                  viewMode === 'jobs' ? 'text-slate-900' : 'text-slate-600 hover:text-slate-800'
+                }`}
               >
                 <Briefcase className="w-4 h-4" />
                 Jobs
@@ -79,7 +97,7 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="overflow-x-auto">
+        <div className="h-80 overflow-x-auto overflow-y-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
@@ -91,39 +109,55 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? (
-                [...Array(5)].map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="text-center"><Skeleton className="h-5 w-5 mx-auto rounded-full" /></TableCell>
-                    <TableCell><Skeleton className="h-5 w-3/4" /></TableCell>
-                    <TableCell className="text-right"><Skeleton className="h-5 w-1/4 ml-auto" /></TableCell>
-                  </TableRow>
-                ))
-              ) : sortedClients.length > 0 ? (
-                sortedClients.map((item, index) => (
-                  <TableRow key={item.client.id}>
-                    <TableCell className="text-center">
-                      <div className="w-6 h-6 bg-slate-100 text-slate-600 font-semibold text-xs rounded-full flex items-center justify-center mx-auto">
-                        {index + 1}
+              <AnimatePresence>
+                {isLoading ? (
+                  [...Array(5)].map((_, i) => (
+                    <TableRow
+                      key={`loading-${i}`}
+                      className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
+                    >
+                      <TableCell className="text-center"><Skeleton className="h-5 w-5 mx-auto rounded-full" /></TableCell>
+                      <TableCell><Skeleton className="h-5 w-3/4" /></TableCell>
+                      <TableCell className="text-right"><Skeleton className="h-5 w-1/4 ml-auto" /></TableCell>
+                    </TableRow>
+                  ))
+                ) : sortedClients.length > 0 ? (
+                  sortedClients.map((item, index) => (
+                    <TableRow
+                      key={`${item.client.id}-${viewMode}`}
+                      className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted cursor-pointer"
+                    >
+                      <TableCell className="text-center">
+                        <div className="w-6 h-6 bg-slate-100 text-slate-600 font-semibold text-xs rounded-full flex items-center justify-center mx-auto">
+                          {index + 1}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-medium text-slate-800">
+                        {item.client.company_name}
+                      </TableCell>
+                      <TableCell className="text-right font-bold text-slate-900">
+                        <AnimatedNumber
+                          value={viewMode === 'revenue' ? item.revenue : item.jobs}
+                          format={viewMode === 'revenue' ? 'currency' : 'number'}
+                          decimals={viewMode === 'revenue' ? 0 : 0}
+                          delay={index * 20 + 60}
+                          className="inline-block"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow key="no-data">
+                    <TableCell colSpan={3} className="h-48 text-center">
+                      <div>
+                        <Users className="mx-auto w-12 h-12 text-slate-300 mb-4" />
+                        <p className="font-medium text-slate-600">No client data for this period.</p>
+                        <p className="text-sm text-slate-500">Try selecting a different time frame.</p>
                       </div>
                     </TableCell>
-                    <TableCell className="font-medium text-slate-800">{item.client.company_name}</TableCell>
-                    <TableCell className="text-right font-bold text-slate-900">
-                      {viewMode === 'revenue' 
-                        ? `$${item.revenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
-                        : item.jobs.toLocaleString()}
-                    </TableCell>
                   </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={3} className="h-48 text-center">
-                    <Users className="mx-auto w-12 h-12 text-slate-300 mb-4" />
-                    <p className="font-medium text-slate-600">No client data for this period.</p>
-                    <p className="text-sm text-slate-500">Try selecting a different time frame.</p>
-                  </TableCell>
-                </TableRow>
-              )}
+                )}
+              </AnimatePresence>
             </TableBody>
           </Table>
         </div>

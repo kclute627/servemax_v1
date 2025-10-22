@@ -219,12 +219,15 @@ function JobsTableRow({
             <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`} className="font-medium text-slate-900 hover:text-blue-600 hover:underline">
               {job.job_number}
             </Link>
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <StatusBadge status={job.status} />
             {job.priority !== 'standard' && (
               <PriorityBadge priority={job.priority} />
             )}
           </div>
           {job.client_job_number && (
-            <p className="text-sm text-slate-500 truncate max-w-24" title={job.client_job_number}>
+            <p className="text-sm text-slate-500 truncate max-w-24 mt-1" title={job.client_job_number}>
               Ref: {job.client_job_number}
             </p>
           )}
@@ -296,9 +299,11 @@ function JobsTableRow({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem className="gap-2">
-                <Eye className="w-4 h-4" />
-                View Details
+              <DropdownMenuItem className="gap-2" asChild>
+                <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`}>
+                  <Eye className="w-4 h-4" />
+                  View Details
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuItem className="gap-2">
                 <Edit className="w-4 h-4" />

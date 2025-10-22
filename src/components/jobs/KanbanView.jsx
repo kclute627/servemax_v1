@@ -7,23 +7,14 @@ import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Briefcase, User, Clock } from 'lucide-react';
 
-const statusColumnsConfig = [
-  { status: 'pending', title: 'Pending' },
-  { status: 'assigned', title: 'Assigned' },
-  { status: 'in_progress', title: 'In Progress' },
-  { status: 'served', title: 'Served' },
-  { status: 'needs_affidavit', title: 'Needs Affidavit' },
-  { status: 'unable_to_serve', title: 'Unable to Serve' },
-];
-
 const priorityConfig = {
   standard: { color: "border-transparent" },
   rush: { color: "border-orange-400" },
   emergency: { color: "border-red-500" }
 };
 
-const JobCard = ({ job, client, server }) => (
-  <Draggable draggableId={job.id} index={job.id}>
+const JobCard = ({ job, client, server, index }) => (
+  <Draggable draggableId={job.id} index={index}>
     {(provided) => (
       <div
         ref={provided.innerRef}
@@ -45,7 +36,7 @@ const JobCard = ({ job, client, server }) => (
                     <User className="w-3 h-3"/>
                     <span>{server}</span>
                 </div>
-                {job.due_date && 
+                {job.due_date &&
                     <div className="flex items-center gap-1">
                         <Clock className="w-3 h-3"/>
                         <span>{new Date(job.due_date).toLocaleDateString()}</span>
@@ -59,15 +50,15 @@ const JobCard = ({ job, client, server }) => (
   </Draggable>
 );
 
-export default function KanbanView({ jobs, clients, employees, onJobStatusChange, isLoading }) {
+export default function KanbanView({ jobs, clients, employees, onJobStatusChange, isLoading, statusColumns = [] }) {
   const [columns, setColumns] = useState({});
 
   useEffect(() => {
-    const groupedJobs = statusColumnsConfig.reduce((acc, col) => {
-      acc[col.status] = [];
+    const groupedJobs = statusColumns.reduce((acc, col) => {
+      acc[col.id] = [];
       return acc;
     }, {});
-    
+
     jobs.forEach(job => {
       if (groupedJobs[job.status]) {
         groupedJobs[job.status].push(job);
@@ -75,7 +66,7 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
     });
 
     setColumns(groupedJobs);
-  }, [jobs]);
+  }, [jobs, statusColumns]);
 
   const getClientName = (clientId) => clients.find(c => c.id === clientId);
   const getServerName = (serverId) => {
@@ -88,17 +79,25 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
     const { source, destination, draggableId } = result;
 
     if (!destination) return;
-    if (source.droppableId === destination.droppableId) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
+    // Update backend
     onJobStatusChange(draggableId, destination.droppableId);
-    
+
     // Optimistic UI Update
     const sourceColumn = columns[source.droppableId];
     const destColumn = columns[destination.droppableId];
     const sourceItems = [...sourceColumn];
     const destItems = [...destColumn];
+
+    // Remove from source
     const [removed] = sourceItems.splice(source.index, 1);
-    destItems.splice(destination.index, 0, removed);
+
+    // Update the job's status for optimistic UI
+    const updatedJob = { ...removed, status: destination.droppableId };
+
+    // Add to destination
+    destItems.splice(destination.index, 0, updatedJob);
 
     setColumns({
       ...columns,
@@ -124,9 +123,9 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <div className="flex gap-4 overflow-x-auto p-2">
-        {statusColumnsConfig.map(column => (
-          <div key={column.status} className="w-80 flex-shrink-0 bg-slate-100 rounded-xl">
-            <Droppable droppableId={column.status}>
+        {statusColumns.map(column => (
+          <div key={column.id} className="w-80 flex-shrink-0 bg-slate-100 rounded-xl">
+            <Droppable droppableId={column.id}>
               {(provided, snapshot) => (
                 <div
                   ref={provided.innerRef}
@@ -136,15 +135,16 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
                   <div className="flex items-center justify-between px-2 pb-3 mb-3 border-b">
                     <h3 className="font-semibold text-slate-800">{column.title}</h3>
                     <span className="text-sm font-medium bg-slate-200 text-slate-600 rounded-full px-2 py-0.5">
-                      {columns[column.status]?.length || 0}
+                      {columns[column.id]?.length || 0}
                     </span>
                   </div>
-                  {columns[column.status]?.map(job => (
-                    <JobCard 
-                      key={job.id} 
-                      job={job} 
-                      client={getClientName(job.client_id)} 
-                      server={getServerName(job.assigned_server_id)} 
+                  {columns[column.id]?.map((job, index) => (
+                    <JobCard
+                      key={job.id}
+                      job={job}
+                      client={getClientName(job.client_id)}
+                      server={getServerName(job.assigned_server_id)}
+                      index={index}
                     />
                   ))}
                   {provided.placeholder}

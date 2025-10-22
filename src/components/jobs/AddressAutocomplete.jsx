@@ -92,6 +92,8 @@ export default function AddressAutocomplete({
 
     try {
       const response = await googlePlaceDetails({ place_id: suggestion.place_id });
+      console.log('[AddressAutocomplete] API Response:', response);
+
       if (response.data?.address) {
         const addressData = {
           address1: response.data.address.address1 || '',
@@ -104,18 +106,23 @@ export default function AddressAutocomplete({
           longitude: response.data.address.longitude || null,
           formatted_address: response.data.address.formatted_address || ''
         };
-        
+
+        console.log('[AddressAutocomplete] Parsed address data:', addressData);
+
         const streetAddress = addressData.address1;
         setSelectedAddress(streetAddress);
-        
-        // Call onAddressSelect FIRST with complete address data
+
+        // Call onAddressSelect with complete address data
         if (onAddressSelect) {
+          console.log('[AddressAutocomplete] Calling onAddressSelect with:', addressData);
           onAddressSelect(addressData);
-        }
-        
-        // Then update the input field
-        if (onChange) {
-          onChange(streetAddress);
+          // Note: Parent component should update the value prop with address1
+          // We don't call onChange to avoid conflicting updates
+        } else {
+          // Fallback: if no onAddressSelect callback, use onChange
+          if (onChange) {
+            onChange(streetAddress);
+          }
         }
       } else {
         // Fallback: try to parse the formatted address

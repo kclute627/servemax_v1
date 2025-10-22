@@ -5,20 +5,27 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 // FIREBASE TRANSITION: Replace with Firebase SDK imports.
-import { Employee } from "@/api/entities";
+import { Employee, User } from "@/api/entities";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { 
-  Plus, 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Plus,
   Search,
-  Info
+  Info,
+  UserPlus,
+  UserCheck,
+  Mail
 } from "lucide-react";
 
 import EmployeesTable from "../components/employees/EmployeesTable";
 import NewEmployeeDialog from "../components/employees/NewEmployeeDialog";
 import EditEmployeeDialog from "../components/employees/EditEmployeeDialog";
+import InviteEmployeeDialog from "../components/employees/InviteEmployeeDialog";
+import InviteContractorDialog from "../components/employees/InviteContractorDialog";
+import PendingInvitations from "../components/employees/PendingInvitations";
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState([]);
@@ -28,9 +35,25 @@ export default function EmployeesPage() {
   const [editingEmployee, setEditingEmployee] = useState(null); // New state for editing
   const [isLoading, setIsLoading] = useState(true);
 
+  // Invitation dialogs
+  const [showInviteEmployeeDialog, setShowInviteEmployeeDialog] = useState(false);
+  const [showInviteContractorDialog, setShowInviteContractorDialog] = useState(false);
+  const [invitationRefresh, setInvitationRefresh] = useState(0);
+  const [currentUser, setCurrentUser] = useState(null);
+
   useEffect(() => {
     loadEmployees();
+    loadCurrentUser();
   }, []);
+
+  const loadCurrentUser = async () => {
+    try {
+      const user = await User.me();
+      setCurrentUser(user);
+    } catch (error) {
+      console.error("Error loading current user:", error);
+    }
+  };
 
   const loadEmployees = async () => {
     setIsLoading(true);
@@ -93,6 +116,15 @@ export default function EmployeesPage() {
     }
   };
 
+  const handleInvitationSent = () => {
+    setInvitationRefresh(prev => prev + 1);
+  };
+
+  const canManageInvitations = () => {
+    return currentUser?.user_type === 'company_owner' ||
+           currentUser?.employee_role === 'admin';
+  };
+
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -101,66 +133,150 @@ export default function EmployeesPage() {
           {/* Header */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-slate-900 mb-2">Employees</h1>
-              <p className="text-slate-600">Manage your staff and process servers</p>
+              <h1 className="text-3xl font-bold text-slate-900 mb-2">Team Management</h1>
+              <p className="text-slate-600">Manage employees, contractors, and invitations</p>
             </div>
-            <Button 
-              onClick={() => setShowNewEmployeeDialog(true)}
-              className="bg-slate-900 hover:bg-slate-800 gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Add Employee
-            </Button>
+            <div className="flex gap-2">
+              {canManageInvitations() && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowInviteContractorDialog(true)}
+                    className="gap-2"
+                  >
+                    <UserCheck className="w-4 h-4" />
+                    Invite Contractor
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowInviteEmployeeDialog(true)}
+                    className="gap-2"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    Invite Employee
+                  </Button>
+                </>
+              )}
+              <Button
+                onClick={() => setShowNewEmployeeDialog(true)}
+                className="bg-slate-900 hover:bg-slate-800 gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Add Employee
+              </Button>
+            </div>
           </div>
 
-          {/* Invitation Info Alert */}
-          <Alert className="mb-6 bg-blue-50 border-blue-200">
-            <Info className="h-4 w-4 text-blue-700" />
-            <AlertTitle className="text-blue-900">How to Invite a New Employee</AlertTitle>
-            <AlertDescription className="text-blue-800">
-              Adding an employee here creates their profile. To grant them access, you must also invite them as a user from your app's main User Management dashboard, which will send them a sign-up link.
-            </AlertDescription>
-          </Alert>
-          
-          {/* Search */}
-          <div className="bg-white rounded-lg border border-slate-200 shadow-sm mb-6">
-            <div className="p-6">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
-                <Input
-                  placeholder="Search by name or email..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
+          <Tabs defaultValue="employees" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="employees">Employees</TabsTrigger>
+              <TabsTrigger value="invitations">
+                <Mail className="w-4 h-4 mr-2" />
+                Invitations
+              </TabsTrigger>
+              <TabsTrigger value="contractors">Contractors</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="employees" className="space-y-6 mt-6">
+              {/* Invitation Info Alert */}
+              <Alert className="bg-blue-50 border-blue-200">
+                <Info className="h-4 w-4 text-blue-700" />
+                <AlertTitle className="text-blue-900">Employee Management</AlertTitle>
+                <AlertDescription className="text-blue-800">
+                  Manage your direct employees here. To grant system access, use the "Invite Employee" button to send them a signup link.
+                </AlertDescription>
+              </Alert>
+
+              {/* Search */}
+              <div className="bg-white rounded-lg border border-slate-200 shadow-sm">
+                <div className="p-6">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+                    <Input
+                      placeholder="Search by name or email..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* Employees Table */}
-          <EmployeesTable 
-            employees={filteredEmployees}
-            isLoading={isLoading}
-            onEdit={(employee) => setEditingEmployee(employee)} // Pass edit handler
-            onSetDefault={handleSetDefault}
-          />
+              {/* Employees Table */}
+              <EmployeesTable
+                employees={filteredEmployees}
+                isLoading={isLoading}
+                onEdit={(employee) => setEditingEmployee(employee)}
+                onSetDefault={handleSetDefault}
+              />
+            </TabsContent>
 
-          {/* New Employee Dialog */}
+            <TabsContent value="invitations" className="space-y-6 mt-6">
+              {canManageInvitations() ? (
+                <PendingInvitations
+                  refreshTrigger={invitationRefresh}
+                  onRefresh={() => setInvitationRefresh(prev => prev + 1)}
+                />
+              ) : (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>Access Restricted</AlertTitle>
+                  <AlertDescription>
+                    Only company owners and administrators can manage invitations.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </TabsContent>
+
+            <TabsContent value="contractors" className="space-y-6 mt-6">
+              <Alert className="bg-green-50 border-green-200">
+                <UserCheck className="h-4 w-4 text-green-700" />
+                <AlertTitle className="text-green-900">Independent Contractors</AlertTitle>
+                <AlertDescription className="text-green-800">
+                  Independent contractors have free accounts and can work with multiple companies.
+                  Use "Invite Contractor" to send them a signup link.
+                </AlertDescription>
+              </Alert>
+
+              {/* Contractor management will be implemented later */}
+              <div className="text-center py-12 bg-white rounded-lg border">
+                <UserCheck className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                <p className="text-slate-500">Contractor management coming soon</p>
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          {/* Dialogs */}
           <NewEmployeeDialog
             open={showNewEmployeeDialog}
             onOpenChange={setShowNewEmployeeDialog}
             onEmployeeCreated={handleEmployeeCreated}
           />
 
-          {/* Edit Employee Dialog */}
           {editingEmployee && (
             <EditEmployeeDialog
-              key={editingEmployee.id} // Ensures dialog re-renders with new data
+              key={editingEmployee.id}
               open={!!editingEmployee}
               onOpenChange={() => setEditingEmployee(null)}
               employee={editingEmployee}
               onEmployeeUpdated={handleEmployeeUpdated}
             />
+          )}
+
+          {canManageInvitations() && (
+            <>
+              <InviteEmployeeDialog
+                open={showInviteEmployeeDialog}
+                onOpenChange={setShowInviteEmployeeDialog}
+                onInviteSent={handleInvitationSent}
+              />
+
+              <InviteContractorDialog
+                open={showInviteContractorDialog}
+                onOpenChange={setShowInviteContractorDialog}
+                onInviteSent={handleInvitationSent}
+              />
+            </>
           )}
         </div>
       </div>
