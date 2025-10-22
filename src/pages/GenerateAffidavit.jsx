@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { Job, Client, Employee, CourtCase, Attempt, Document, CompanySettings } from '@/api/entities';
+import { Job, Client, Employee, CourtCase, Attempt, Document, CompanySettings, AffidavitTemplate, SystemAffidavitTemplate } from '@/api/entities';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2, AlertTriangle, Printer, Pencil, Save, Camera } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -13,8 +13,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { useGlobalData } from '@/components/GlobalDataContext';
 
 export default function GenerateAffidavitPage() {
+  const { companyData } = useGlobalData();
   const [job, setJob] = useState(null);
   const [client, setClient] = useState(null);
   const [courtCase, setCourtCase] = useState(null);
@@ -32,6 +34,9 @@ export default function GenerateAffidavitPage() {
   const [includeCompanyInfo, setIncludeCompanyInfo] = useState(false);
   const [companyInfo, setCompanyInfo] = useState(null); // Changed initial state to null
   const [hasCompanyInfo, setHasCompanyInfo] = useState(false); // New state variable
+  const [affidavitTemplates, setAffidavitTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('general');
+  const [selectedTemplate, setSelectedTemplate] = useState(null); // Full template object
 
   const location = useLocation();
 
@@ -41,12 +46,12 @@ export default function GenerateAffidavitPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const jobData = await Job.get(jobId);
+      const jobData = await Job.findById(jobId);
       if (!jobData) throw new Error("Job not found.");
 
       const [clientData, courtCaseData, attemptsData, documentsData, employeesData] = await Promise.all([
-        jobData.client_id ? Client.get(jobData.client_id) : null,
-        jobData.court_case_id ? CourtCase.get(jobData.court_case_id) : null,
+        jobData.client_id ? Client.findById(jobData.client_id) : null,
+        jobData.court_case_id ? CourtCase.findById(jobData.court_case_id) : null,
         Attempt.filter({ job_id: jobId }).catch(e => { console.error("Error loading attempts:", e); return []; }),
         Document.filter({ job_id: jobId }).catch(e => { console.error("Error loading documents:", e); return []; }),
         Employee.list().catch(e => { console.error("Error loading employees:", e); return []; }),
@@ -73,15 +78,8 @@ export default function GenerateAffidavitPage() {
         const info = companyInfoSettings[0].setting_value;
         // Check if company info has meaningful data to display
         if (info.company_name || info.address1 || info.city || info.state || info.zip) {
-          // Format the object into a multiline string for the affidavit
-          let formattedInfo = info.company_name ? `${info.company_name}\n` : '';
-          formattedInfo += info.address1 ? `${info.address1}\n` : '';
-          if (info.address2) {
-            formattedInfo += `${info.address2}\n`;
-          }
-          formattedInfo += (info.city || info.state || info.zip) ? `${info.city ? info.city + ', ' : ''}${info.state || ''} ${info.zip || ''}` : '';
-          
-          setCompanyInfo(formattedInfo.trim());
+          // Keep as object for the affidavit preview component
+          setCompanyInfo(info);
           setHasCompanyInfo(true);
         }
       }
@@ -93,6 +91,51 @@ export default function GenerateAffidavitPage() {
     }
   };
 
+  const loadAffidavitTemplates = async () => {
+    try {
+      // Load system templates (available to all companies)
+      const systemTemplates = await SystemAffidavitTemplate.list();
+      const systemTemplatesWithFlag = (systemTemplates || []).map(tmpl => ({
+        ...tmpl,
+        isSystem: true
+      }));
+
+      // Load company-specific templates
+      let companyTemplates = [];
+      if (companyData?.id) {
+        companyTemplates = await AffidavitTemplate.filter({ company_id: companyData.id });
+      }
+      const companyTemplatesWithFlag = (companyTemplates || []).map(tmpl => ({
+        ...tmpl,
+        isSystem: false
+      }));
+
+      // Merge both lists
+      const allTemplates = [...systemTemplatesWithFlag, ...companyTemplatesWithFlag];
+
+      if (allTemplates.length > 0) {
+        setAffidavitTemplates(allTemplates);
+      } else {
+        // Fallback: use a few defaults if no templates exist
+        setAffidavitTemplates([
+          { id: 'general', name: 'General Affidavit Template', jurisdiction: 'General', isSystem: true },
+          { id: 'illinois', name: 'Illinois – Circuit Court Affidavit', jurisdiction: 'IL', isSystem: true },
+          { id: 'california', name: 'California Proof of Service', jurisdiction: 'CA', isSystem: true },
+          { id: 'texas', name: 'Texas Affidavit of Service', jurisdiction: 'TX', isSystem: true },
+        ]);
+      }
+    } catch (err) {
+      console.error("Error loading affidavit templates:", err);
+      // Fallback: use a few defaults
+      setAffidavitTemplates([
+        { id: 'general', name: 'General Affidavit Template', jurisdiction: 'General', isSystem: true },
+        { id: 'illinois', name: 'Illinois – Circuit Court Affidavit', jurisdiction: 'IL', isSystem: true },
+        { id: 'california', name: 'California Proof of Service', jurisdiction: 'CA', isSystem: true },
+        { id: 'texas', name: 'Texas Affidavit of Service', jurisdiction: 'TX', isSystem: true },
+      ]);
+    }
+  };
+
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const jobId = params.get('jobId');
@@ -101,6 +144,7 @@ export default function GenerateAffidavitPage() {
       setIsLoading(true);
       loadData(jobId);
       loadCompanyInfo();
+      loadAffidavitTemplates();
     } else {
       setError("No Job ID provided.");
       setIsLoading(false);
@@ -166,12 +210,96 @@ export default function GenerateAffidavitPage() {
       person_description_other: latestServedAttempt?.person_served_description || '',
       include_notary: includeNotary,
       include_company_info: includeCompanyInfo,
-      company_info: companyInfo, // Now uses the state variable which is a formatted string
+      company_info: companyInfo, // Object with company_name, address1, address2, city, state, zip, phone
+      affidavit_template_id: selectedTemplateId,
+
+      // Attempts data for advanced template usage
+      attempts: attempts || [],
+      successful_attempts: servedAttempts || [],
+      successful_attempt: latestServedAttempt || null,
     };
-    
+
     setAffidavitData(data);
-  }, [job, client, courtCase, attempts, documents, employees, selectedPhotos, includeNotary, includeCompanyInfo, companyInfo, hasCompanyInfo]);
-  
+  }, [job, client, courtCase, attempts, documents, employees, selectedPhotos, includeNotary, includeCompanyInfo, companyInfo, hasCompanyInfo, selectedTemplateId]);
+
+  // Smart auto-select template based on court location with priority matching
+  useEffect(() => {
+    if (courtCase?.court_state && affidavitTemplates.length > 0) {
+      let match = null;
+
+      // Filter templates by service status first (served, not_served, or both)
+      const jobStatus = job?.status; // 'served' or 'not_served'
+      const applicableTemplates = affidavitTemplates.filter(t =>
+        !t.service_status ||
+        t.service_status === 'both' ||
+        t.service_status === jobStatus
+      );
+
+      // Priority 1: Exact match with county (e.g., "IL" + "Cook County")
+      if (courtCase.court_county) {
+        match = applicableTemplates.find(t =>
+          t.jurisdiction?.toLowerCase() === courtCase.court_state.toLowerCase() &&
+          t.county?.toLowerCase() === courtCase.court_county.toLowerCase()
+        );
+      }
+
+      // Priority 2: State match with specific court type
+      if (!match && courtCase.court_name) {
+        match = applicableTemplates.find(t =>
+          t.jurisdiction?.toLowerCase() === courtCase.court_state.toLowerCase() &&
+          t.court_type && courtCase.court_name.toLowerCase().includes(t.court_type.toLowerCase())
+        );
+      }
+
+      // Priority 3: State match, no county/court type specified (general state template)
+      if (!match) {
+        match = applicableTemplates.find(t =>
+          t.jurisdiction?.toLowerCase() === courtCase.court_state.toLowerCase() &&
+          !t.county &&
+          !t.court_type
+        );
+      }
+
+      // Priority 4: Any state match
+      if (!match) {
+        match = applicableTemplates.find(t =>
+          t.jurisdiction?.toLowerCase() === courtCase.court_state.toLowerCase()
+        );
+      }
+
+      // Priority 5: General/universal template
+      if (!match) {
+        match = applicableTemplates.find(t =>
+          t.jurisdiction?.toLowerCase() === 'general' ||
+          t.name?.toLowerCase().includes('universal') ||
+          t.name?.toLowerCase().includes('general')
+        );
+      }
+
+      if (match) {
+        setSelectedTemplateId(match.id);
+      }
+    }
+  }, [courtCase, affidavitTemplates, job]);
+
+  // Update selected template object when ID changes
+  useEffect(() => {
+    if (selectedTemplateId && affidavitTemplates.length > 0) {
+      const template = affidavitTemplates.find(t => t.id === selectedTemplateId);
+      setSelectedTemplate(template || null);
+
+      // Set default include flags from template if available
+      if (template) {
+        if (template.include_notary_default !== undefined) {
+          setIncludeNotary(template.include_notary_default);
+        }
+        if (template.include_company_info_default !== undefined && hasCompanyInfo) {
+          setIncludeCompanyInfo(template.include_company_info_default);
+        }
+      }
+    }
+  }, [selectedTemplateId, affidavitTemplates, hasCompanyInfo]);
+
   const handlePrint = async () => {
     if (isEditing) {
       alert("Please save your changes before printing.");
@@ -184,9 +312,9 @@ export default function GenerateAffidavitPage() {
     setIsGenerating(true);
     try {
       const response = await generateAffidavit(affidavitData);
-      
+
       const blob = new Blob([response.data], { type: 'application/pdf' });
-      const fileName = `affidavit-${job?.job_number || 'service'}.pdf`;
+      const fileName = `affidavit_${job?.job_number || 'service'}_${selectedTemplateId}.pdf`;
 
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -196,7 +324,7 @@ export default function GenerateAffidavitPage() {
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
       a.remove();
-      
+
     } catch (error) {
       console.error("Failed to generate or print affidavit:", error);
       alert("Error generating PDF: " + (error.message || "An unexpected error occurred."));
@@ -342,7 +470,55 @@ export default function GenerateAffidavitPage() {
                   </label>
                 </div>
               )}
-              
+
+              <div className="flex items-center space-x-2">
+                <Label htmlFor="affidavit-type" className="text-sm font-medium text-slate-700">
+                  Affidavit Type:
+                </Label>
+                <select
+                  id="affidavit-type"
+                  value={selectedTemplateId}
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  className="text-sm border border-slate-300 rounded-md px-2 py-1 focus:ring-blue-500 focus:border-blue-500 min-w-[280px]"
+                >
+                  {/* System Templates Group */}
+                  {affidavitTemplates.filter(t => t.isSystem).length > 0 && (
+                    <optgroup label="System Templates (Available to All)">
+                      {affidavitTemplates
+                        .filter(t => t.isSystem)
+                        .sort((a, b) => (a.jurisdiction || '').localeCompare(b.jurisdiction || ''))
+                        .map(template => (
+                          <option key={template.id} value={template.id}>
+                            {template.jurisdiction ? `[${template.jurisdiction}] ` : ''}
+                            {template.name}
+                          </option>
+                        ))
+                      }
+                    </optgroup>
+                  )}
+
+                  {/* Company Templates Group */}
+                  {affidavitTemplates.filter(t => !t.isSystem).length > 0 && (
+                    <optgroup label="My Company Templates">
+                      {affidavitTemplates
+                        .filter(t => !t.isSystem)
+                        .map(template => (
+                          <option key={template.id} value={template.id}>
+                            {template.jurisdiction ? `[${template.jurisdiction}] ` : ''}
+                            {template.name}
+                          </option>
+                        ))
+                      }
+                    </optgroup>
+                  )}
+
+                  {/* Fallback if no templates */}
+                  {affidavitTemplates.length === 0 && (
+                    <option value="general">General Template</option>
+                  )}
+                </select>
+              </div>
+
               {/* The Textarea for editing company info is removed as it's now loaded from settings */}
             </div>
           </div>
@@ -362,8 +538,9 @@ export default function GenerateAffidavitPage() {
               }}
             >
               {affidavitData ? (
-                <AffidavitPreview 
-                  affidavitData={affidavitData} 
+                <AffidavitPreview
+                  affidavitData={affidavitData}
+                  template={selectedTemplate}
                   isEditing={isEditing}
                   onDataChange={handleAffidavitDataChange}
                 />

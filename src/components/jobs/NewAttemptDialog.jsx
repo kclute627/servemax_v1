@@ -66,29 +66,65 @@ export default function NewAttemptDialog({ open, onOpenChange, job, employees, o
       return;
     }
     setIsGettingLocation(true);
+
+    const options = {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 60000
+    };
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        const { latitude, longitude, accuracy, altitude, heading } = position.coords;
         setGpsCoords({
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
+          lat: latitude,
+          lon: longitude,
+          accuracy: accuracy,
+          altitude: altitude,
+          heading: heading,
+          timestamp: new Date(position.timestamp).toISOString()
         });
         setIsGettingLocation(false);
+
+        if (accuracy > 100) {
+          alert(`Location captured, but accuracy is low (±${Math.round(accuracy)}m). Consider moving to a more open area for better GPS signal.`);
+        }
       },
       (error) => {
         console.error("Error getting location:", error);
-        alert("Unable to retrieve your location.");
+        let errorMessage = "Unable to retrieve your location. ";
+        switch(error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage += "Please allow location access.";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMessage += "Location information is unavailable.";
+            break;
+          case error.TIMEOUT:
+            errorMessage += "Location request timed out.";
+            break;
+          default:
+            errorMessage += "An unknown error occurred.";
+        }
+        alert(errorMessage);
         setIsGettingLocation(false);
-      }
+      },
+      options
     );
   };
   
   const handleSaveAttempt = async () => {
     setIsSubmitting(true);
-    
+
     const [hours, minutes] = attemptTime.split(':');
     const finalAttemptDate = new Date(attemptDate);
     finalAttemptDate.setHours(parseInt(hours, 10));
     finalAttemptDate.setMinutes(parseInt(minutes, 10));
+
+    // Detect if mobile device
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+      || ('ontouchstart' in window)
+      || (navigator.maxTouchPoints > 0);
 
     try {
       const attemptData = {
@@ -98,8 +134,19 @@ export default function NewAttemptDialog({ open, onOpenChange, job, employees, o
         address_of_attempt: addressOfAttempt,
         status: status,
         notes: notes,
+        // Enhanced GPS data
         gps_lat: gpsCoords?.lat,
         gps_lon: gpsCoords?.lon,
+        gps_accuracy: gpsCoords?.accuracy,
+        gps_altitude: gpsCoords?.altitude,
+        gps_heading: gpsCoords?.heading,
+        gps_timestamp: gpsCoords?.timestamp,
+        device_timestamp: new Date().toISOString(),
+        // Device tracking
+        mobile_app_attempt: isMobile,
+        device_info: navigator.userAgent,
+        // Success flag
+        success: status === 'served',
       };
 
       // Create the attempt record
@@ -243,9 +290,18 @@ export default function NewAttemptDialog({ open, onOpenChange, job, employees, o
                     Capture GPS Location
                 </Button>
                 {gpsCoords && (
-                    <p className="text-sm text-green-700">
-                        Location captured: {gpsCoords.lat.toFixed(4)}, {gpsCoords.lon.toFixed(4)}
-                    </p>
+                    <div className="text-sm text-green-700">
+                        <p>Location captured: {gpsCoords.lat.toFixed(4)}, {gpsCoords.lon.toFixed(4)}</p>
+                        {gpsCoords.accuracy && (
+                            <p className="text-xs text-slate-600">
+                                Accuracy: ±{Math.round(gpsCoords.accuracy)}m
+                                {gpsCoords.accuracy <= 20 && ' (Excellent)'}
+                                {gpsCoords.accuracy > 20 && gpsCoords.accuracy <= 50 && ' (Good)'}
+                                {gpsCoords.accuracy > 50 && gpsCoords.accuracy <= 100 && ' (Fair)'}
+                                {gpsCoords.accuracy > 100 && ' (Low)'}
+                            </p>
+                        )}
+                    </div>
                 )}
             </div>
           </div>

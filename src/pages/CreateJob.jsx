@@ -579,66 +579,63 @@ export default function CreateJobPage() {
       let courtId = null;
       let courtCaseId = null;
 
-      // STEP 1: Handle Court (Create new or use existing)
-      if (formData.court_name && isEditingExistingCourt) {
-        const existingCourts = await SecureCourtAccess.filter({ branch_name: formData.court_name });
-        if (existingCourts.length > 0) {
-          courtId = existingCourts[0].id;
-          await Court.update(existingCourts[0].id, {
-            county: formData.court_county,
-            address: formData.court_address
-          });
-        }
-      } else if (formData.court_name && !selectedCourtFromAutocomplete) {
-        // Handle creation of a brand new court not previously in DB
-        const existingCourts = await SecureCourtAccess.filter({ branch_name: formData.court_name });
-        if (existingCourts.length === 0) {
-          const newCourt = await SecureCourtAccess.create({
-            branch_name: formData.court_name,
-            county: formData.court_county || "Unknown County",
-            address: formData.court_address
-          });
-          courtId = newCourt.id;
-        } else {
-          courtId = existingCourts[0].id;
-        }
-      } else if (selectedCourtFromAutocomplete) {
+      // STEP 1: Handle Court Creation
+      if (selectedCourtFromAutocomplete) {
+        // User selected existing court from autocomplete
         courtId = selectedCourtFromAutocomplete.id;
+        console.log('[CreateJob] Using selected court:', courtId);
+
+      } else if (formData.court_name) {
+        // User typed a court name - CREATE NEW COURT
+        console.log('[CreateJob] Creating new court:', formData.court_name);
+
+        const newCourt = await SecureCourtAccess.create({
+          branch_name: formData.court_name,
+          county: formData.court_county || "Unknown County",
+          address: formData.court_address || {}
+        });
+
+        courtId = newCourt.id;
+        console.log('[CreateJob] ✓ New court created with ID:', courtId);
       }
 
-      // STEP 2: Handle CourtCase (Create new or use existing)
-      // IMPORTANT: Case MUST have court_id set before being created
+      // STEP 2: Create Court Case with court_id link
+      // CRITICAL: Case MUST have court_id to link to court
       if (selectedCase && isEditingCase) {
-        // User EDITED an existing case
-        const caseUpdateData = {
+        // Update existing case
+        await CourtCase.update(selectedCase.id, {
           case_name: `${formData.plaintiff} vs ${formData.defendant}`,
           case_number: formData.case_number,
           plaintiff: formData.plaintiff,
           defendant: formData.defendant,
-          court_id: courtId, // Link to court
-          court_name: formData.court_name,
-          court_county: formData.court_county,
-          court_address: JSON.stringify(formData.court_address)
-        };
-        await CourtCase.update(selectedCase.id, caseUpdateData);
-        courtCaseId = selectedCase.id;
-      } else if (selectedCase) {
-        // User SELECTED an existing case, no edits
-        courtCaseId = selectedCase.id;
-      } else {
-        // User is CREATING a new case from scratch
-        const caseName = `${formData.plaintiff} vs ${formData.defendant}`;
-        const newCourtCase = await SecureCaseAccess.create({
-          case_name: caseName,
-          case_number: formData.case_number,
-          plaintiff: formData.plaintiff,
-          defendant: formData.defendant,
-          court_id: courtId, // CRITICAL: Link case to court
+          court_id: courtId, // ← CRITICAL LINK
           court_name: formData.court_name,
           court_county: formData.court_county,
           court_address: JSON.stringify(formData.court_address)
         });
+        courtCaseId = selectedCase.id;
+
+      } else if (selectedCase) {
+        // Use existing case as-is
+        courtCaseId = selectedCase.id;
+
+      } else {
+        // Create NEW case
+        console.log('[CreateJob] Creating new case with court_id:', courtId);
+
+        const newCourtCase = await SecureCaseAccess.create({
+          case_name: `${formData.plaintiff} vs ${formData.defendant}`,
+          case_number: formData.case_number,
+          plaintiff: formData.plaintiff,
+          defendant: formData.defendant,
+          court_id: courtId, // ← CRITICAL LINK
+          court_name: formData.court_name,
+          court_county: formData.court_county,
+          court_address: JSON.stringify(formData.court_address)
+        });
+
         courtCaseId = newCourtCase.id;
+        console.log('[CreateJob] ✓ New case created with court_id:', courtId);
       }
 
       // STEP 3: Create Job with case_id (handled below in newJobData)
@@ -678,6 +675,19 @@ export default function CreateJobPage() {
         description: `Job created by ${currentUser?.full_name || "System"}.`
       };
 
+      // Determine server name based on server type for field sheet
+      let serverNameForJob = "Unassigned";
+      if (serverIdForSubmission !== "unassigned") {
+        if (formData.server_type === 'employee') {
+          const server = employees.find(e => String(e.id) === serverIdForSubmission);
+          serverNameForJob = server ? `${server.first_name} ${server.last_name}` : "Unknown";
+        } else if (formData.server_type === 'contractor' && selectedContractor) {
+          serverNameForJob = selectedContractor.company_name || "Unknown";
+        } else if (formData.server_type === 'marketplace') {
+          serverNameForJob = "Marketplace";
+        }
+      }
+
       const newJobData = {
         job_number: jobNumber,
         client_job_number: formData.client_job_number,
@@ -685,6 +695,11 @@ export default function CreateJobPage() {
         contact_id: formData.contact_id,
         contact_email: formData.contact_email,
         court_case_id: courtCaseId,
+        // Case information stored for field sheet PDF generation
+        case_number: formData.case_number,
+        court_name: formData.court_name,
+        plaintiff: formData.plaintiff,
+        defendant: formData.defendant,
         recipient: {
           name: formData.recipient_name,
           type: formData.recipient_type
@@ -695,6 +710,7 @@ export default function CreateJobPage() {
         first_attempt_due_date: formData.first_attempt_due_date,
         server_type: formData.server_type,
         assigned_server_id: serverIdForSubmission,
+        server_name: serverNameForJob,
         priority: formData.priority,
         due_date: formData.due_date,
         service_fee: formData.service_fee,
@@ -708,6 +724,77 @@ export default function CreateJobPage() {
         is_closed: false,
         activity_log: [initialLogEntry]
       };
+
+      // Create invoice FIRST if invoiceData exists
+      let newInvoice = null;
+      let invoiceId = null;
+
+      if (invoiceData && invoiceData.line_items && invoiceData.line_items.length > 0) {
+        try {
+          const invoiceNumber = await generateInvoiceNumber();
+          const invoiceDate = new Date();
+          const invoiceDueDate = new Date(invoiceDate);
+          invoiceDueDate.setDate(invoiceDate.getDate() + 30);
+
+          const lineItems = invoiceData?.line_items || [];
+          const subtotal = invoiceData?.subtotal || 0;
+          const taxRate = invoiceData?.tax_rate || 0;
+          const taxAmount = invoiceData?.tax_amount || 0;
+          const totalAmount = invoiceData?.total || 0;
+
+          const defaultTerms = companySettings?.invoice_settings?.default_terms ||
+            "Thanks for your business. Please pay the \"Balance Due\" within 30 days.";
+
+          newInvoice = await Invoice.create({
+            invoice_number: invoiceNumber,
+            client_id: formData.client_id,
+            company_id: user?.company_id || null,
+            invoice_type: "job",
+            invoice_date: invoiceDate.toISOString().split('T')[0],
+            due_date: invoiceDueDate.toISOString().split('T')[0],
+            issued_on: null,
+            paid_on: null,
+            last_issued_at: null,
+            job_ids: [], // Will update after job creation
+            line_items: lineItems,
+            subtotal: subtotal,
+            discount_amount: 0,
+            discount_type: "fixed",
+            tax_rate: taxRate,
+            total_tax_amount: taxAmount,
+            total: totalAmount,
+            balance_due: totalAmount,
+            total_paid: 0,
+            currency: "USD",
+            status: "Draft",
+            locked: false,
+            taxes_enabled: taxRate > 0,
+            payment_method_required: "manual",
+            send_reminders: true,
+            reminder_settings: {
+              enabled: true,
+              days_before_due: [7, 3, 1],
+              days_after_due: [1, 7, 14, 30]
+            },
+            terms: defaultTerms,
+            notes: `Auto-generated invoice for job ${jobNumber}`,
+            pdf_download_url: null,
+            token: null,
+            external_invoice_url: null,
+            language: "en",
+            payments: []
+          });
+
+          invoiceId = newInvoice.id;
+          console.log("Invoice created first:", invoiceNumber);
+        } catch (error) {
+          console.error("Failed to create invoice:", error);
+        }
+      }
+
+      // Add invoice reference to job
+      newJobData.job_invoice_id = invoiceId;
+      newJobData.invoiced = invoiceId ? true : false;
 
       // Add shared job fields if it's a collaborating contractor
       if (isCollaboratingContractor && myCompanyClientId) {
@@ -756,105 +843,25 @@ export default function CreateJobPage() {
         });
       }
 
-      // Automatically create invoice for the job
-      try {
-        const invoiceNumber = await generateInvoiceNumber();
-        const invoiceDate = new Date();
-        const invoiceDueDate = new Date(invoiceDate);
-        invoiceDueDate.setDate(invoiceDate.getDate() + 30); // 30 days payment terms
-
-        // Build line items from job fees
-        const lineItems = [];
-        
-        if (formData.service_fee > 0) {
-          lineItems.push({
-            description: `Process Service - ${formData.recipient_name}`,
-            quantity: 1,
-            rate: formData.service_fee,
-            amount: formData.service_fee
-          });
-        }
-        
-        if (formData.rush_fee > 0) {
-          lineItems.push({
-            description: "Rush Service Fee",
-            quantity: 1,
-            rate: formData.rush_fee,
-            amount: formData.rush_fee
-          });
-        }
-        
-        if (formData.mileage_fee > 0) {
-          lineItems.push({
-            description: "Mileage Fee",
-            quantity: 1,
-            rate: formData.mileage_fee,
-            amount: formData.mileage_fee
-          });
-        }
-
-        // Check for printing fees from settings
+      // Update invoice with job_id if invoice was created
+      if (newInvoice && newInvoice.id) {
         try {
-          const invoiceSettings = await CompanySettings.filter({ setting_key: "invoice_settings" });
-          if (invoiceSettings.length > 0 && invoiceSettings[0].setting_value?.enabled && uploadedDocuments.length > 0) {
-            const totalPages = uploadedDocuments.reduce((sum, doc) => sum + (doc.page_count || 1), 0);
-            const printingFeePerPage = invoiceSettings[0].setting_value?.fee_per_page || 0.10;
-            const totalPrintingFee = totalPages * printingFeePerPage;
-            
-            if (totalPrintingFee > 0) {
-              lineItems.push({
-                description: `Document Printing (${totalPages} pages @ $${printingFeePerPage.toFixed(2)}/page)`,
-                quantity: totalPages,
-                rate: printingFeePerPage,
-                amount: totalPrintingFee
-              });
-            }
-          }
+          await Invoice.update(newInvoice.id, {
+            job_ids: [newJob.id]
+          });
         } catch (error) {
-          console.error("Error calculating printing fees:", error);
+          console.error("Failed to update invoice with job_id:", error);
         }
-
-        const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
-        const taxRate = 0; // You can modify this to apply tax if needed
-        const taxAmount = subtotal * taxRate;
-        const totalAmount = subtotal + taxAmount;
-
-        const newInvoice = await Invoice.create({
-          invoice_number: invoiceNumber,
-          client_id: formData.client_id,
-          invoice_date: invoiceDate.toISOString().split('T')[0],
-          due_date: invoiceDueDate.toISOString().split('T')[0],
-          job_ids: [newJob.id],
-          line_items: lineItems,
-          subtotal: subtotal,
-          tax_rate: taxRate,
-          tax_amount: taxAmount,
-          total_amount: totalAmount,
-          status: "draft",
-          notes: `Auto-generated invoice for job ${jobNumber}`
-        });
-
-        console.log("Invoice auto-generated:", invoiceNumber);
-        
-        // Update the job to reference the invoice
-        await Job.update(newJob.id, {
-          invoiced: true,
-          invoice_id: newInvoice.id
-        });
-
-      } catch (error) {
-        console.error("Failed to auto-generate invoice:", error);
-        // Don't block job creation if invoice generation fails
       }
 
       if (uploadedDocuments.length > 0) {
         const documentsToCreate = uploadedDocuments.map(doc => ({
           job_id: newJob.id,
-          title: doc.title,
-          affidavit_text: doc.affidavit_text,
-          file_url: doc.file_url,
-          document_category: doc.document_category,
-          page_count: doc.page_count,
+          title: doc.title || '',
+          affidavit_text: doc.affidavit_text || '',
+          file_url: doc.file_url || '',
+          document_category: doc.document_category || 'other',
+          page_count: doc.page_count || 0, // Default to 0 if undefined (Firebase doesn't allow undefined)
           received_at: new Date().toISOString()
         }));
         await Document.bulkCreate(documentsToCreate);
@@ -1041,12 +1048,6 @@ export default function CreateJobPage() {
                   </>
                 )}
 
-                <div className="flex items-center justify-center py-2">
-                  <div className="text-lg font-semibold text-slate-600 bg-slate-100 px-4 py-1 rounded-full">
-                    vs
-                  </div>
-                </div>
-
                 <div>
                   <Label htmlFor="plaintiff">Plaintiff</Label>
                   <Textarea
@@ -1059,6 +1060,12 @@ export default function CreateJobPage() {
                     className="resize-none"
                     disabled={selectedCase && !isEditingCase}
                   />
+                </div>
+
+                <div className="flex items-center justify-center py-2">
+                  <div className="text-lg font-semibold text-slate-600 bg-slate-100 px-4 py-1 rounded-full">
+                    vs
+                  </div>
                 </div>
 
                 <div>

@@ -17,8 +17,19 @@ import BusinessStatsPanel from "../components/dashboard/BusinessStatsPanel";
 // import FirebaseTest from "../components/FirebaseTest";
 import TrialStatusBanner from "../components/trial/TrialStatusBanner";
 import DummyDataToggle from "../components/DummyDataToggle";
+import SuperAdminDashboard from "./SuperAdminDashboard";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { isSuperAdmin } from "@/utils/permissions";
 
 export default function Dashboard() {
+  const { user } = useAuth();
+
+  // Super admin gets their own dashboard
+  if (user && isSuperAdmin(user)) {
+    return <SuperAdminDashboard />;
+  }
+
+  // Regular user dashboard continues below
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <div className="p-6 md:p-8">

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Job, Client, Employee, CourtCase, Document, Attempt, Invoice, CompanySettings, User } from '@/api/entities';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { useGlobalData } from '@/components/GlobalDataContext';
 import { calculateDistance } from '@/utils/geolocation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -163,7 +164,7 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
             <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
           }
 
-          {/* Indicator icons for GPS and Photos */}
+          {/* Indicator icons for GPS, Photos, and Mobile */}
           <div className="flex items-center gap-1">
             {attempt.gps_lat && attempt.gps_lon && (
               <Tooltip>
@@ -172,7 +173,10 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
                     <MapPin className="w-3.5 h-3.5 text-blue-500" />
                   </div>
                 </TooltipTrigger>
-                <TooltipContent>GPS Location Logged</TooltipContent>
+                <TooltipContent>
+                  GPS Location Logged
+                  {attempt.gps_accuracy && ` (±${Math.round(attempt.gps_accuracy)}m)`}
+                </TooltipContent>
               </Tooltip>
             )}
             {Array.isArray(attempt.uploaded_files) && attempt.uploaded_files.length > 0 && (
@@ -183,6 +187,16 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>{attempt.uploaded_files.length} Photo(s)</TooltipContent>
+              </Tooltip>
+            )}
+            {attempt.mobile_app_attempt && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="cursor-help">
+                    <UserIcon className="w-3.5 h-3.5 text-emerald-500" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>Logged from Mobile Device</TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -263,10 +277,30 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
                               GPS Location
                           </h4>
                           <div className="p-3 bg-slate-100 rounded-md space-y-2">
-                              <div className="grid grid-cols-2 gap-x-4">
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                                 <DetailItem icon={MapPin} label="Latitude" value={attempt.gps_lat} />
                                 <DetailItem icon={MapPin} label="Longitude" value={attempt.gps_lon} />
-                                {attempt.gps_accuracy && <DetailItem icon={Target} label="Accuracy" value={`${attempt.gps_accuracy} meters`} />}
+                                {attempt.gps_accuracy && (
+                                  <DetailItem
+                                    icon={Target}
+                                    label="Accuracy"
+                                    value={`±${Math.round(attempt.gps_accuracy)}m ${
+                                      attempt.gps_accuracy <= 20 ? '(Excellent)' :
+                                      attempt.gps_accuracy <= 50 ? '(Good)' :
+                                      attempt.gps_accuracy <= 100 ? '(Fair)' : '(Low)'
+                                    }`}
+                                  />
+                                )}
+                                {attempt.gps_altitude && (
+                                  <DetailItem icon={MapPin} label="Altitude" value={`${Math.round(attempt.gps_altitude)}m`} />
+                                )}
+                                {attempt.gps_timestamp && (
+                                  <DetailItem
+                                    icon={Clock}
+                                    label="GPS Captured"
+                                    value={format(new Date(attempt.gps_timestamp), 'MMM d, h:mm:ss a')}
+                                  />
+                                )}
                                 {attempt.address_lat && attempt.address_lon && (
                                   <DetailItem
                                     icon={MapPin}
@@ -315,6 +349,39 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
                           </div>
                       </div>
                   )}
+
+                  {/* Device Information Section */}
+                  {(attempt.mobile_app_attempt !== undefined || attempt.device_timestamp || attempt.created_at) && (
+                      <div>
+                          <h4 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                              <Settings className="w-4 h-4" />
+                              Metadata
+                          </h4>
+                          <div className="p-3 bg-slate-100 rounded-md grid grid-cols-2 gap-x-4 gap-y-2">
+                              {attempt.mobile_app_attempt !== undefined && (
+                                <DetailItem
+                                  icon={UserCircle}
+                                  label="Device Type"
+                                  value={attempt.mobile_app_attempt ? 'Mobile' : 'Desktop'}
+                                />
+                              )}
+                              {attempt.device_timestamp && (
+                                <DetailItem
+                                  icon={Clock}
+                                  label="Submitted"
+                                  value={format(new Date(attempt.device_timestamp), 'MMM d, h:mm:ss a')}
+                                />
+                              )}
+                              {attempt.created_at && (
+                                <DetailItem
+                                  icon={Clock}
+                                  label="Created"
+                                  value={format(new Date(attempt.created_at), 'MMM d, h:mm a')}
+                                />
+                              )}
+                          </div>
+                      </div>
+                  )}
               </div>
           </motion.div>
       )}
@@ -323,6 +390,43 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
   );
 };
 
+/**
+ * Helper function to get status display info (label and color)
+ * Handles both old string-based statuses and new UUID-based kanban column statuses
+ */
+const getStatusDisplay = (status, kanbanColumns) => {
+  // First check if it's a legacy string status
+  if (statusConfig[status]) {
+    return statusConfig[status];
+  }
+
+  // If not, check if it's a kanban column UUID
+  if (kanbanColumns && kanbanColumns.length > 0) {
+    const column = kanbanColumns.find(col => col.id === status);
+    if (column) {
+      // Map kanban column to appropriate color based on title
+      let color = "bg-slate-100 text-slate-700"; // default
+      const title = column.title.toLowerCase();
+
+      if (title.includes('pending') || title.includes('new')) {
+        color = "bg-slate-100 text-slate-700";
+      } else if (title.includes('assigned') || title.includes('active')) {
+        color = "bg-blue-100 text-blue-700";
+      } else if (title.includes('progress') || title.includes('working')) {
+        color = "bg-amber-100 text-amber-700";
+      } else if (title.includes('served') || title.includes('complete')) {
+        color = "bg-green-100 text-green-700";
+      } else if (title.includes('unable') || title.includes('failed')) {
+        color = "bg-red-100 text-red-700";
+      }
+
+      return { color, label: column.title };
+    }
+  }
+
+  // Fallback if status is not recognized
+  return { color: "bg-slate-100 text-slate-700", label: status || "Unknown" };
+};
 
 export default function JobDetailsPage() {
   // --- State Management ---
@@ -377,6 +481,7 @@ export default function JobDetailsPage() {
   const [isMergingServiceDocs, setIsMergingServiceDocs] = useState(false); // Tracks status of merging service documents
 
   const location = useLocation();
+  const { companySettings, refreshData } = useGlobalData();
 
   // --- "Dirty" State Checks ---
   // These useMemo hooks compare the original data with the data in the edit form
@@ -558,7 +663,10 @@ export default function JobDetailsPage() {
         jobData.court_case_id ? CourtCase.findById(jobData.court_case_id) : Promise.resolve(null),
         Document.filter({ job_id: jobId }).catch(e => { console.error("Error loading documents:", e); return []; }),
         Attempt.filter({ job_id: jobId }).catch(e => { console.error("Error loading attempts:", e); return []; }),
-        Invoice.filter({ job_ids: jobId }).catch(e => { console.error("Error loading invoices:", e); return []; }),
+        // Use direct lookup if job has invoice_id, otherwise fallback to filter
+        jobData.job_invoice_id
+          ? Invoice.findById(jobData.job_invoice_id).catch(e => { console.error("Error loading invoice:", e); return null; })
+          : Invoice.filter({ job_ids: jobId }).then(invoices => invoices[0] || null).catch(e => { console.error("Error loading invoices:", e); return null; }),
         Employee.list().catch(e => { console.error("Error loading employees:", e); return []; }),
         Client.list().catch(e => { console.error("Error loading clients:", e); return []; }),
         CompanySettings.filter({ setting_key: "invoice_settings" }).catch(e => { console.error("Error loading invoice settings:", e); return []; }),
@@ -574,8 +682,14 @@ export default function JobDetailsPage() {
       setClient(clientData);
       setCourtCase(courtCaseData);
       setDocuments(Array.isArray(documentsData) ? documentsData : []);
-      setAttempts(Array.isArray(attemptsData) ? attemptsData.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date)) : []);
-      setInvoices(Array.isArray(invoicesData) ? invoicesData : []);
+
+      // Prioritize attempts from job document (instant), fallback to collection query
+      const attemptsToDisplay = Array.isArray(validatedJobData.attempts) && validatedJobData.attempts.length > 0
+        ? validatedJobData.attempts
+        : (Array.isArray(attemptsData) ? attemptsData : []);
+
+      setAttempts(attemptsToDisplay.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date)));
+      setInvoices(invoicesData ? [invoicesData] : []); // invoicesData is now a single object, not an array
       setAllEmployees(Array.isArray(employeesList) ? employeesList : []);
       setAllClients(Array.isArray(clientsList) ? clientsList : []);
 
@@ -606,9 +720,24 @@ export default function JobDetailsPage() {
         setInvoicePresets([]);
       }
 
-      if (validatedJobData.line_items && Array.isArray(validatedJobData.line_items) && validatedJobData.line_items.length > 0) {
+      
+      // Load line items from invoice (primary) or job document (fallback)
+      if (invoicesData && invoicesData.line_items) {
+        // Map invoice line items to JobDetails format
+        // Invoice uses: item_name, unit_price, total
+        // JobDetails expects: description, rate, amount
+        const mappedItems = invoicesData.line_items.map(item => ({
+          description: item.item_name || item.description || '',
+          quantity: item.quantity || 1,
+          rate: item.unit_price || item.rate || 0,
+          amount: item.total || item.amount || 0
+        }));
+        setLineItems(mappedItems);
+      } else if (validatedJobData.line_items && Array.isArray(validatedJobData.line_items) && validatedJobData.line_items.length > 0) {
+        // Fallback to job document for backwards compatibility
         setLineItems(validatedJobData.line_items);
       } else {
+        // Migration fallback for old jobs with individual fee fields
         const migratedItems = [];
         if (validatedJobData.service_fee) migratedItems.push({ description: "Service Fee", quantity: 1, rate: validatedJobData.service_fee });
         if (validatedJobData.rush_fee) migratedItems.push({ description: "Rush Fee", quantity: 1, rate: validatedJobData.rush_fee });
@@ -736,6 +865,9 @@ export default function JobDetailsPage() {
             is_closed: newClosedStatus,
             activity_log: updatedActivityLog
         }));
+
+        // Refresh global data so the Jobs page shows updated list
+        await refreshData();
 
     } catch (error) {
         console.error("Error toggling job closed status:", error);
@@ -1337,11 +1469,29 @@ export default function JobDetailsPage() {
 
       console.log('Field sheet generated successfully:', response);
 
-      // Reload job details to show the new field sheet
-      await loadJobDetails(job.id);
+      // Update documents state with new field sheet without refreshing page
+      if (response.document) {
+        setDocuments(prevDocs => {
+          // Remove any existing field sheets
+          const filtered = prevDocs.filter(d => d.document_category !== 'field_sheet');
+          // Add new field sheet
+          return [...filtered, response.document];
+        });
+      }
+
+      // Show success toast
+      toast({
+        variant: "success",
+        title: "Field sheet created",
+        description: "Your field sheet has been generated successfully"
+      });
     } catch (error) {
       console.error('Failed to generate field sheet:', error);
-      alert(`Failed to generate field sheet: ${error.message}`);
+      toast({
+        variant: "destructive",
+        title: "Error generating field sheet",
+        description: error.message || "An unexpected error occurred"
+      });
     } finally {
       setIsGeneratingFieldSheet(false);
     }
@@ -1496,9 +1646,6 @@ export default function JobDetailsPage() {
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <Badge className={statusConfig[job.status]?.color || "bg-slate-100"}>
-              {statusConfig[job.status]?.label || job.status}
-            </Badge>
             <Badge className={priorityConfig[job.priority]?.color || "bg-slate-100"}>
               {priorityConfig[job.priority]?.label || job.priority}
             </Badge>
@@ -1728,248 +1875,6 @@ export default function JobDetailsPage() {
               </CardContent>
             </Card>
 
-            {/* Case Info and Service Details Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Case Information Card */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Case Information</CardTitle>
-                  {!isEditingCaseInfo && (
-                    <Button variant="outline" size="sm" onClick={() => handleStartEdit('caseInfo')} className="gap-2">
-                      <Pencil className="w-4 h-4" />
-                      Edit
-                    </Button>
-                  )}
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {isEditingCaseInfo ? (
-                    <>
-                      <div>
-                        <Label htmlFor="edit-case-number">Case Number</Label>
-                        <Input
-                          id="edit-case-number"
-                          value={editFormData.case_number || ''}
-                          onChange={(e) => handleEditInputChange('case_number', e.target.value)}
-                          placeholder="Enter court case number"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="edit-plaintiff">Plaintiff</Label>
-                        <Textarea
-                          id="edit-plaintiff"
-                          value={editFormData.plaintiff || ''}
-                          onChange={(e) => handleEditInputChange('plaintiff', e.target.value)}
-                          rows={2}
-                          placeholder="Enter plaintiff name(s)"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="edit-defendant">Defendant</Label>
-                        <Textarea
-                          id="edit-defendant"
-                          value={editFormData.defendant || ''}
-                          onChange={(e) => handleEditInputChange('defendant', e.target.value)}
-                          rows={2}
-                          placeholder="Enter defendant name(s)"
-                        />
-                      </div>
-                      <div className="flex gap-3 pt-4">
-                        <Button onClick={() => handleSaveEdit('caseInfo')} className="relative">
-                          {isCaseInfoDirty && (
-                            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                            </span>
-                          )}
-                          Save Changes
-                        </Button>
-                        <Button variant="outline" onClick={() => handleCancelEdit('caseInfo')}>
-                          Cancel
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="pt-4 border-t border-slate-200">
-                      <Label className="text-xs text-slate-500 flex items-center gap-1 mb-2">
-                        <Scale className="w-3 h-3" />
-                        Case Information
-                      </Label>
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div>
-                          <span className="text-slate-500">Case:</span> {courtCase?.case_number || 'N/A'}
-                        </div>
-                        <div>
-                          <span className="text-slate-500">Court:</span> {courtCase?.court_name || 'N/A'}
-                        </div>
-                        <div>
-                          <span className="text-slate-500">Plaintiff:</span> {courtCase?.plaintiff || 'N/A'}
-                        </div>
-                        <div>
-                          <span className="text-slate-500">Defendant:</span> {courtCase?.defendant || 'N/A'}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Service Details Card */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Service Details</CardTitle>
-                  {!isEditingServiceDetails && (
-                    <Button variant="outline" size="sm" onClick={() => handleStartEdit('serviceDetails')} className="gap-2">
-                      <Pencil className="w-4 h-4" />
-                      Edit
-                    </Button>
-                  )}
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {isEditingServiceDetails ? (
-                    <>
-                      <div>
-                        <Label htmlFor="edit-priority">Priority</Label>
-                        <select
-                          id="edit-priority"
-                          value={editFormData.priority || 'standard'}
-                          onChange={(e) => handleEditInputChange('priority', e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="standard">Standard</option>
-                          <option value="rush">Rush</option>
-                          <option value="emergency">Emergency</option>
-                        </select>
-                      </div>
-                      <div>
-                        <Label htmlFor="edit-due-date">Due Date</Label>
-                        <Input
-                          id="edit-due-date"
-                          type="date"
-                          value={editFormData.due_date || ''}
-                          onChange={(e) => handleEditInputChange('due_date', e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="edit-first-attempt">First Attempt Due</Label>
-                        <Input
-                          id="edit-first-attempt"
-                          type="date"
-                          value={editFormData.first_attempt_due_date || ''}
-                          onChange={(e) => handleEditInputChange('first_attempt_due_date', e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="edit-first-instructions">First Attempt Instructions</Label>
-                        <Textarea
-                          id="edit-first-instructions"
-                          value={editFormData.first_attempt_instructions || ''}
-                          onChange={(e) => handleEditInputChange('first_attempt_instructions', e.target.value)}
-                          rows={3}
-                          placeholder="Special instructions for first attempt..."
-                        />
-                      </div>
-                      <div className="flex gap-3 pt-4">
-                        <Button onClick={() => handleSaveEdit('serviceDetails')} className="relative">
-                          {isServiceDetailsDirty && (
-                            <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                            </span>
-                          )}
-                          Save Changes
-                        </Button>
-                        <Button variant="outline" onClick={() => handleCancelEdit('serviceDetails')}>
-                          Cancel
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="flex justify-between">
-                        <span className="text-slate-600">Priority:</span>
-                        <Badge className={priorityConfig[job.priority]?.color || "bg-slate-100"}>
-                          {priorityConfig[job.priority]?.label || job.priority}
-                        </Badge>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-600">Due Date:</span>
-                        <span className="font-medium">
-                          {job.due_date ? format(new Date(job.due_date), 'MMM d, yyyy') : 'Not set'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-600">First Attempt Due:</span>
-                        <span className="font-medium">
-                          {job.first_attempt_due_date ? format(new Date(job.first_attempt_due_date), 'MMM d, yyyy') : 'Not set'}
-                        </span>
-                      </div>
-                      {job.first_attempt_instructions && (
-                        <div className="pt-2 border-t">
-                          <Label className="text-xs text-slate-500">First Attempt Instructions</Label>
-                          <p className="text-sm text-slate-700 mt-1">{job.first_attempt_instructions}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Service Attempts Card */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2">
-                    <Clock className="w-5 h-5" />
-                    Service Attempts ({Array.isArray(attempts) ? attempts.length : 0})
-                  </CardTitle>
-                  <Link to={`${createPageUrl('LogAttempt')}?jobId=${job.id}`}>
-                    <Button size="sm" className="gap-2">
-                      <Plus className="w-4 h-4" />
-                      Log Attempt
-                    </Button>
-                  </Link>
-                </div>
-                <CardDescription>
-                  History of all service attempts for this job
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Attempt Time Coverage - only show for individuals with attempts */}
-                {job?.recipient?.type === 'individual' && attempts && attempts.length > 0 && (
-                  <div className="pb-4 border-b border-slate-200">
-                    <h4 className="text-sm font-semibold text-slate-700 mb-3">Attempt Time Coverage</h4>
-                    <AttemptTimeIndicator attempts={attempts} />
-                  </div>
-                )}
-
-                {Array.isArray(attempts) && attempts.length === 0 ? (
-                  <div className="text-center py-8 text-slate-500">
-                    <Clock className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-                    <p className="font-medium">No service attempts yet</p>
-                    <p className="text-sm">Log the first attempt to get started</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {attempts
-                      .sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))
-                      .map(attempt => {
-                        return (
-                          <AttemptWithMap
-                            key={attempt.id}
-                            attempt={attempt}
-                            jobId={job.id}
-                            jobAddress={jobAddressString}
-                            jobCoordinates={jobCoordinates}
-                            employees={allEmployees}
-                          />
-                        );
-                      })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
             {/* Recipient & Service Details Card */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -2111,13 +2016,70 @@ export default function JobDetailsPage() {
                       )}
                     </div>
 
-                    {job?.service_instructions && (
-                      <div className="pt-4 border-t border-slate-200">
-                        <Label className="text-xs text-slate-500">Service Instructions</Label>
+                    <div className="pt-4 border-t border-slate-200">
+                      <Label className="text-xs text-slate-500">Service Instructions</Label>
+                      {job?.service_instructions ? (
                         <p className="text-sm text-slate-700 mt-1">{job.service_instructions}</p>
-                      </div>
-                    )}
+                      ) : (
+                        <p className="text-sm text-slate-400 italic mt-1">No special instructions provided</p>
+                      )}
+                    </div>
                   </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Service Attempts Card */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="w-5 h-5" />
+                    Service Attempts ({Array.isArray(attempts) ? attempts.length : 0})
+                  </CardTitle>
+                  <Link to={`${createPageUrl('LogAttempt')}?jobId=${job.id}`}>
+                    <Button size="sm" className="gap-2">
+                      <Plus className="w-4 h-4" />
+                      Log Attempt
+                    </Button>
+                  </Link>
+                </div>
+                <CardDescription>
+                  History of all service attempts for this job
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Attempt Time Coverage - only show for individuals with attempts */}
+                {job?.recipient?.type === 'individual' && attempts && attempts.length > 0 && (
+                  <div className="pb-4 border-b border-slate-200">
+                    <h4 className="text-sm font-semibold text-slate-700 mb-3">Attempt Time Coverage</h4>
+                    <AttemptTimeIndicator attempts={attempts} />
+                  </div>
+                )}
+
+                {Array.isArray(attempts) && attempts.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <Clock className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+                    <p className="font-medium">No service attempts yet</p>
+                    <p className="text-sm">Log the first attempt to get started</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {attempts
+                      .sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))
+                      .map(attempt => {
+                        return (
+                          <AttemptWithMap
+                            key={attempt.id}
+                            attempt={attempt}
+                            jobId={job.id}
+                            jobAddress={jobAddressString}
+                            jobCoordinates={jobCoordinates}
+                            employees={allEmployees}
+                          />
+                        );
+                      })}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -2295,24 +2257,156 @@ export default function JobDetailsPage() {
                     );
                   })()}
                 </div>
-                <Button variant="outline" size="sm" onClick={saveInvoiceItems} className="gap-2 relative">
-                  {areInvoiceItemsDirty && !invoiceSaved && (
-                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                    </span>
-                  )}
-                  {invoiceSaved ? (
-                    <>
-                      <CheckCircle className="w-4 h-4 text-green-600" />
-                      Saved
-                    </>
-                  ) : (
-                    'Save Invoice'
-                  )}
-                </Button>
+                {(() => {
+                  const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
+                  if (jobInvoice) {
+                    // If invoice exists, show link to invoice page
+                    return (
+                      <Link to={createPageUrl(`Invoices?id=${jobInvoice.id}`)}>
+                        <Button variant="outline" size="sm" className="gap-2">
+                          <FileText className="w-4 h-4" />
+                          View Invoice
+                        </Button>
+                      </Link>
+                    );
+                  } else {
+                    // Legacy: If no invoice exists, show save button
+                    return (
+                      <Button variant="outline" size="sm" onClick={saveInvoiceItems} className="gap-2 relative">
+                        {areInvoiceItemsDirty && !invoiceSaved && (
+                          <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                          </span>
+                        )}
+                        {invoiceSaved ? (
+                          <>
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                            Saved
+                          </>
+                        ) : (
+                          'Save Invoice'
+                        )}
+                      </Button>
+                    );
+                  }
+                })()}
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-4">{(() => {
+                  const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
+
+                  if (jobInvoice) {
+                    // Display invoice data from Invoice document
+                    const total = jobInvoice.total || jobInvoice.total_amount || 0;
+                    const totalPaid = jobInvoice.total_paid || 0;
+                    const balanceDue = jobInvoice.balance_due || (total - totalPaid);
+                    const taxAmount = jobInvoice.total_tax_amount || jobInvoice.tax_amount || 0;
+                    const discountAmount = jobInvoice.discount_amount || 0;
+
+                    return (
+                      <>
+                        <div className="space-y-2 mb-4">
+                          <div className="flex items-center justify-between text-sm text-slate-600">
+                            <span>Invoice #</span>
+                            <span className="font-medium">{jobInvoice.invoice_number}</span>
+                          </div>
+                          {jobInvoice.invoice_type && jobInvoice.invoice_type !== 'job' && (
+                            <div className="flex items-center justify-between text-sm text-slate-600">
+                              <span>Type</span>
+                              <Badge className="bg-purple-100 text-purple-700 capitalize">{jobInvoice.invoice_type}</Badge>
+                            </div>
+                          )}
+                          {jobInvoice.due_date && (
+                            <div className="flex items-center justify-between text-sm text-slate-600">
+                              <span>Due Date</span>
+                              <span className="font-medium">{format(new Date(jobInvoice.due_date), 'MMM d, yyyy')}</span>
+                            </div>
+                          )}
+                          {jobInvoice.issued_on && (
+                            <div className="flex items-center justify-between text-sm text-slate-600">
+                              <span>Issued On</span>
+                              <span className="font-medium">{format(new Date(jobInvoice.issued_on), 'MMM d, yyyy')}</span>
+                            </div>
+                          )}
+                          {jobInvoice.paid_on && (
+                            <div className="flex items-center justify-between text-sm text-slate-600">
+                              <span>Paid On</span>
+                              <span className="font-medium text-green-700">{format(new Date(jobInvoice.paid_on), 'MMM d, yyyy')}</span>
+                            </div>
+                          )}
+                          {jobInvoice.locked && (
+                            <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                              <Lock className="w-3 h-3" />
+                              <span>Invoice is locked</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="border-t pt-4">
+                          <h4 className="text-sm font-semibold text-slate-700 mb-3">Line Items</h4>
+                          <div className="space-y-2">
+                            {Array.isArray(jobInvoice.line_items) && jobInvoice.line_items.map((item, index) => (
+                              <div key={index} className="flex justify-between items-start py-2 border-b border-slate-100 last:border-0">
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium text-slate-900">{item.item_name || item.description}</p>
+                                  <p className="text-xs text-slate-500">
+                                    {item.quantity} × ${parseFloat(item.unit_price || item.rate || 0).toFixed(2)}
+                                  </p>
+                                </div>
+                                <div className="text-sm font-medium text-slate-900">
+                                  ${parseFloat(item.total || item.amount || 0).toFixed(2)}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="border-t pt-4 space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-600">Subtotal:</span>
+                            <span className="font-medium">${parseFloat(jobInvoice.subtotal || 0).toFixed(2)}</span>
+                          </div>
+                          {discountAmount > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-slate-600">Discount{jobInvoice.discount_type === 'percentage' ? ` (${jobInvoice.discount_amount}%)` : ''}:</span>
+                              <span className="font-medium text-green-600">-${parseFloat(discountAmount).toFixed(2)}</span>
+                            </div>
+                          )}
+                          {taxAmount > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-slate-600">Tax {jobInvoice.tax_rate ? `(${(jobInvoice.tax_rate * 100).toFixed(1)}%)` : ''}:</span>
+                              <span className="font-medium">${parseFloat(taxAmount).toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-center pt-2 border-t">
+                            <span className="font-bold text-slate-900">Total:</span>
+                            <span className="text-lg font-bold text-slate-900">${parseFloat(total).toFixed(2)}</span>
+                          </div>
+                          {totalPaid > 0 && (
+                            <>
+                              <div className="flex justify-between text-sm">
+                                <span className="text-slate-600">Paid:</span>
+                                <span className="font-medium text-green-600">${parseFloat(totalPaid).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between items-center pt-2 border-t border-slate-300">
+                                <span className="font-bold text-slate-900">Balance Due:</span>
+                                <span className="text-xl font-bold text-blue-600">${parseFloat(balanceDue).toFixed(2)}</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {jobInvoice.currency && jobInvoice.currency !== 'USD' && (
+                          <div className="mt-3 text-xs text-slate-500">
+                            Currency: {jobInvoice.currency}
+                          </div>
+                        )}
+                      </>
+                    );
+                  } else {
+                    // Legacy: Display editable line items from job data for jobs without invoices
+                    return (
+                      <>
                   <div className="space-y-3">
                     {Array.isArray(lineItems) && lineItems.map((item, index) => (
                       <div key={index} className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
@@ -2416,6 +2510,10 @@ export default function JobDetailsPage() {
                       </Button>
                     </div>
                 </div>
+                      </>
+                    );
+                  }
+                })()}
               </CardContent>
             </Card>
 
@@ -2472,6 +2570,188 @@ export default function JobDetailsPage() {
 
           {/* Right Column - Service History */}
           <div className="lg:col-span-1 space-y-6">
+            {/* Case Information Card */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Case Information</CardTitle>
+                {!isEditingCaseInfo && (
+                  <Button variant="outline" size="sm" onClick={() => handleStartEdit('caseInfo')} className="gap-2">
+                    <Pencil className="w-4 h-4" />
+                    Edit
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isEditingCaseInfo ? (
+                  <>
+                    <div>
+                      <Label htmlFor="edit-case-number">Case Number</Label>
+                      <Input
+                        id="edit-case-number"
+                        value={editFormData.case_number || ''}
+                        onChange={(e) => handleEditInputChange('case_number', e.target.value)}
+                        placeholder="Enter court case number"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-plaintiff">Plaintiff</Label>
+                      <Textarea
+                        id="edit-plaintiff"
+                        value={editFormData.plaintiff || ''}
+                        onChange={(e) => handleEditInputChange('plaintiff', e.target.value)}
+                        rows={2}
+                        placeholder="Enter plaintiff name(s)"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-defendant">Defendant</Label>
+                      <Textarea
+                        id="edit-defendant"
+                        value={editFormData.defendant || ''}
+                        onChange={(e) => handleEditInputChange('defendant', e.target.value)}
+                        rows={2}
+                        placeholder="Enter defendant name(s)"
+                      />
+                    </div>
+                    <div className="flex gap-3 pt-4">
+                      <Button onClick={() => handleSaveEdit('caseInfo')} className="relative">
+                        {isCaseInfoDirty && (
+                          <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                          </span>
+                        )}
+                        Save Changes
+                      </Button>
+                      <Button variant="outline" onClick={() => handleCancelEdit('caseInfo')}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-start">
+                      <span className="text-slate-600 text-sm">Case Number:</span>
+                      <span className="font-medium text-sm text-right">{courtCase?.case_number || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between items-start">
+                      <span className="text-slate-600 text-sm">Court:</span>
+                      <span className="font-medium text-sm text-right">{courtCase?.court_name || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between items-start">
+                      <span className="text-slate-600 text-sm">Plaintiff:</span>
+                      <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.plaintiff || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between items-start">
+                      <span className="text-slate-600 text-sm">Defendant:</span>
+                      <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.defendant || 'N/A'}</span>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Service Details Card */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Service Details</CardTitle>
+                {!isEditingServiceDetails && (
+                  <Button variant="outline" size="sm" onClick={() => handleStartEdit('serviceDetails')} className="gap-2">
+                    <Pencil className="w-4 h-4" />
+                    Edit
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isEditingServiceDetails ? (
+                  <>
+                    <div>
+                      <Label htmlFor="edit-priority">Priority</Label>
+                      <select
+                        id="edit-priority"
+                        value={editFormData.priority || 'standard'}
+                        onChange={(e) => handleEditInputChange('priority', e.target.value)}
+                        className="w-full p-2 border border-slate-300 rounded-md shadow-sm text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="standard">Standard</option>
+                        <option value="rush">Rush</option>
+                        <option value="emergency">Emergency</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-due-date">Due Date</Label>
+                      <Input
+                        id="edit-due-date"
+                        type="date"
+                        value={editFormData.due_date || ''}
+                        onChange={(e) => handleEditInputChange('due_date', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-first-attempt">First Attempt Due</Label>
+                      <Input
+                        id="edit-first-attempt"
+                        type="date"
+                        value={editFormData.first_attempt_due_date || ''}
+                        onChange={(e) => handleEditInputChange('first_attempt_due_date', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-first-instructions">First Attempt Instructions</Label>
+                      <Textarea
+                        id="edit-first-instructions"
+                        value={editFormData.first_attempt_instructions || ''}
+                        onChange={(e) => handleEditInputChange('first_attempt_instructions', e.target.value)}
+                        rows={3}
+                        placeholder="Special instructions for first attempt..."
+                      />
+                    </div>
+                    <div className="flex gap-3 pt-4">
+                      <Button onClick={() => handleSaveEdit('serviceDetails')} className="relative">
+                        {isServiceDetailsDirty && (
+                          <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                          </span>
+                        )}
+                        Save Changes
+                      </Button>
+                      <Button variant="outline" onClick={() => handleCancelEdit('serviceDetails')}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-600 text-sm">Priority:</span>
+                      <Badge className={priorityConfig[job.priority]?.color || "bg-slate-100"}>
+                        {priorityConfig[job.priority]?.label || job.priority}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between items-start">
+                      <span className="text-slate-600 text-sm">Due Date:</span>
+                      <span className="font-medium text-sm text-right">
+                        {job.due_date ? format(new Date(job.due_date), 'MMM d, yyyy') : 'Not set'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-start">
+                      <span className="text-slate-600 text-sm">First Attempt Due:</span>
+                      <span className="font-medium text-sm text-right">
+                        {job.first_attempt_due_date ? format(new Date(job.first_attempt_due_date), 'MMM d, yyyy') : 'Not set'}
+                      </span>
+                    </div>
+                    {job.first_attempt_instructions && (
+                      <div className="pt-2 border-t">
+                        <Label className="text-xs text-slate-500">First Attempt Instructions</Label>
+                        <p className="text-sm text-slate-700 mt-1">{job.first_attempt_instructions}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Field Sheet Card */}
             <Card>
               <CardHeader>
@@ -2511,6 +2791,7 @@ export default function JobDetailsPage() {
                       return dateB - dateA;
                     }).map(doc => {
                       const docDate = doc.received_at || doc.created_date;
+                      const isValidDate = docDate && !isNaN(new Date(docDate).getTime());
                       return (
                         <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50 border">
                           <div className="flex items-center gap-2">
@@ -2518,7 +2799,7 @@ export default function JobDetailsPage() {
                             <div>
                               <p className="font-medium text-slate-800 text-sm">{doc.title}</p>
                               <p className="text-xs text-slate-500">
-                                {docDate ? `Generated on ${format(new Date(docDate), 'MMM d, yyyy @ h:mm a')}` : 'Date unknown'}
+                                {isValidDate ? `Generated on ${format(new Date(docDate), 'MMM d, yyyy @ h:mm a')}` : 'Date unknown'}
                               </p>
                             </div>
                           </div>

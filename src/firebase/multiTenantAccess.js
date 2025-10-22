@@ -8,7 +8,8 @@ import {
   canViewInvoices,
   canViewAccounting,
   filterJobsForContractor,
-  sanitizeJobForContractor
+  sanitizeJobForContractor,
+  isSuperAdmin
 } from '@/utils/permissions';
 import { generateClientSearchTerms } from '@/utils/searchTerms';
 
@@ -25,6 +26,13 @@ export class MultiTenantAccess {
   // Jobs with multi-tenant filtering
   static async getJobs(queryOptions = {}) {
     const user = await this.getCurrentUser();
+
+    // Super admin can see ALL jobs across all companies
+    if (isSuperAdmin(user)) {
+      const allJobs = await entities.Job.find(queryOptions);
+      return allJobs;
+    }
+
     const accessibleCompanies = getAccessibleCompanies(user);
 
     if (accessibleCompanies.length === 0) {
@@ -183,6 +191,11 @@ export class MultiTenantAccess {
   // Clients with multi-tenant filtering
   static async getClients(queryOptions = {}) {
     const user = await this.getCurrentUser();
+
+    // Super admin can see ALL companies
+    if (isSuperAdmin(user)) {
+      return await entities.Company.find(queryOptions);
+    }
 
     if (!canViewAllClients(user)) {
       throw new Error('Access denied to client data');
@@ -411,6 +424,11 @@ export class MultiTenantAccess {
   static async getEmployees(queryOptions = {}) {
     const user = await this.getCurrentUser();
 
+    // Super admin can see ALL employees across all companies
+    if (isSuperAdmin(user)) {
+      return await entities.Employee.find(queryOptions);
+    }
+
     if (!user.company_id) {
       return [];
     }
@@ -429,6 +447,11 @@ export class MultiTenantAccess {
   // Invoices with multi-tenant filtering
   static async getInvoices(queryOptions = {}) {
     const user = await this.getCurrentUser();
+
+    // Super admin can see ALL invoices across all companies
+    if (isSuperAdmin(user)) {
+      return await entities.Invoice.find(queryOptions);
+    }
 
     if (!canViewInvoices(user)) {
       throw new Error('Access denied to invoice data');
@@ -453,6 +476,11 @@ export class MultiTenantAccess {
   static async getPayments(queryOptions = {}) {
     const user = await this.getCurrentUser();
 
+    // Super admin can see ALL payments across all companies
+    if (isSuperAdmin(user)) {
+      return await entities.Payment.find(queryOptions);
+    }
+
     if (!canViewAccounting(user)) {
       throw new Error('Access denied to payment data');
     }
@@ -475,6 +503,11 @@ export class MultiTenantAccess {
   // Court cases with multi-tenant filtering
   static async getCourtCases(queryOptions = {}) {
     const user = await this.getCurrentUser();
+
+    // Super admin can see ALL court cases across all companies
+    if (isSuperAdmin(user)) {
+      return await entities.CourtCase.find(queryOptions);
+    }
 
     if (!user.company_id) {
       return [];

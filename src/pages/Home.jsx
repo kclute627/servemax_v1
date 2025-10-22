@@ -1,12 +1,47 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { User } from "@/api/entities";
 import { createPageUrl } from "@/utils";
-import { ShieldCheck, Zap, BarChart, Users, FileText } from "lucide-react";
+import { ShieldCheck, Zap, BarChart, Users, FileText, Check } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { entities } from "@/firebase/database";
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const [pricingPlans, setPricingPlans] = useState([]);
+  const [isLoadingPricing, setIsLoadingPricing] = useState(true);
+
+  useEffect(() => {
+    loadPricingPlans();
+  }, []);
+
+  const loadPricingPlans = async () => {
+    try {
+      setIsLoadingPricing(true);
+      const allPlans = await entities.PricingPlan.list();
+      // Only show standard plans (not custom)
+      const standardPlans = allPlans.filter(plan => plan.is_visible_on_home);
+      // Sort by price
+      standardPlans.sort((a, b) => a.monthly_price - b.monthly_price);
+      setPricingPlans(standardPlans);
+    } catch (error) {
+      console.error("Error loading pricing plans:", error);
+      // Fallback to default plan if database fails
+      setPricingPlans([
+        {
+          name: "Professional",
+          job_limit: 100,
+          monthly_price: 39.99,
+          features: ["Unlimited clients", "Document generation", "Email support"]
+        }
+      ]);
+    } finally {
+      setIsLoadingPricing(false);
+    }
+  };
+
   const handleLogin = () => {
     navigate(createPageUrl('Login'));
   };
@@ -14,6 +49,7 @@ export default function HomePage() {
   const handleSignUp = () => {
     navigate(createPageUrl('SignUp'));
   };
+
   const features = [
     {
       icon: <Zap className="w-8 h-8 text-blue-500" />,
@@ -120,6 +156,80 @@ export default function HomePage() {
                   <p className="text-slate-600">{feature.description}</p>
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Pricing Section */}
+        <section className="py-20 bg-slate-50">
+          <div className="max-w-7xl mx-auto px-6">
+            <div className="text-center mb-12">
+              <h3 className="text-4xl font-bold text-slate-900">
+                Simple, Transparent Pricing
+              </h3>
+              <p className="mt-4 text-lg text-slate-600">
+                Choose the plan that fits your business needs
+              </p>
+            </div>
+
+            {isLoadingPricing ? (
+              <div className="text-center py-12">
+                <p className="text-slate-500">Loading pricing plans...</p>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
+                {pricingPlans.map((plan, index) => (
+                  <Card
+                    key={plan.id || index}
+                    className={`relative ${
+                      index === 1 ? "border-2 border-blue-500 shadow-xl" : ""
+                    }`}
+                  >
+                    {index === 1 && (
+                      <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+                        <Badge className="bg-blue-500 text-white px-4 py-1">
+                          Most Popular
+                        </Badge>
+                      </div>
+                    )}
+                    <CardHeader className="text-center">
+                      <CardTitle className="text-2xl">{plan.name}</CardTitle>
+                      <div className="mt-4">
+                        <span className="text-5xl font-bold text-slate-900">
+                          ${plan.monthly_price}
+                        </span>
+                        <span className="text-slate-500">/month</span>
+                      </div>
+                      <CardDescription className="text-lg font-semibold mt-2">
+                        {plan.job_limit} jobs per month
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ul className="space-y-3 mb-6">
+                        {plan.features?.map((feature, idx) => (
+                          <li key={idx} className="flex items-center gap-2">
+                            <Check className="w-5 h-5 text-green-600 flex-shrink-0" />
+                            <span className="text-slate-700">{feature}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <Button
+                        className="w-full"
+                        variant={index === 1 ? "default" : "outline"}
+                        onClick={handleSignUp}
+                      >
+                        Start Free Trial
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            <div className="text-center mt-12">
+              <p className="text-slate-600">
+                All plans include a 30-day free trial. No credit card required.
+              </p>
             </div>
           </div>
         </section>

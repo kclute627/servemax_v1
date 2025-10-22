@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useToast } from '@/components/ui/use-toast';
 import {
   ArrowLeft,
   Clock,
@@ -19,7 +20,8 @@ import {
   Loader2,
   Save,
   Plus,
-  Pencil
+  Pencil,
+  Target
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import DocumentUpload from '../components/jobs/DocumentUpload';
@@ -51,12 +53,18 @@ const initialFormData = {
   person_served_sex: "",
   gps_lat: null,
   gps_lon: null,
+  gps_accuracy: null,
+  gps_altitude: null,
+  gps_heading: null,
+  gps_timestamp: null,
+  device_timestamp: null,
   // uploaded_files removed from formData to be managed by separate uploadedFiles state
 };
 
 export default function LogAttemptPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   // General Page State
   const [job, setJob] = useState(null);
@@ -212,6 +220,11 @@ export default function LogAttemptPage() {
               person_served_sex: attemptData.person_served_sex || "",
               gps_lat: attemptData.gps_lat || null,
               gps_lon: attemptData.gps_lon || null,
+              gps_accuracy: attemptData.gps_accuracy || null,
+              gps_altitude: attemptData.gps_altitude || null,
+              gps_heading: attemptData.gps_heading || null,
+              gps_timestamp: attemptData.gps_timestamp || null,
+              device_timestamp: attemptData.device_timestamp || null,
             });
             // Filter out files that don't have an ID, or have a jobId that doesn't match the current job.
             // This is a defensive check to ensure only valid, relevant files are loaded.
@@ -437,14 +450,18 @@ export default function LogAttemptPage() {
   };
 
   // Enhanced GPS capture function
-  const handleGetLocation = () => {
+  const handleGetLocation = (e) => {
+    // Prevent any default behavior that might cause page scroll
+    e?.preventDefault();
+    e?.stopPropagation();
+
     if (!navigator.geolocation) {
       alert("Geolocation is not supported by your browser.");
       return;
     }
 
     setIsLoading(true); // Show loading state
-    
+
     const options = {
       enableHighAccuracy: true, // Use GPS if available
       timeout: 10000, // 10 second timeout
@@ -453,24 +470,29 @@ export default function LogAttemptPage() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const { latitude, longitude, accuracy } = position.coords;
-        
+        const { latitude, longitude, accuracy, altitude, altitudeAccuracy, heading, speed } = position.coords;
+        const gpsTimestamp = new Date(position.timestamp).toISOString();
+
         setFormData(prev => ({
           ...prev,
           gps_lat: latitude,
           gps_lon: longitude,
+          gps_accuracy: accuracy, // in meters
+          gps_altitude: altitude, // in meters, may be null
+          gps_heading: heading, // 0-360 degrees, may be null
+          gps_timestamp: gpsTimestamp, // when GPS reading was taken
         }));
-        
+
         // Show accuracy information to user
         if (accuracy > 100) {
           alert(`Location captured, but accuracy is low (±${Math.round(accuracy)}m). Consider moving to a more open area for better GPS signal.`);
         }
-        
+
         setIsLoading(false);
       },
       (error) => {
         let errorMessage = "Unable to retrieve your location. ";
-        
+
         switch(error.code) {
           case error.PERMISSION_DENIED:
             errorMessage += "Please allow location access and try again.";
@@ -485,7 +507,7 @@ export default function LogAttemptPage() {
             errorMessage += "An unknown error occurred.";
             break;
         }
-        
+
         console.error("GPS error:", error);
         alert(errorMessage);
         setIsLoading(false);
@@ -545,6 +567,12 @@ export default function LogAttemptPage() {
 
     try {
       const combinedDateTime = new Date(`${formData.attempt_date}T${formData.attempt_time}`);
+      const deviceTimestamp = new Date().toISOString(); // Capture when form is submitted
+
+      // Detect if mobile device
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+        || ('ontouchstart' in window)
+        || (navigator.maxTouchPoints > 0);
 
       const serverData = formData.server_id === 'manual'
         ? { server_name_manual: formData.server_name_manual.trim(), server_id: null }
@@ -568,10 +596,21 @@ export default function LogAttemptPage() {
         person_served_sex: formData.person_served_sex,
         person_served_description: formData.person_served_description,
         relationship_to_recipient: formData.relationship_to_recipient,
+        // GPS data with enhanced metadata
         gps_lat: formData.gps_lat,
         gps_lon: formData.gps_lon,
+        gps_accuracy: formData.gps_accuracy,
+        gps_altitude: formData.gps_altitude,
+        gps_heading: formData.gps_heading,
+        gps_timestamp: formData.gps_timestamp,
+        device_timestamp: deviceTimestamp,
         address_lat: newAddressData.latitude,
         address_lon: newAddressData.longitude,
+        // Device tracking
+        mobile_app_attempt: isMobile,
+        device_info: navigator.userAgent,
+        // Computed success flag
+        success: formData.status === 'served',
         uploaded_files: uploadedFiles // Use the separate uploadedFiles state
       };
 
@@ -596,6 +635,50 @@ export default function LogAttemptPage() {
         await Promise.all(
           uploadedFiles.map(doc => Document.update(doc.id, { attempt_id: newAttempt.id }))
         );
+      }
+
+      // Create attempt summary for job document
+      const attemptSummary = {
+        id: newAttempt.id,
+        attempt_date: attemptData.attempt_date,
+        status: attemptData.status,
+        service_type_detail: attemptData.service_type_detail,
+        person_served_name: attemptData.person_served_name,
+        address_of_attempt: attemptData.address_of_attempt,
+        gps_lat: attemptData.gps_lat,
+        gps_lon: attemptData.gps_lon,
+        gps_accuracy: attemptData.gps_accuracy,
+        gps_altitude: attemptData.gps_altitude,
+        gps_timestamp: attemptData.gps_timestamp,
+        address_lat: attemptData.address_lat,
+        address_lon: attemptData.address_lon,
+        mobile_app_attempt: attemptData.mobile_app_attempt,
+        server_id: attemptData.server_id,
+        server_name_manual: attemptData.server_name_manual,
+        notes: attemptData.notes,
+        uploaded_files: attemptData.uploaded_files,
+        success: attemptData.success,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      // Get current job to access attempts array
+      const currentJob = await Job.findById(job.id);
+      let attemptsArray = Array.isArray(currentJob.attempts) ? [...currentJob.attempts] : [];
+
+      // Add or update attempt in array
+      if (isEditMode && editingAttemptId) {
+        // Update existing attempt in array
+        const attemptIndex = attemptsArray.findIndex(a => a.id === editingAttemptId);
+        if (attemptIndex !== -1) {
+          attemptsArray[attemptIndex] = attemptSummary;
+        } else {
+          // If not found in array, add it
+          attemptsArray.push(attemptSummary);
+        }
+      } else {
+        // Add new attempt to array
+        attemptsArray.push(attemptSummary);
       }
 
       // NEW: Add new address to job if one was created and not a duplicate and integrate into jobUpdatePayload
@@ -632,6 +715,7 @@ export default function LogAttemptPage() {
       const jobUpdatePayload = {
         status: newJobStatus,
         addresses: addressesToUpdateForJob, // Pass potentially updated addresses
+        attempts: attemptsArray, // Include updated attempts array
         activity_log: [...currentActivityLog, newLogEntry], // Include activity log
       };
 
@@ -643,11 +727,27 @@ export default function LogAttemptPage() {
       await Job.update(job.id, jobUpdatePayload); // Perform a single job update
       // --- END JOB UPDATE ---
 
-      navigate(`${createPageUrl('JobDetails')}?id=${job.id}`); // Navigated as per outline
+      // Show success toast
+      toast({
+        variant: "success",
+        title: isEditMode ? "Attempt updated" : "Attempt saved",
+        description: `Service attempt has been ${isEditMode ? 'updated' : 'logged'} successfully.`
+      });
+
+      // Navigate with timestamp to force refresh
+      navigate(`${createPageUrl('JobDetails')}?id=${job.id}&t=${Date.now()}`);
 
     } catch (e) {
       setError(e.message);
       console.error("Submission failed:", e);
+
+      // Show error toast
+      toast({
+        variant: "destructive",
+        title: "Error saving attempt",
+        description: e.message || "Failed to save attempt. Please try again."
+      });
+
       alert("Failed to save attempt: " + e.message);
     } finally {
       setIsSubmitting(false);
@@ -1203,6 +1303,23 @@ export default function LogAttemptPage() {
                           {formData.gps_lat.toFixed(6)}, {formData.gps_lon.toFixed(6)}
                         </span>
                       </div>
+                      {formData.gps_accuracy && (
+                        <div className="flex items-center gap-2 mb-2">
+                          <Target className="w-3.5 h-3.5 text-blue-600" />
+                          <span className="text-xs text-slate-600">
+                            Accuracy: ±{Math.round(formData.gps_accuracy)}m
+                            {formData.gps_accuracy <= 20 && ' (Excellent)'}
+                            {formData.gps_accuracy > 20 && formData.gps_accuracy <= 50 && ' (Good)'}
+                            {formData.gps_accuracy > 50 && formData.gps_accuracy <= 100 && ' (Fair)'}
+                            {formData.gps_accuracy > 100 && ' (Low)'}
+                          </span>
+                        </div>
+                      )}
+                      {formData.gps_altitude && (
+                        <p className="text-xs text-slate-600 mb-2">
+                          Altitude: {Math.round(formData.gps_altitude)}m
+                        </p>
+                      )}
                       <p className="text-xs text-slate-600">
                         These coordinates will be saved with your attempt for location verification.
                         GPS data helps establish proof of presence at the service location.

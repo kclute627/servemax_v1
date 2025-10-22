@@ -17,6 +17,9 @@ import {
   HandCoins,
   Settings,
   BookUser,
+  Building2,
+  Activity,
+  Shield
 } from "lucide-react";
 import {
   Tooltip,
@@ -26,8 +29,9 @@ import {
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getAvailableMenuItems } from "@/utils/permissions";
+import { getAvailableMenuItems, isSuperAdmin } from "@/utils/permissions";
 
+// Regular user navigation
 const navigationItems = [
   {
     title: "Dashboard",
@@ -71,11 +75,51 @@ const navigationItems = [
   }
 ];
 
+// Super admin navigation
+const superAdminNavigationItems = [
+  {
+    title: "Dashboard",
+    url: createPageUrl("Dashboard"),
+    icon: LayoutDashboard
+  },
+  {
+    title: "Jobs",
+    url: createPageUrl("Jobs"),
+    icon: Briefcase
+  },
+  {
+    title: "Companies",
+    url: createPageUrl("Companies"),
+    icon: Building2
+  },
+  {
+    title: "Subscriptions",
+    url: createPageUrl("Subscriptions"),
+    icon: CreditCard
+  },
+  {
+    title: "System",
+    url: createPageUrl("System"),
+    icon: Activity
+  },
+  {
+    title: "Templates",
+    url: createPageUrl("TemplatesManagement"),
+    icon: FileText
+  },
+  {
+    title: "Settings",
+    url: createPageUrl("Settings"),
+    icon: Settings
+  }
+];
+
 export default function Layout({ children, currentPageName }) {
   const location = useLocation();
   const { user, isAuthenticated, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [availableMenuItems, setAvailableMenuItems] = useState([]);
+  const [isUserSuperAdmin, setIsUserSuperAdmin] = useState(false);
 
   // Persist collapse state in localStorage
   const [isCollapsed, setIsCollapsed] = useState(
@@ -89,9 +133,12 @@ export default function Layout({ children, currentPageName }) {
   // Update available menu items when user changes
   useEffect(() => {
     if (user) {
+      const superAdmin = isSuperAdmin(user);
+      setIsUserSuperAdmin(superAdmin);
       const menuItems = getAvailableMenuItems(user);
       setAvailableMenuItems(menuItems);
     } else {
+      setIsUserSuperAdmin(false);
       setAvailableMenuItems([]);
     }
   }, [user]);
@@ -114,22 +161,29 @@ export default function Layout({ children, currentPageName }) {
     return <>{children}</>;
   }
   
+  // Determine navigation items and theme
+  const activeNavigationItems = isUserSuperAdmin ? superAdminNavigationItems : navigationItems;
+  const sidebarGradient = isUserSuperAdmin
+    ? 'bg-gradient-to-b from-purple-900 to-indigo-900'
+    : 'bg-gradient-to-b from-blue-900 to-blue-800';
+  const borderColor = isUserSuperAdmin ? 'border-purple-700/50' : 'border-blue-700/50';
+
   // Authenticated: Render full layout with sidebar
   return (
     <TooltipProvider>
         <div className="w-full min-h-screen bg-slate-50">
           <style>{`
             /* Hide number input arrows */
-            input[type=number]::-webkit-inner-spin-button, 
-            input[type=number]::-webkit-outer-spin-button { 
-              -webkit-appearance: none; 
-              margin: 0; 
+            input[type=number]::-webkit-inner-spin-button,
+            input[type=number]::-webkit-outer-spin-button {
+              -webkit-appearance: none;
+              margin: 0;
             }
             input[type=number] {
               -moz-appearance: textfield;
             }
           `}</style>
-          
+
           {/* Mobile-only backdrop */}
           {isMobileMenuOpen &&
             <div
@@ -137,31 +191,39 @@ export default function Layout({ children, currentPageName }) {
               onClick={() => setIsMobileMenuOpen(false)}
             />
           }
-          
+
           {/* Sidebar */}
           <div
             className={`
               fixed top-0 left-0 h-screen z-50
               flex flex-col
-              border-r border-slate-200 bg-gradient-to-b from-blue-900 to-blue-800 shadow-lg
+              border-r border-slate-200 ${sidebarGradient} shadow-lg
               transition-all duration-300 ease-in-out
-              
+
               ${isCollapsed ? 'w-[72px]' : 'w-[260px]'}
-              
+
               md:translate-x-0
               ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}
             `}>
 
             {/* Header */}
-            <div className="border-b border-blue-700/50 p-6 flex justify-center">
+            <div className={`border-b ${borderColor} p-6 flex justify-center`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <div className="w-10 h-10 bg-white/10 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-sm flex-shrink-0 ring-1 ring-white/20">
-                    <FileText className="w-5 h-5 text-white" />
+                    {isUserSuperAdmin ? (
+                      <Shield className="w-5 h-5 text-white" />
+                    ) : (
+                      <FileText className="w-5 h-5 text-white" />
+                    )}
                   </div>
                   <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'w-0' : 'w-auto ml-4 delay-100'}`}>
-                      <h2 className="font-bold text-white text-lg whitespace-nowrap">ServeMax</h2>
-                      <p className="text-xs text-blue-200 font-medium whitespace-nowrap">Process Serving CRM</p>
+                      <h2 className="font-bold text-white text-lg whitespace-nowrap">
+                        {isUserSuperAdmin ? 'ServeMax Admin' : 'ServeMax'}
+                      </h2>
+                      <p className={`text-xs font-medium whitespace-nowrap ${isUserSuperAdmin ? 'text-purple-200' : 'text-blue-200'}`}>
+                        {isUserSuperAdmin ? 'Platform Administration' : 'Process Serving CRM'}
+                      </p>
                   </div>
                 </div>
                 <Button variant="ghost" size="icon" className="md:hidden text-white hover:bg-white/10" onClick={() => setIsMobileMenuOpen(false)}>
@@ -174,13 +236,13 @@ export default function Layout({ children, currentPageName }) {
             <div className="p-3 flex-1 overflow-y-auto">
               <div>
                 <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'h-0' : 'h-auto'}`}>
-                  <div className="text-xs font-semibold text-blue-200 uppercase tracking-wider px-3 py-4 transition-opacity duration-300">
+                  <div className={`text-xs font-semibold uppercase tracking-wider px-3 py-4 transition-opacity duration-300 ${isUserSuperAdmin ? 'text-purple-200' : 'text-blue-200'}`}>
                     Navigation
                   </div>
                 </div>
                 <div>
                   <nav className="space-y-1">
-                    {navigationItems
+                    {activeNavigationItems
                       .filter(item => availableMenuItems.includes(item.title))
                       .map((item) => {
                         const menuButton = (
@@ -194,18 +256,21 @@ export default function Layout({ children, currentPageName }) {
                               } ${isActive ? 'bg-white/15 shadow-sm ring-1 ring-white/20 backdrop-blur-sm' : ''}`
                             }
                           >
-                            {({ isActive }) => (
-                              <>
-                                <item.icon
-                                  className={`w-5 h-5 flex-shrink-0 transition-colors duration-200 ${
-                                    isActive ? 'text-white' : 'text-blue-100 group-hover:text-white'
-                                  }`}
-                                />
-                                <span className={`font-medium whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'w-0' : 'w-auto ml-3 delay-100'} ${isActive ? 'text-white' : 'text-blue-100 group-hover:text-white'}`}>
-                                  {item.title}
-                                </span>
-                              </>
-                            )}
+                            {({ isActive }) => {
+                              const textColor = isUserSuperAdmin ? 'text-purple-100' : 'text-blue-100';
+                              return (
+                                <>
+                                  <item.icon
+                                    className={`w-5 h-5 flex-shrink-0 transition-colors duration-200 ${
+                                      isActive ? 'text-white' : `${textColor} group-hover:text-white`
+                                    }`}
+                                  />
+                                  <span className={`font-medium whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'w-0' : 'w-auto ml-3 delay-100'} ${isActive ? 'text-white' : `${textColor} group-hover:text-white`}`}>
+                                    {item.title}
+                                  </span>
+                                </>
+                              );
+                            }}
                           </NavLink>
                         );
 
@@ -228,7 +293,7 @@ export default function Layout({ children, currentPageName }) {
             </div>
 
             {/* Footer */}
-            <div className="p-0 border-t border-blue-700/50">
+            <div className={`p-0 border-t ${borderColor}`}>
               {/* User Profile Section */}
               <div className="p-4">
                 {user &&
@@ -245,8 +310,9 @@ export default function Layout({ children, currentPageName }) {
                             <p className="font-medium text-white text-sm truncate whitespace-nowrap">
                               {user.full_name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User'}
                             </p>
-                            <p className="text-xs text-blue-200 truncate whitespace-nowrap capitalize">
-                              {user.user_type === 'company_owner' ? 'Company Owner' :
+                            <p className={`text-xs truncate whitespace-nowrap capitalize ${isUserSuperAdmin ? 'text-purple-200' : 'text-blue-200'}`}>
+                              {isUserSuperAdmin ? 'Super Admin' :
+                               user.user_type === 'company_owner' ? 'Company Owner' :
                                user.employee_role ? user.employee_role.replace('_', ' ') :
                                user.user_type ? user.user_type.replace('_', ' ') : 'Member'}
                             </p>
@@ -256,7 +322,7 @@ export default function Layout({ children, currentPageName }) {
                           variant="ghost"
                           size="icon"
                           onClick={handleLogout}
-                          className="text-blue-200 hover:text-white hover:bg-white/10">
+                          className={`hover:text-white hover:bg-white/10 ${isUserSuperAdmin ? 'text-purple-200' : 'text-blue-200'}`}>
                           <LogOut className="w-4 h-4" />
                         </Button>
                       </> :
@@ -267,7 +333,7 @@ export default function Layout({ children, currentPageName }) {
                             variant="ghost"
                             size="icon"
                             onClick={handleLogout}
-                            className="text-blue-200 hover:text-white hover:bg-white/10">
+                            className={`hover:text-white hover:bg-white/10 ${isUserSuperAdmin ? 'text-purple-200' : 'text-blue-200'}`}>
                             <LogOut className="w-4 h-4" />
                           </Button>
                         </TooltipTrigger>
@@ -281,13 +347,13 @@ export default function Layout({ children, currentPageName }) {
               </div>
 
               {/* Collapse Button Section - Hidden on mobile */}
-              <div className="border-t border-blue-700/50 p-2 hidden md:block">
+              <div className={`border-t ${borderColor} p-2 hidden md:block`}>
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <Button
                       variant="ghost"
                       onClick={() => setIsCollapsed((prev) => !prev)}
-                      className={`w-full hover:bg-white/10 text-blue-200 hover:text-white flex items-center ${isCollapsed ? 'justify-center' : 'justify-start'}`}>
+                      className={`w-full hover:bg-white/10 hover:text-white flex items-center ${isCollapsed ? 'justify-center' : 'justify-start'} ${isUserSuperAdmin ? 'text-purple-200' : 'text-blue-200'}`}>
                             <ChevronLeft className={`w-4 h-4 transition-transform duration-300 flex-shrink-0 ${isCollapsed ? 'rotate-180' : 'rotate-0'}`} />
                             <span className={`text-sm font-medium whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'w-0' : 'w-auto ml-3 delay-100'}`}>Collapse</span>
                         </Button>

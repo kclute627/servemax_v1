@@ -106,9 +106,15 @@ export class FirebaseEntity {
 
       const docRef = await addDoc(this.collectionRef, docData);
 
+      // Store the document ID in the document itself as job_id
+      await updateDoc(docRef, {
+        job_id: docRef.id
+      });
+
       // Return the created document with ID
       return {
         id: docRef.id,
+        job_id: docRef.id,
         ...data,
         created_at: new Date(),
         updated_at: new Date()
@@ -285,5 +291,13 @@ export const entities = {
   Directory: new FirebaseEntity('directory'),
   // Marketplace collections
   MarketplaceJob: new FirebaseEntity('marketplace_jobs'),
-  MarketplaceBid: new FirebaseEntity('marketplace_bids')
+  MarketplaceBid: new FirebaseEntity('marketplace_bids'),
+  // Template collections (for super admin)
+  AffidavitTemplate: new FirebaseEntity('affidavit_templates'),
+  SystemAffidavitTemplate: new FirebaseEntity('system_affidavit_templates'),
+  InvoiceTemplate: new FirebaseEntity('invoice_templates'),
+  FieldSheetTemplate: new FirebaseEntity('field_sheet_templates'),
+  BusinessFormTemplate: new FirebaseEntity('business_form_templates'),
+  // Pricing & Plans (for super admin)
+  PricingPlan: new FirebaseEntity('pricing_plans')
 };

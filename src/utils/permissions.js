@@ -228,8 +228,27 @@ export const canEditJob = (user, job) => {
   return false;
 };
 
+// Super Admin menu items (platform owner)
+export const getSuperAdminMenuItems = () => {
+  return [
+    'Dashboard',     // Platform admin dashboard
+    'Jobs',          // All jobs across platform
+    'Companies',     // All platform users
+    'Subscriptions', // Subscription/billing overview
+    'System',        // System health & monitoring
+    'Templates',     // Document template management
+    'Settings'       // System settings
+  ];
+};
+
 // Navigation menu permissions
 export const getAvailableMenuItems = (user) => {
+  // Super admin gets special menu
+  if (isSuperAdmin(user)) {
+    return getSuperAdminMenuItems();
+  }
+
+  // Regular user menu
   const menuItems = [];
 
   if (canViewAllJobs(user) || hasPermission(user, PERMISSIONS.VIEW_ASSIGNED_JOBS)) {
@@ -290,4 +309,39 @@ export const sanitizeJobForContractor = (user, job) => {
   } = job;
 
   return sanitizedJob;
+};
+
+// Super Admin Detection
+// Super admins are SaaS owners who can manage system-wide templates and settings
+// You can configure this based on:
+// 1. Specific email addresses/domains
+// 2. A special role flag in the user object
+// 3. A custom claim in Firebase Auth
+
+// Define your super admin email domain or specific emails here
+const SUPER_ADMIN_DOMAIN = 'yourdomain.com'; // Replace with your actual domain
+const SUPER_ADMIN_EMAILS = [
+  // Add specific super admin emails here if needed
+  // 'admin@example.com',
+];
+
+export const isSuperAdmin = (user) => {
+  if (!user || !user.email) return false;
+
+  // Check if user has super_admin role flag
+  if (user.role === 'super_admin' || user.is_super_admin === true) {
+    return true;
+  }
+
+  // Check if email ends with super admin domain
+  if (user.email.endsWith(`@${SUPER_ADMIN_DOMAIN}`)) {
+    return true;
+  }
+
+  // Check if email is in the super admin list
+  if (SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+    return true;
+  }
+
+  return false;
 };

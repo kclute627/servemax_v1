@@ -97,19 +97,19 @@ export default function ClientDetails() {
     if (!isEditing) setIsLoading(true); // Only show loading spinner if not already editing
     try {
       const [clientData, jobsData, invoicesData] = await Promise.all([
-        Client.filter({ id: clientId }),
+        Client.findById(clientId),
         Job.filter({ client_id: clientId }),
         Invoice.filter({ client_id: clientId })
       ]);
 
-      if (clientData.length === 0) {
+      if (!clientData) {
         console.error('Client not found');
         setClient(null); // Ensure client is null if not found
         setJobs([]);
         setInvoices([]);
       } else {
-        setClient(clientData[0]);
-        setFormData(clientData[0]); // Initialize form data with fetched client
+        setClient(clientData);
+        setFormData(clientData); // Initialize form data with fetched client
         setJobs(jobsData.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
         setInvoices(invoicesData.sort((a, b) => new Date(b.invoice_date) - new Date(a.invoice_date)));
       }
@@ -246,20 +246,42 @@ export default function ClientDetails() {
   };
 
   const getInvoiceStats = () => {
-    if (!invoices) return { total: 0, paid: 0, overdue: 0, totalRevenue: 0, openInvoices: 0 };
+    if (!invoices) return { total: 0, paid: 0, overdue: 0, totalRevenue: 0, openInvoices: 0, totalBilled: 0, totalPaid: 0, outstandingBalance: 0 };
     const total = invoices.length;
-    const paid = invoices.filter(inv => inv.status === 'paid').length;
-    const openInvoices = invoices.filter(inv => inv.status !== 'paid' && inv.status !== 'cancelled').length;
+    const paid = invoices.filter(inv => inv.status === 'paid' || inv.status === 'Paid').length;
+    const openInvoices = invoices.filter(inv =>
+      inv.status !== 'paid' &&
+      inv.status !== 'Paid' &&
+      inv.status !== 'cancelled' &&
+      inv.status !== 'Cancelled'
+    ).length;
     const overdue = invoices.filter(inv =>
       inv.status !== 'paid' &&
+      inv.status !== 'Paid' &&
       inv.due_date &&
       new Date(inv.due_date) < new Date()
     ).length;
-    const totalRevenue = invoices
-      .filter(inv => inv.status === 'paid')
-      .reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
 
-    return { total, paid, overdue, totalRevenue, openInvoices };
+    // Calculate financial totals with new invoice schema support
+    const totalBilled = invoices.reduce((sum, inv) => {
+      const amount = inv.total || inv.total_amount || 0;
+      return sum + amount;
+    }, 0);
+
+    const totalPaid = invoices.reduce((sum, inv) => {
+      return sum + (inv.total_paid || 0);
+    }, 0);
+
+    const outstandingBalance = invoices
+      .filter(inv => inv.status !== 'paid' && inv.status !== 'Paid' && inv.status !== 'cancelled' && inv.status !== 'Cancelled')
+      .reduce((sum, inv) => {
+        const balance = inv.balance_due || ((inv.total || inv.total_amount || 0) - (inv.total_paid || 0));
+        return sum + balance;
+      }, 0);
+
+    const totalRevenue = totalPaid; // Revenue is what's actually been paid
+
+    return { total, paid, overdue, totalRevenue, openInvoices, totalBilled, totalPaid, outstandingBalance };
   };
 
   if (isLoading) {
@@ -363,7 +385,7 @@ export default function ClientDetails() {
           </div>
 
           {/* Quick Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <Link to={`${createPageUrl("Jobs")}?client_id=${client.id}`} className="hover:scale-105 transition-transform">
               <Card>
                 <CardContent className="p-4">
@@ -425,6 +447,22 @@ export default function ClientDetails() {
                 </CardContent>
               </Card>
             </Link>
+
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 ${invoiceStats.outstandingBalance > 0 ? 'bg-red-100' : 'bg-slate-100'} rounded-lg flex items-center justify-center`}>
+                    <AlertCircle className={`w-5 h-5 ${invoiceStats.outstandingBalance > 0 ? 'text-red-600' : 'text-slate-400'}`} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-600">Outstanding</p>
+                    <p className={`text-2xl font-bold ${invoiceStats.outstandingBalance > 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                      ${invoiceStats.outstandingBalance.toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Main Content */}
@@ -580,33 +618,88 @@ export default function ClientDetails() {
                       {invoices.length === 0 ? (
                         <p className="text-center text-slate-500 py-8">No invoices found for this client.</p>
                       ) : (
-                        <div className="space-y-3">
-                          {invoices.slice(0, 10).map((invoice) => (
-                            <div key={invoice.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <p className="font-medium text-slate-900">{invoice.invoice_number}</p>
-                                  <Badge className={invoiceStatusConfig[invoice.status]?.color}>
-                                    {invoiceStatusConfig[invoice.status]?.label || invoice.status}
-                                  </Badge>
-                                </div>
-                                <p className="text-sm text-slate-600">
-                                  {format(new Date(invoice.invoice_date), "MMM d, yyyy")} - Due: {format(new Date(invoice.due_date), "MMM d, yyyy")}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-sm font-medium text-slate-900">${invoice.total_amount?.toFixed(2)}</p>
-                              </div>
+                        <>
+                          {/* Invoice Summary */}
+                          <div className="grid grid-cols-3 gap-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                            <div>
+                              <p className="text-xs font-medium text-blue-600">Total Billed</p>
+                              <p className="text-lg font-bold text-blue-900">${invoiceStats.totalBilled.toFixed(2)}</p>
                             </div>
-                          ))}
-                          {invoices.length > 10 && (
-                            <div className="text-center pt-4">
-                              <Link to={`${createPageUrl("Accounting")}?client_id=${client.id}`}>
-                                <Button variant="outline">View All Invoices ({invoices.length})</Button>
-                              </Link>
+                            <div>
+                              <p className="text-xs font-medium text-green-600">Paid</p>
+                              <p className="text-lg font-bold text-green-900">${invoiceStats.totalPaid.toFixed(2)}</p>
                             </div>
-                          )}
-                        </div>
+                            <div>
+                              <p className="text-xs font-medium text-red-600">Outstanding</p>
+                              <p className="text-lg font-bold text-red-900">${invoiceStats.outstandingBalance.toFixed(2)}</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            {invoices.slice(0, 10).map((invoice) => {
+                              const total = invoice.total || invoice.total_amount || 0;
+                              const paid = invoice.total_paid || 0;
+                              const balance = invoice.balance_due || (total - paid);
+                              const isPaid = invoice.status === 'paid' || invoice.status === 'Paid';
+
+                              return (
+                                <Link
+                                  key={invoice.id}
+                                  to={`${createPageUrl("Invoices")}?id=${invoice.id}`}
+                                  className="block"
+                                >
+                                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors border hover:border-blue-200">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <p className="font-medium text-slate-900">{invoice.invoice_number}</p>
+                                        <Badge className={invoiceStatusConfig[invoice.status?.toLowerCase()]?.color || invoiceStatusConfig[invoice.status]?.color}>
+                                          {invoiceStatusConfig[invoice.status?.toLowerCase()]?.label || invoiceStatusConfig[invoice.status]?.label || invoice.status}
+                                        </Badge>
+                                        {invoice.locked && (
+                                          <Badge variant="outline" className="text-xs">
+                                            Locked
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <p className="text-sm text-slate-600">
+                                        {format(new Date(invoice.invoice_date), "MMM d, yyyy")} - Due: {format(new Date(invoice.due_date), "MMM d, yyyy")}
+                                      </p>
+                                      {!isPaid && paid > 0 && (
+                                        <div className="mt-2">
+                                          <div className="w-full bg-slate-200 rounded-full h-1.5">
+                                            <div
+                                              className="bg-green-600 h-1.5 rounded-full"
+                                              style={{ width: `${(paid / total) * 100}%` }}
+                                            ></div>
+                                          </div>
+                                          <p className="text-xs text-slate-500 mt-1">
+                                            ${paid.toFixed(2)} of ${total.toFixed(2)} paid
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="text-right ml-4">
+                                      <p className="text-sm font-medium text-slate-900">${total.toFixed(2)}</p>
+                                      {!isPaid && balance > 0 && (
+                                        <p className="text-xs text-red-600 font-medium">Due: ${balance.toFixed(2)}</p>
+                                      )}
+                                      {isPaid && (
+                                        <p className="text-xs text-green-600 font-medium">✓ Paid</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </Link>
+                              );
+                            })}
+                            {invoices.length > 10 && (
+                              <div className="text-center pt-4">
+                                <Link to={`${createPageUrl("Accounting")}?client_id=${client.id}`}>
+                                  <Button variant="outline">View All Invoices ({invoices.length})</Button>
+                                </Link>
+                              </div>
+                            )}
+                          </div>
+                        </>
                       )}
                     </TabsContent>
                   </CardContent>

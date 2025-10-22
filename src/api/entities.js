@@ -34,5 +34,9 @@ export const Invitation = entities.Invitation;
 
 export const Subscription = entities.Subscription;
 
+// Affidavit template entities
+export const AffidavitTemplate = entities.AffidavitTemplate;
+export const SystemAffidavitTemplate = entities.SystemAffidavitTemplate;
+
 // Firebase Auth replaces Base44 auth
 export const User = FirebaseAuth;

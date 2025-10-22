@@ -40,39 +40,49 @@ import ResetPassword from "./ResetPassword";
 
 import ChangePassword from "./ChangePassword";
 
+import TemplateEditor from "./TemplateEditor";
+
+import TemplatesManagement from "./TemplatesManagement";
+
+import Companies from "./Companies";
+
+import Subscriptions from "./Subscriptions";
+
+import System from "./System";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { GlobalDataProvider } from "../components/GlobalDataContext";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ProtectedRoute, PublicRoute } from "@/components/auth/ProtectedRoute";
 
 const PAGES = {
-    
+
     Dashboard: Dashboard,
-    
+
     Jobs: Jobs,
-    
+
     Clients: Clients,
-    
+
     CreateJob: CreateJob,
-    
+
     Employees: Employees,
-    
+
     ServerPay: ServerPay,
-    
+
     Settings: Settings,
-    
+
     JobDetails: JobDetails,
-    
+
     LogAttempt: LogAttempt,
-    
+
     GenerateAffidavit: GenerateAffidavit,
-    
+
     Accounting: Accounting,
-    
+
     Home: Home,
-    
+
     Directory: Directory,
-    
+
     ClientDetails: ClientDetails,
 
     SignUp: SignUp,
@@ -86,6 +96,14 @@ const PAGES = {
     ResetPassword: ResetPassword,
 
     ChangePassword: ChangePassword,
+
+    TemplatesManagement: TemplatesManagement,
+
+    Companies: Companies,
+
+    Subscriptions: Subscriptions,
+
+    System: System,
 
 }
 
@@ -139,6 +157,12 @@ function PagesContent() {
                 <Route path="/Directory" element={<ProtectedRoute><Directory /></ProtectedRoute>} />
                 <Route path="/ClientDetails" element={<ProtectedRoute><ClientDetails /></ProtectedRoute>} />
                 <Route path="/ChangePassword" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
+                <Route path="/TemplatesManagement" element={<ProtectedRoute><TemplatesManagement /></ProtectedRoute>} />
+                <Route path="/settings/templates/new" element={<ProtectedRoute><TemplateEditor /></ProtectedRoute>} />
+                <Route path="/settings/templates/edit/:templateId" element={<ProtectedRoute><TemplateEditor /></ProtectedRoute>} />
+                <Route path="/Companies" element={<ProtectedRoute><Companies /></ProtectedRoute>} />
+                <Route path="/Subscriptions" element={<ProtectedRoute><Subscriptions /></ProtectedRoute>} />
+                <Route path="/System" element={<ProtectedRoute><System /></ProtectedRoute>} />
             </Routes>
         </Layout>
     );
