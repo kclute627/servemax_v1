@@ -440,6 +440,148 @@ export const STARTER_TEMPLATES = {
     </div>
   </div>
 </div>`
+  },
+
+  ao440_federal: {
+    name: 'AO 440 Federal Proof of Service',
+    description: 'Official AO 440 (Rev. 06/12) Summons in a Civil Action - Proof of Service (Page 2). Pixel-perfect federal court format for both service and non-service scenarios.',
+    service_status: 'both',
+    html: `<div style="width: 612pt; padding: 24pt 36pt; font-family: Times New Roman, Times, serif; font-size: 13pt; line-height: 1.5; color: #000000; background-color: #FFFFFF; box-sizing: border-box;">
+
+  <!-- Header Line -->
+  <div style="font-size: 10pt; margin-bottom: 0pt; line-height: 1.2;">
+    AO 440 (Rev. 06/12) Summons in a Civil Action (Page 2)
+  </div>
+  <div style="font-size: 10pt; margin-bottom: 12pt; line-height: 1.2;">
+    Civil Action No. {{case_number}}
+  </div>
+
+  <!-- Title Section -->
+  <div style="text-align: center; margin-bottom: 12pt;">
+    <div style="font-weight: bold; font-size: 12pt; margin-bottom: 0pt; line-height: 1.2;">PROOF OF SERVICE</div>
+    <div style="font-size: 10pt; font-style: italic; line-height: 1.2;">(This section should not be filed with the court unless required by Fed. R. Civ. P. 4 (l))</div>
+  </div>
+
+  <!-- Opening Statement -->
+  <p style="margin: 12pt 0; line-height: 1.4;">
+    This summons for <i>(name of individual and title, if any)</i> <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 180pt;">{{recipient_name}}</span> was received by me on <i>(date)</i> <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 150pt;">{{formatDate date_received "MMM d, yyyy, h:mm a"}}</span>.
+  </p>
+
+  <!-- Checkbox Options -->
+  <div style="margin-bottom: 15pt;">
+    <!-- Option 1: Personal Service -->
+    <div style="display: flex; margin-bottom: 12pt; line-height: 1.5;">
+      <div style="width: 22pt; flex-shrink: 0; font-size: 18pt; font-family: Arial, sans-serif;">
+        {{#if (eq service_method "personal")}}☑{{else}}☐{{/if}}
+      </div>
+      <div style="flex: 1;">
+        I personally served the summons on the individual at <i>(place)</i> <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 180pt;">{{#if (eq service_method "personal")}}{{service_place}}{{/if}}</span> on <i>(date)</i> <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 120pt;">{{#if (eq service_method "personal")}}{{formatDate service_date "MMM d, yyyy h:mm a"}}{{/if}}</span>; or
+      </div>
+    </div>
+
+    <!-- Option 2: Left at Residence -->
+    <div style="display: flex; margin-bottom: 12pt; line-height: 1.5;">
+      <div style="width: 22pt; flex-shrink: 0; font-size: 18pt; font-family: Arial, sans-serif;">
+        {{#if (eq service_method "residence")}}☑{{else}}☐{{/if}}
+      </div>
+      <div style="flex: 1;">
+        I left the summons at the individual's residence or usual place of abode with <i>(name)</i> <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 120pt;">{{#if (eq service_method "residence")}}{{residence_person}}{{/if}}</span>, a person of suitable age and discretion who resides there, on <i>(date)</i> <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 100pt;">{{#if (eq service_method "residence")}}{{formatDate residence_date "MMM d, yyyy h:mm a"}}{{/if}}</span>, and mailed a copy to the individual's last known address; or
+      </div>
+    </div>
+
+    <!-- Option 3: Served on Organization -->
+    <div style="display: flex; margin-bottom: 12pt; line-height: 1.5;">
+      <div style="width: 22pt; flex-shrink: 0; font-size: 18pt; font-family: Arial, sans-serif;">
+        {{#if (eq service_method "organization")}}☑{{else}}☐{{/if}}
+      </div>
+      <div style="flex: 1;">
+        I served the summons on <i>(name of individual)</i> <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 140pt;">{{#if (eq service_method "organization")}}{{organization_agent}}{{/if}}</span>, who is designated by law to accept service of process on behalf of <i>(name of organization)</i> <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 180pt;">{{#if (eq service_method "organization")}}{{organization_name}}{{/if}}</span> on <i>(date)</i> <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 120pt;">{{#if (eq service_method "organization")}}{{formatDate organization_date "MMM d, yyyy h:mm a"}}{{/if}}</span>; or
+      </div>
+    </div>
+
+    <!-- Option 4: Returned Unexecuted -->
+    <div style="display: flex; margin-bottom: 12pt; line-height: 1.5;">
+      <div style="width: 22pt; flex-shrink: 0; font-size: 18pt; font-family: Arial, sans-serif;">
+        {{#if (eq service_method "unexecuted")}}☑{{else}}☐{{/if}}
+      </div>
+      <div style="flex: 1;">
+        I returned the summons unexecuted because: <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 240pt;">{{#if (eq service_method "unexecuted")}}{{unexecuted_reason}}{{/if}}</span>; or
+      </div>
+    </div>
+
+    <!-- Option 5: Other -->
+    <div style="display: flex; margin-bottom: 12pt; line-height: 1.5;">
+      <div style="width: 22pt; flex-shrink: 0; font-size: 18pt; font-family: Arial, sans-serif;">
+        {{#if (eq service_method "other")}}☑{{else}}☐{{/if}}
+      </div>
+      <div style="flex: 1;">
+        Other: <span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 340pt;">{{#if (eq service_method "other")}}{{other_details}}{{/if}}</span>; or
+      </div>
+    </div>
+  </div>
+
+  <!-- Fees Section -->
+  <p style="margin: 12pt 0; line-height: 1.4;">
+    My fees are $<span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 60pt; text-align: right;">{{default travel_fee ""}}</span> for travel and $<span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 60pt; text-align: right;">{{default service_fee ""}}</span> for services, for a total of $<span style="border-bottom: 1pt solid #000; display: inline-block; min-width: 60pt; text-align: right;">{{default total_fee "0.00"}}</span>.
+  </p>
+
+  <!-- Declaration -->
+  <p style="margin: 12pt 0; line-height: 1.4;">
+    I declare under penalty of perjury that this information is true.
+  </p>
+
+  <!-- Signature Section - Exact AO 440 Format -->
+  <div style="margin-top: 30pt;">
+    <!-- First Row: Date and Server's Signature on SAME LINE -->
+    <div style="display: flex; gap: 40pt; align-items: flex-end; margin-bottom: 2pt;">
+      <!-- Date -->
+      <div style="display: flex; align-items: baseline; gap: 8pt; flex: 0 0 168pt;">
+        <span style="font-size: 10pt;">Date:</span>
+        <div style="border-bottom: 1pt solid #000; width: 120pt; height: 0pt; margin-bottom: 2pt;"></div>
+      </div>
+      <!-- Server's Signature Line -->
+      <div style="flex: 1; padding-right: 10px;">
+        <div style="border-bottom: 1pt solid #000; width: 100%; height: 0pt;"></div>
+      </div>
+    </div>
+    <div style="text-align: center; font-size: 10pt; font-style: italic; margin-bottom: 26pt; padding-left: 168pt; padding-right: 10px;">
+      Server's signature
+    </div>
+
+    <!-- Printed Name and Title -->
+    <div style="display: flex; gap: 40pt;">
+      <div style="flex: 0 0 168pt;"></div>
+      <div style="flex: 1; padding-right: 10px;">
+        <div style="border-bottom: 1pt solid #000; width: 100%; height: 20pt; margin-bottom: 2pt; display: flex; align-items: flex-end; padding-bottom: 2pt;">
+          <span style="font-size: 11pt;">{{server_name_and_title}}</span>
+        </div>
+      </div>
+    </div>
+    <div style="text-align: center; font-size: 10pt; font-style: italic; margin-bottom: 26pt; padding-left: 168pt; padding-right: 10px;">
+      Printed name and title
+    </div>
+
+    <!-- Server's Address -->
+    <div style="display: flex; gap: 40pt;">
+      <div style="flex: 0 0 168pt;"></div>
+      <div style="flex: 1; padding-right: 10px;">
+        <div style="border-bottom: 1pt solid #000; width: 100%; min-height: 20pt; margin-bottom: 2pt; display: flex; align-items: flex-end; padding-bottom: 2pt;">
+          <span style="font-size: 11pt;">{{server_address}}</span>
+        </div>
+      </div>
+    </div>
+    <div style="text-align: center; font-size: 10pt; font-style: italic; margin-bottom: 12pt; padding-left: 168pt; padding-right: 10px;">
+      Server's address
+    </div>
+  </div>
+
+  <!-- Additional Information Section -->
+  <div style="margin-top: 0pt; line-height: 1.3;">
+    <div style="font-weight: normal; margin-bottom: 4pt;">Additional information regarding attempted service, etc.:</div>
+    <div style="white-space: pre-wrap; line-height: 1.3;">{{additional_info}}</div>
+  </div>
+
+</div>`
   }
 };
 

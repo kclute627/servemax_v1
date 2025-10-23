@@ -4,8 +4,10 @@ const admin = require("firebase-admin");
 const {PDFDocument, rgb, StandardFonts} = require("pdf-lib");
 const {Client} = require("@googlemaps/google-maps-services-js");
 const QRCode = require("qrcode");
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-core");
+const chromium = require("@sparticuz/chromium");
 const Handlebars = require("handlebars");
+const {format} = require("date-fns");
 
 admin.initializeApp();
 
@@ -1111,11 +1113,23 @@ function registerHandlebarsHelpers() {
     if (!dateString) return "";
     try {
       const date = new Date(dateString);
-      // Simple date formatting (could use date-fns if needed)
+      // Use date-fns for proper date formatting with format string
+      if (formatString && typeof formatString === 'string') {
+        return format(date, formatString);
+      }
+      // Fallback to locale string if no format specified
       return date.toLocaleString("en-US");
     } catch (e) {
       return dateString;
     }
+  });
+
+  Handlebars.registerHelper("default", function(value, defaultValue) {
+    // Return the value if it exists and is not empty, otherwise return defaultValue
+    if (value === null || value === undefined || value === "") {
+      return defaultValue;
+    }
+    return value;
   });
 
   Handlebars.registerHelper("formatGPS", function(lat, lon, accuracy) {
@@ -1244,19 +1258,12 @@ function renderHTMLTemplate(htmlTemplate, data) {
 async function generatePDFFromHTML(html, options = {}) {
   let browser = null;
   try {
-    // Launch Puppeteer with Cloud Functions optimized settings
+    // Launch Puppeteer with Cloud Functions optimized settings using @sparticuz/chromium
     browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--single-process",
-        "--disable-gpu",
-      ],
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
     });
 
     const page = await browser.newPage();
@@ -1354,16 +1361,47 @@ exports.generateAffidavit = onCall(
 
     const db = admin.firestore();
 
-    // Fetch the selected template from Firestore
-    const templateId = data.affidavit_template_id || 'general';
+    // Use template from request data if provided (to avoid Firestore lookup)
     let template;
-    try {
-      const templateDoc = await db.collection('affidavit_templates').doc(templateId).get();
-      if (templateDoc.exists) {
-        template = templateDoc.data();
-      } else {
-        // Fallback to default template
-        console.warn(`Template ${templateId} not found, using default`);
+    if (data.template_mode && (data.html_content || data.template_mode === 'simple')) {
+      console.log('Using template data from request');
+      template = {
+        name: 'Template from Request',
+        template_mode: data.template_mode,
+        html_content: data.html_content,
+        header_html: data.header_html,
+        footer_html: data.footer_html,
+        margin_top: data.margin_top,
+        margin_bottom: data.margin_bottom,
+        margin_left: data.margin_left,
+        margin_right: data.margin_right,
+        body: data.body, // For simple mode
+        footer_text: data.footer_text, // For simple mode
+        include_notary_default: data.include_notary_default || false,
+        include_company_info_default: data.include_company_info_default || false,
+      };
+    } else {
+      // Fallback: Fetch the selected template from Firestore
+      const templateId = data.affidavit_template_id || 'general';
+      try {
+        const templateDoc = await db.collection('affidavit_templates').doc(templateId).get();
+        if (templateDoc.exists) {
+          template = templateDoc.data();
+        } else {
+          // Fallback to default template
+          console.warn(`Template ${templateId} not found, using default`);
+          template = {
+            name: 'General Affidavit Template',
+            template_mode: 'simple',
+            body: 'I, {{server_name}}, being duly sworn, depose and say that I served the following documents...',
+            footer_text: 'Subscribed and sworn before me this ___ day of ___, 20__.',
+            include_notary_default: false,
+            include_company_info_default: false,
+          };
+        }
+      } catch (err) {
+        console.error("Error fetching template:", err);
+        // Use default template
         template = {
           name: 'General Affidavit Template',
           template_mode: 'simple',
@@ -1373,17 +1411,6 @@ exports.generateAffidavit = onCall(
           include_company_info_default: false,
         };
       }
-    } catch (err) {
-      console.error("Error fetching template:", err);
-      // Use default template
-      template = {
-        name: 'General Affidavit Template',
-        template_mode: 'simple',
-        body: 'I, {{server_name}}, being duly sworn, depose and say that I served the following documents...',
-        footer_text: 'Subscribed and sworn before me this ___ day of ___, 20__.',
-        include_notary_default: false,
-        include_company_info_default: false,
-      };
     }
 
     // Check if template is HTML mode

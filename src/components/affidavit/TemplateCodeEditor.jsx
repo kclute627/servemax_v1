@@ -17,17 +17,12 @@ import {
 import { renderHTMLTemplate } from '@/utils/templateEngine';
 import { getAvailablePlaceholders } from '@/utils/templateEngine';
 import { getConstantsDocumentation } from '@/utils/templateConstants';
-import { getStarterTemplatesList, getStarterTemplate } from '@/utils/starterTemplates';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   TooltipProvider
 } from '@/components/ui/tooltip';
-import {
-  Select,
-  SelectItem,
-} from '@/components/ui/select';
 
 const SAMPLE_DATA = {
   document_title: 'AFFIDAVIT OF SERVICE',
@@ -246,11 +241,6 @@ function TemplateCodeEditor({ value, onChange, className }) {
     });
   };
 
-  const handleLoadStarterTemplate = (templateId) => {
-    const template = getStarterTemplate(templateId);
-    setHtmlCode(template.html);
-  };
-
   const handleInsertPlaceholder = (placeholder) => {
     if (editorRef.current) {
       const selection = editorRef.current.getSelection();
@@ -272,7 +262,6 @@ function TemplateCodeEditor({ value, onChange, className }) {
 
   const placeholders = getAvailablePlaceholders();
   const constants = getConstantsDocumentation();
-  const starterTemplates = getStarterTemplatesList();
 
   return (
     <div className={`flex flex-col h-full bg-white ${className}`}>
@@ -283,13 +272,6 @@ function TemplateCodeEditor({ value, onChange, className }) {
             <FileCode className="w-3 h-3" />
             HTML/CSS Editor
           </Badge>
-
-          <Select onChange={(e) => handleLoadStarterTemplate(e.target.value)} className="w-[250px] h-8" defaultValue="">
-            <SelectItem value="" disabled>Load starter template...</SelectItem>
-            {starterTemplates.map(template => (
-              <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
-            ))}
-          </Select>
         </div>
 
         <div className="flex items-center gap-2">

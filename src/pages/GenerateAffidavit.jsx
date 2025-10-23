@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
-import { Job, Client, Employee, CourtCase, Attempt, Document, CompanySettings, AffidavitTemplate, SystemAffidavitTemplate } from '@/api/entities';
+import { Job, Client, Employee, CourtCase, Attempt, Document, CompanySettings, AffidavitTemplate, SystemAffidavitTemplate, User } from '@/api/entities';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2, AlertTriangle, Printer, Pencil, Save, Camera } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,7 @@ import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useGlobalData } from '@/components/GlobalDataContext';
+import { STARTER_TEMPLATES } from '@/utils/starterTemplates';
 
 export default function GenerateAffidavitPage() {
   const { companyData } = useGlobalData();
@@ -23,6 +24,7 @@ export default function GenerateAffidavitPage() {
   const [attempts, setAttempts] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState(null);
@@ -35,7 +37,7 @@ export default function GenerateAffidavitPage() {
   const [companyInfo, setCompanyInfo] = useState(null); // Changed initial state to null
   const [hasCompanyInfo, setHasCompanyInfo] = useState(false); // New state variable
   const [affidavitTemplates, setAffidavitTemplates] = useState([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState('general');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('standard');
   const [selectedTemplate, setSelectedTemplate] = useState(null); // Full template object
 
   const location = useLocation();
@@ -49,13 +51,22 @@ export default function GenerateAffidavitPage() {
       const jobData = await Job.findById(jobId);
       if (!jobData) throw new Error("Job not found.");
 
-      const [clientData, courtCaseData, attemptsData, documentsData, employeesData] = await Promise.all([
+      console.log('[LoadData] Job ID:', jobId);
+      console.log('[LoadData] Job Data:', jobData);
+      console.log('[LoadData] Job company_id:', jobData.company_id);
+
+      // Attempts are embedded in the job object, not separate documents
+      const attemptsData = Array.isArray(jobData.attempts) ? jobData.attempts : [];
+      console.log('[LoadData] Attempts from job object:', attemptsData);
+
+      const [clientData, courtCaseData, documentsData, employeesData] = await Promise.all([
         jobData.client_id ? Client.findById(jobData.client_id) : null,
         jobData.court_case_id ? CourtCase.findById(jobData.court_case_id) : null,
-        Attempt.filter({ job_id: jobId }).catch(e => { console.error("Error loading attempts:", e); return []; }),
         Document.filter({ job_id: jobId }).catch(e => { console.error("Error loading documents:", e); return []; }),
         Employee.list().catch(e => { console.error("Error loading employees:", e); return []; }),
       ]);
+
+      console.log('[LoadData] Final attempts array:', attemptsData);
 
       setJob(jobData);
       setClient(clientData);
@@ -91,6 +102,21 @@ export default function GenerateAffidavitPage() {
     }
   };
 
+  // Helper function to enrich fallback templates with HTML from starter templates
+  const enrichFallbackTemplate = (template) => {
+    const starterTemplate = STARTER_TEMPLATES[template.id];
+    if (starterTemplate) {
+      return {
+        ...template,
+        template_mode: 'html',
+        html_content: starterTemplate.html,
+        service_status: starterTemplate.service_status || 'both',
+        description: starterTemplate.description,
+      };
+    }
+    return template;
+  };
+
   const loadAffidavitTemplates = async () => {
     try {
       // Load system templates (available to all companies)
@@ -117,22 +143,28 @@ export default function GenerateAffidavitPage() {
         setAffidavitTemplates(allTemplates);
       } else {
         // Fallback: use a few defaults if no templates exist
-        setAffidavitTemplates([
-          { id: 'general', name: 'General Affidavit Template', jurisdiction: 'General', isSystem: true },
+        const fallbackTemplates = [
+          { id: 'standard', name: 'Standard Affidavit Template', jurisdiction: 'General', isSystem: true },
+          { id: 'ao440_federal', name: 'AO 440 Federal Proof of Service', jurisdiction: 'Federal', isSystem: true },
           { id: 'illinois', name: 'Illinois – Circuit Court Affidavit', jurisdiction: 'IL', isSystem: true },
           { id: 'california', name: 'California Proof of Service', jurisdiction: 'CA', isSystem: true },
-          { id: 'texas', name: 'Texas Affidavit of Service', jurisdiction: 'TX', isSystem: true },
-        ]);
+          { id: 'due_diligence', name: 'Due Diligence with Attempts Table', jurisdiction: 'General', isSystem: true },
+        ].map(enrichFallbackTemplate);
+
+        setAffidavitTemplates(fallbackTemplates);
       }
     } catch (err) {
       console.error("Error loading affidavit templates:", err);
       // Fallback: use a few defaults
-      setAffidavitTemplates([
-        { id: 'general', name: 'General Affidavit Template', jurisdiction: 'General', isSystem: true },
+      const fallbackTemplates = [
+        { id: 'standard', name: 'Standard Affidavit Template', jurisdiction: 'General', isSystem: true },
+        { id: 'ao440_federal', name: 'AO 440 Federal Proof of Service', jurisdiction: 'Federal', isSystem: true },
         { id: 'illinois', name: 'Illinois – Circuit Court Affidavit', jurisdiction: 'IL', isSystem: true },
         { id: 'california', name: 'California Proof of Service', jurisdiction: 'CA', isSystem: true },
-        { id: 'texas', name: 'Texas Affidavit of Service', jurisdiction: 'TX', isSystem: true },
-      ]);
+        { id: 'due_diligence', name: 'Due Diligence with Attempts Table', jurisdiction: 'General', isSystem: true },
+      ].map(enrichFallbackTemplate);
+
+      setAffidavitTemplates(fallbackTemplates);
     }
   };
 
@@ -145,6 +177,9 @@ export default function GenerateAffidavitPage() {
       loadData(jobId);
       loadCompanyInfo();
       loadAffidavitTemplates();
+
+      // Load current user for server name fallback
+      User.me().then(user => setCurrentUser(user)).catch(err => console.error("Error loading current user:", err));
     } else {
       setError("No Job ID provided.");
       setIsLoading(false);
@@ -157,26 +192,68 @@ export default function GenerateAffidavitPage() {
     if (!job || !courtCase || !attempts || !documents || !employees || (companyInfo === null && hasCompanyInfo)) return;
     
     const servedAttempts = attempts.filter(attempt => attempt.status === 'served');
-    const latestServedAttempt = servedAttempts.length > 0 
+    const latestServedAttempt = servedAttempts.length > 0
       ? servedAttempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))[0]
       : (attempts.length > 0 ? attempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))[0] : null);
+
+    // Debug logging
+    console.log('All Attempts:', attempts);
+    console.log('Served Attempts:', servedAttempts);
+    console.log('Latest Attempt:', latestServedAttempt);
+    console.log('Attempt Date:', latestServedAttempt?.attempt_date);
+    console.log('Company Info from state:', companyInfo);
+    console.log('Company Data from context:', companyData);
 
     const serviceDocuments = documents.filter(doc => doc.document_category === 'to_be_served');
 
     let serverName = 'ServeMax Agent';
     let serverLicense = '';
+    let serverObject = null;
+
+    // Try to get server from attempt
     if (latestServedAttempt) {
         if (latestServedAttempt.server_id) {
             const server = employees.find(e => e.id === latestServedAttempt.server_id);
             if (server) {
                 serverName = `${server.first_name} ${server.last_name}`;
                 serverLicense = server.license_number || '';
+                serverObject = server;
             } else {
                 serverName = latestServedAttempt.server_name_manual || 'Unknown Server';
             }
         } else if (latestServedAttempt.server_name_manual) {
             serverName = latestServedAttempt.server_name_manual;
         }
+    }
+
+    // Fallback to current logged-in user if still default
+    if (serverName === 'ServeMax Agent' && currentUser) {
+        serverName = `${currentUser.first_name || ''} ${currentUser.last_name || ''}`.trim() || currentUser.email || 'Unknown Server';
+        // Try to find current user in employees list for license
+        const currentUserEmployee = employees.find(e => e.email === currentUser.email || e.id === currentUser.id);
+        if (currentUserEmployee) {
+            serverLicense = currentUserEmployee.license_number || '';
+            serverObject = currentUserEmployee;
+        }
+    }
+
+    // Map service_type_detail to AO 440 service_method
+    let serviceMethod = 'personal'; // default
+    if (latestServedAttempt?.service_type_detail) {
+      const serviceDetail = latestServedAttempt.service_type_detail.toLowerCase();
+      if (serviceDetail.includes('personal')) {
+        serviceMethod = 'personal';
+      } else if (serviceDetail.includes('substitute') || serviceDetail.includes('residence')) {
+        serviceMethod = 'residence';
+      } else if (serviceDetail.includes('corporate') || serviceDetail.includes('organization')) {
+        serviceMethod = 'organization';
+      } else if (serviceDetail.includes('unexecuted') || serviceDetail.includes('unsuccessful')) {
+        serviceMethod = 'unexecuted';
+      } else {
+        serviceMethod = 'other';
+      }
+    } else if (job.status === 'not_served') {
+      serviceMethod = 'unexecuted';
     }
 
     // Determine default document title based on status
@@ -193,7 +270,7 @@ export default function GenerateAffidavitPage() {
       case_caption: courtCase ? `${courtCase.plaintiff} v. ${courtCase.defendant}` : '',
       case_number: courtCase?.case_number || '',
       documents_served: serviceDocuments.map(doc => ({ title: doc.affidavit_text || doc.title })),
-      service_date: latestServedAttempt?.attempt_date ? new Date(latestServedAttempt.attempt_date).toISOString().split('T')[0] : '',
+      service_date: latestServedAttempt?.attempt_date || '',
       service_time: latestServedAttempt?.attempt_date ? format(new Date(latestServedAttempt.attempt_date), 'h:mm a') : '',
       service_address: latestServedAttempt?.address_of_attempt || (job.addresses && job.addresses[0] ? `${job.addresses[0].address1}, ${job.addresses[0].city}, ${job.addresses[0].state} ${job.addresses[0].postal_code}` : ''),
       service_manner: latestServedAttempt?.service_type_detail ? (latestServedAttempt.service_type_detail.toLowerCase().includes('personal') ? 'personal' : latestServedAttempt.service_type_detail.toLowerCase().includes('substitute') ? 'substitute_abode' : latestServedAttempt.service_type_detail.toLowerCase().includes('corporate') ? 'corporate_agent' : 'other') : (job.status === 'served' ? 'personal' : 'non_service'),
@@ -213,14 +290,69 @@ export default function GenerateAffidavitPage() {
       company_info: companyInfo, // Object with company_name, address1, address2, city, state, zip, phone
       affidavit_template_id: selectedTemplateId,
 
+      // Template data (send full template to backend to avoid Firestore lookup)
+      template_mode: selectedTemplate?.template_mode || 'simple',
+      html_content: selectedTemplate?.html_content || null,
+      header_html: selectedTemplate?.header_html || null,
+      footer_html: selectedTemplate?.footer_html || null,
+      margin_top: selectedTemplate?.margin_top || null,
+      margin_bottom: selectedTemplate?.margin_bottom || null,
+      margin_left: selectedTemplate?.margin_left || null,
+      margin_right: selectedTemplate?.margin_right || null,
+
       // Attempts data for advanced template usage
       attempts: attempts || [],
       successful_attempts: servedAttempts || [],
       successful_attempt: latestServedAttempt || null,
+
+      // AO 440 Federal Template Specific Fields
+      date_received: job.created_at ? new Date(job.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      service_method: serviceMethod,
+      service_place: latestServedAttempt?.address_of_attempt || (job.addresses && job.addresses[0] ? `${job.addresses[0].address1}, ${job.addresses[0].city}, ${job.addresses[0].state} ${job.addresses[0].postal_code}` : ''),
+
+      // Residence service fields
+      residence_recipient: job.recipient?.name || '',
+      residence_person_name: latestServedAttempt?.person_served_name || '',
+      residence_person: latestServedAttempt?.person_served_name || '',
+      residence_date: latestServedAttempt?.attempt_date || '',
+      residence_address: latestServedAttempt?.address_of_attempt || '',
+      residence_relationship: latestServedAttempt?.relationship_to_recipient || '',
+
+      // Organization service fields
+      organization_agent: latestServedAttempt?.person_served_name || '',
+      organization_name: job.recipient?.name || '',
+      organization_date: latestServedAttempt?.attempt_date || '',
+
+      // Unexecuted service fields
+      unexecuted_recipient: job.recipient?.name || '',
+      unexecuted_reason: latestServedAttempt?.notes || 'Unable to complete service',
+
+      // Other service fields
+      other_recipient: job.recipient?.name || '',
+      other_description: latestServedAttempt?.service_type_detail || '',
+      other_details: latestServedAttempt?.notes || '',
+
+      // Server information for AO 440
+      server_printed_name: serverName,
+      server_title: serverLicense ? `Process Server - License #${serverLicense}` : 'Process Server',
+      server_name_and_title: serverLicense ? `${serverName}, Process Server - License #${serverLicense}` : `${serverName}, Process Server`,
+      server_address: (companyInfo || companyData) ? `${(companyInfo?.address1 || companyData?.address || '')}${(companyInfo?.address2 || companyData?.address2) ? ', ' + (companyInfo?.address2 || companyData?.address2) : ''}, ${(companyInfo?.city || companyData?.city || '')}, ${(companyInfo?.state || companyData?.state || '')} ${(companyInfo?.zip || companyData?.zip || '')}`.trim() : (serverObject ? `${serverObject.address1 || ''}${serverObject.address2 ? ', ' + serverObject.address2 : ''}, ${serverObject.city || ''}, ${serverObject.state || ''} ${serverObject.postal_code || ''}`.trim() : ''),
+
+      // Fee fields
+      travel_fee: '',
+      service_fee: '',
+      total_fee: '0.00',
+
+      // Additional info
+      additional_info: latestServedAttempt?.notes || '',
     };
 
+    console.log('Service Date being set:', data.service_date);
+    console.log('Server Address being set:', data.server_address);
+    console.log('Server Name and Title:', data.server_name_and_title);
+
     setAffidavitData(data);
-  }, [job, client, courtCase, attempts, documents, employees, selectedPhotos, includeNotary, includeCompanyInfo, companyInfo, hasCompanyInfo, selectedTemplateId]);
+  }, [job, client, courtCase, attempts, documents, employees, selectedPhotos, includeNotary, includeCompanyInfo, companyInfo, hasCompanyInfo, selectedTemplateId, selectedTemplate, currentUser]);
 
   // Smart auto-select template based on court location with priority matching
   useEffect(() => {
@@ -309,11 +441,44 @@ export default function GenerateAffidavitPage() {
       alert("Affidavit data is not ready to print.");
       return;
     }
+
+    // Validate AO 440 form if that template is selected
+    const isAO440Template = selectedTemplateId === 'ao440_federal' ||
+                            selectedTemplate?.name?.includes('AO 440') ||
+                            selectedTemplate?.name?.includes('Federal Proof of Service');
+
+    if (isAO440Template) {
+      const validationErrors = validateAO440Form();
+      if (validationErrors.length > 0) {
+        const errorMessage = "Please complete all required fields before printing:\n\n" +
+                            validationErrors.map((err, i) => `${i + 1}. ${err}`).join('\n');
+        alert(errorMessage);
+        return;
+      }
+    }
+
     setIsGenerating(true);
     try {
-      const response = await generateAffidavit(affidavitData);
+      console.log('=== PDF Generation Debug ===');
+      console.log('Affidavit Data:', affidavitData);
+      console.log('Selected Template:', selectedTemplate);
+      console.log('Template Mode:', selectedTemplate?.template_mode);
+      console.log('HTML Content length:', selectedTemplate?.html_content?.length);
 
-      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const response = await generateAffidavit(affidavitData);
+      console.log('PDF Response:', response);
+
+      // Convert response.data object to Uint8Array
+      const pdfData = response.data;
+      const uint8Array = new Uint8Array(Object.keys(pdfData).length);
+      for (let i = 0; i < uint8Array.length; i++) {
+        uint8Array[i] = pdfData[i];
+      }
+
+      const blob = new Blob([uint8Array], { type: 'application/pdf' });
+      console.log('PDF Blob size:', blob.size, 'bytes');
+      console.log('PDF Blob type:', blob.type);
+
       const fileName = `affidavit_${job?.job_number || 'service'}_${selectedTemplateId}.pdf`;
 
       const downloadUrl = window.URL.createObjectURL(blob);
@@ -333,7 +498,61 @@ export default function GenerateAffidavitPage() {
   };
 
   const handleAffidavitDataChange = (field, value) => {
-    setAffidavitData(prev => ({...prev, [field]: value}));
+    // Special handling for AO 440 fields - merge them into affidavitData
+    if (field === 'ao440_fields') {
+      setAffidavitData(prev => ({...prev, ...value}));
+    } else {
+      setAffidavitData(prev => ({...prev, [field]: value}));
+    }
+  };
+
+  // Validate AO 440 form before printing
+  const validateAO440Form = () => {
+    const errors = [];
+
+    if (!affidavitData.case_number?.trim()) {
+      errors.push('Case number is required');
+    }
+
+    if (!affidavitData.server_name?.trim()) {
+      errors.push('Server name is required');
+    }
+
+    const serviceMethod = affidavitData.service_method;
+
+    switch (serviceMethod) {
+      case 'personal':
+        if (!affidavitData.recipient_name?.trim()) errors.push('Recipient name is required for personal service');
+        if (!affidavitData.date_received?.trim()) errors.push('Date is required for personal service');
+        if (!affidavitData.service_place?.trim()) errors.push('Place of service is required for personal service');
+        break;
+
+      case 'residence':
+        if (!affidavitData.residence_recipient?.trim()) errors.push('Recipient name is required for residence service');
+        if (!affidavitData.residence_person_name?.trim()) errors.push('Person served name is required for residence service');
+        if (!affidavitData.residence_date?.trim()) errors.push('Date is required for residence service');
+        if (!affidavitData.residence_address?.trim()) errors.push('Address is required for residence service');
+        if (!affidavitData.residence_relationship?.trim()) errors.push('Relationship is required for residence service');
+        break;
+
+      case 'organization':
+        if (!affidavitData.organization_agent?.trim()) errors.push('Agent name is required for organization service');
+        if (!affidavitData.organization_name?.trim()) errors.push('Organization name is required for organization service');
+        if (!affidavitData.organization_date?.trim()) errors.push('Date is required for organization service');
+        break;
+
+      case 'unexecuted':
+        if (!affidavitData.unexecuted_recipient?.trim()) errors.push('Recipient name is required for unexecuted service');
+        if (!affidavitData.unexecuted_reason?.trim()) errors.push('Reason is required for unexecuted service');
+        break;
+
+      case 'other':
+        if (!affidavitData.other_recipient?.trim()) errors.push('Recipient name is required for other service method');
+        if (!affidavitData.other_description?.trim()) errors.push('Description is required for other service method');
+        break;
+    }
+
+    return errors;
   };
 
   if (isLoading) {

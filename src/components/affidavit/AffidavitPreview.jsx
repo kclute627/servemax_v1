@@ -5,6 +5,7 @@ import { User } from '@/api/entities';
 import { Button } from '@/components/ui/button';
 import { Pencil } from 'lucide-react';
 import { replacePlaceholders, renderHTMLTemplate } from '@/utils/templateEngine';
+import AO440EditableFields from './AO440EditableFields';
 
 const EditableField = ({ value, isEditing, onChange, as = 'input', className = '', ...props }) => {
     const Component = as;
@@ -117,7 +118,8 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
     const plaintiff = case_caption?.split('v.')[0]?.trim() || '';
     const defendant = case_caption?.split('v.')[1]?.trim() || '';
 
-    const serviceDate = service_date ? format(new Date(service_date + 'T00:00:00'), 'MMMM d, yyyy') : '';
+    // service_date is already a full ISO timestamp, don't append anything
+    const serviceDate = service_date ? format(new Date(service_date), 'MMMM d, yyyy h:mm a') : '';
 
     const handleFieldChange = (field, value) => {
         onDataChange(field, value);
@@ -199,6 +201,11 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
     if (template?.template_mode === 'html' && template?.html_content) {
         const renderedHTML = renderHTMLTemplate(template.html_content, affidavitData);
 
+        // Check if this is the AO 440 template
+        const isAO440Template = template?.id === 'ao440_federal' ||
+                                template?.name?.includes('AO 440') ||
+                                template?.name?.includes('Federal Proof of Service');
+
         // If not editing, just render static HTML
         if (!isEditing) {
             return (
@@ -213,7 +220,33 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
             );
         }
 
-        // In edit mode: Parse HTML and make editable fields interactive
+        // AO 440 Template - Show structured editable fields
+        if (isAO440Template) {
+            return (
+                <div style={{ display: 'flex', gap: '20px', flexDirection: 'column' }}>
+                    {/* Editable fields panel */}
+                    <AO440EditableFields
+                        affidavitData={affidavitData}
+                        onDataChange={onDataChange}
+                        isEditing={isEditing}
+                    />
+
+                    {/* Live preview of the form */}
+                    <div
+                        style={{
+                            width: '612pt',
+                            minHeight: '792pt',
+                            backgroundColor: '#FFFFFF',
+                            border: '2px solid #3b82f6',
+                            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                        }}
+                        dangerouslySetInnerHTML={{ __html: renderedHTML }}
+                    />
+                </div>
+            );
+        }
+
+        // Other HTML templates - Use generic contentEditable
         return (
             <div
                 style={{

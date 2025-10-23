@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, FileText, DollarSign } from "lucide-react";
+import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign } from "lucide-react";
 import { User } from "@/api/entities";
 import { isSuperAdmin } from "@/utils/permissions";
 import CompanySettingsPanel from "../components/settings/CompanySettingsPanel";
@@ -10,7 +10,6 @@ import BillingPanel from "../components/settings/BillingPanel";
 import ServiceSettingsPanel from "../components/settings/ServiceSettingsPanel";
 import InvoiceSettingsPanel from "../components/settings/InvoiceSettingsPanel";
 import AgentsSettingsPanel from "../components/settings/AgentsSettingsPanel";
-import AffidavitTemplatesPanel from "../components/settings/AffidavitTemplatesPanel";
 import PricingConfigPanel from "../components/settings/PricingConfigPanel";
 
 export default function SettingsPage() {
@@ -25,7 +24,7 @@ export default function SettingsPage() {
         setUser(currentUser);
         // Set default tab based on user type after loading
         if (currentUser && isSuperAdmin(currentUser)) {
-          setActiveTab('templates');
+          setActiveTab('pricing');
         }
       } catch (error) {
         console.error("Error loading user:", error);
@@ -80,13 +79,10 @@ export default function SettingsPage() {
                     <TabButton tabName="service" label="Service" icon={ListChecks} />
                   </>
                 )}
-                {isAdmin && (
+                {isAdmin && !isSuperAdminUser && (
                   <>
-                    <TabButton tabName="templates" label="Templates" icon={FileText} />
                     <TabButton tabName="agents" label="Agents" icon={Bot} />
-                    {!isSuperAdminUser && (
-                      <TabButton tabName="billing" label="Billing" icon={CreditCard} />
-                    )}
+                    <TabButton tabName="billing" label="Billing" icon={CreditCard} />
                   </>
                 )}
                 {isSuperAdminUser && (
@@ -101,8 +97,7 @@ export default function SettingsPage() {
             {activeTab === 'invoice' && !isSuperAdminUser && <InvoiceSettingsPanel />}
             {activeTab === 'user' && !isSuperAdminUser && <UserSettingsPanel />}
             {activeTab === 'service' && !isSuperAdminUser && <ServiceSettingsPanel />}
-            {activeTab === 'templates' && isAdmin && <AffidavitTemplatesPanel />}
-            {activeTab === 'agents' && isAdmin && <AgentsSettingsPanel />}
+            {activeTab === 'agents' && isAdmin && !isSuperAdminUser && <AgentsSettingsPanel />}
             {activeTab === 'billing' && isAdmin && !isSuperAdminUser && <BillingPanel />}
             {activeTab === 'pricing' && isSuperAdminUser && <PricingConfigPanel />}
           </div>
