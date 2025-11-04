@@ -8,9 +8,13 @@ import {
   Loader2,
   Image as ImageIcon,
   Video,
-  AlertCircle
+  AlertCircle,
+  MapPin,
+  Camera,
+  CheckCircle
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { extractFileMetadata } from "@/utils/mediaMetadata";
 
 const MAX_FILES = 10;
 
@@ -55,10 +59,16 @@ export default function PhotoVideoUpload({ jobId, existingFiles = [], onUploadSu
 
     try {
       const uploadPromises = validFiles.map(async (file) => {
+        // Extract comprehensive metadata from the file
+        console.log(`Extracting metadata from ${file.name}...`);
+        const metadata = await extractFileMetadata(file, {
+          includeBrowserLocation: true
+        });
+
         // Upload file to Firebase Storage
         const { url } = await UploadFile(file);
 
-        // Create a document record in Firestore
+        // Create a document record in Firestore with full metadata
         const documentData = {
           job_id: jobId,
           title: file.name,
@@ -67,11 +77,29 @@ export default function PhotoVideoUpload({ jobId, existingFiles = [], onUploadSu
           content_type: file.type,
           document_category: 'photo',
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+
+          // Include all extracted metadata
+          metadata: metadata || {},
+
+          // Quick access fields for common queries
+          has_gps: metadata?.has_embedded_gps || false,
+          photo_latitude: metadata?.gps_latitude || null,
+          photo_longitude: metadata?.gps_longitude || null,
+          photo_timestamp: metadata?.date_time_original || null,
+          camera_make: metadata?.make || null,
+          camera_model: metadata?.model || null,
+          device_type: metadata?.device_type || null,
         };
 
         // Save to Firestore and get the document with ID
         const savedDoc = await Document.create(documentData);
+
+        console.log(`Uploaded ${file.name} with metadata:`, {
+          has_gps: documentData.has_gps,
+          camera: `${documentData.camera_make || 'Unknown'} ${documentData.camera_model || ''}`.trim(),
+          device: documentData.device_type
+        });
 
         return {
           ...documentData,
@@ -81,10 +109,13 @@ export default function PhotoVideoUpload({ jobId, existingFiles = [], onUploadSu
 
       const uploadedDocs = await Promise.all(uploadPromises);
 
+      // Count files with GPS data
+      const filesWithGPS = uploadedDocs.filter(doc => doc.has_gps).length;
+
       toast({
         variant: "success",
         title: "Upload successful",
-        description: `${uploadedDocs.length} file${uploadedDocs.length > 1 ? 's' : ''} uploaded successfully.`
+        description: `${uploadedDocs.length} file${uploadedDocs.length > 1 ? 's' : ''} uploaded successfully. ${filesWithGPS > 0 ? `${filesWithGPS} with GPS data.` : ''}`
       });
 
       onUploadSuccess(uploadedDocs);
@@ -240,12 +271,30 @@ export default function PhotoVideoUpload({ jobId, existingFiles = [], onUploadSu
                   </Button>
                 </div>
 
-                {/* File type indicator */}
-                <div className="absolute top-2 left-2 bg-black bg-opacity-60 rounded px-2 py-0.5">
-                  {isVideo(file.content_type) ? (
-                    <Video className="w-3 h-3 text-white" />
-                  ) : (
-                    <ImageIcon className="w-3 h-3 text-white" />
+                {/* Metadata indicators */}
+                <div className="absolute top-2 left-2 flex flex-col gap-1">
+                  {/* File type indicator */}
+                  <div className="bg-black bg-opacity-60 rounded px-2 py-0.5 flex items-center gap-1">
+                    {isVideo(file.content_type) ? (
+                      <Video className="w-3 h-3 text-white" />
+                    ) : (
+                      <ImageIcon className="w-3 h-3 text-white" />
+                    )}
+                  </div>
+
+                  {/* GPS indicator */}
+                  {file.has_gps && (
+                    <div className="bg-green-600 bg-opacity-90 rounded px-2 py-0.5 flex items-center gap-1">
+                      <MapPin className="w-3 h-3 text-white" />
+                      <span className="text-xs text-white font-medium">GPS</span>
+                    </div>
+                  )}
+
+                  {/* Camera indicator */}
+                  {file.camera_make && (
+                    <div className="bg-blue-600 bg-opacity-90 rounded px-2 py-0.5 flex items-center gap-1">
+                      <Camera className="w-3 h-3 text-white" />
+                    </div>
                   )}
                 </div>
               </div>
@@ -262,9 +311,15 @@ export default function PhotoVideoUpload({ jobId, existingFiles = [], onUploadSu
             <p className="text-sm font-medium text-blue-800 mb-1">
               Document your service attempt
             </p>
-            <p className="text-xs text-blue-700">
+            <p className="text-xs text-blue-700 mb-2">
               Upload photos or videos from the service attempt. These can be included in your affidavit and provide valuable evidence.
             </p>
+            <div className="flex items-start gap-2">
+              <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-slate-700">
+                <span className="font-semibold">Automatic metadata capture:</span> GPS location, timestamps, camera info, and device details are automatically extracted for accountability reports.
+              </p>
+            </div>
           </div>
         </div>
       )}
