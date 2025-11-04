@@ -199,7 +199,7 @@ export default function ServerPayPage() {
                         {records.map(record => (
                           <tr key={record.id} className="border-b border-slate-100 last:border-b-0">
                             <td className="py-3 px-2 font-medium text-slate-700">{record.job_number}</td>
-                            <td className="py-3 px-2 text-slate-600">{format(new Date(record.created_date), "MMM d, yyyy")}</td>
+                            <td className="py-3 px-2 text-slate-600">{record.created_at ? format(new Date(record.created_at), "MMM d, yyyy") : 'N/A'}</td>
                             <td className="py-3 px-2 font-semibold text-slate-800">${(record.total_amount || 0).toFixed(2)}</td>
                             <td className="py-3 px-2 text-slate-600">
                               {record.pay_items && record.pay_items.length > 0 ? (

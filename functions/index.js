@@ -1246,6 +1246,77 @@ function renderHTMLTemplate(htmlTemplate, data) {
 }
 
 /**
+ * Inject signature image and date into rendered HTML for PDF generation
+ * @param {string} html - Rendered HTML content
+ * @param {object} signatureData - Signature data with signature_data, signed_date, position, size
+ * @returns {string} - HTML with injected signature
+ */
+function injectSignatureIntoHTML(html, signatureData) {
+  if (!signatureData || !signatureData.signature_data) {
+    return html;
+  }
+
+  console.log("[injectSignatureIntoHTML] Injecting signature into PDF HTML");
+  console.log("  Signature data present:", !!signatureData.signature_data);
+  console.log("  Signed date:", signatureData.signed_date);
+  console.log("  Position:", signatureData.position);
+  console.log("  Size:", signatureData.size);
+
+  // Format the signed date
+  let formattedDate = "";
+  if (signatureData.signed_date) {
+    try {
+      const dateObj = new Date(signatureData.signed_date);
+      formattedDate = format(dateObj, "MM/dd/yyyy");
+      console.log("  Formatted date:", formattedDate);
+    } catch (err) {
+      console.error("  Error formatting date:", err);
+    }
+  }
+
+  // Get signature position and size (use defaults if not provided)
+  const position = signatureData.position || {x: 0, y: 0};
+  const size = signatureData.size || {width: 270, height: 52.5};
+
+  // For AO 440 template: Find and replace the signature section
+  // The signature line container has a specific structure we can match
+  const signatureLinePattern = /(<div style="flex: 1; padding-right: 10px;">[\s\S]*?<div style="border-bottom: 1pt solid #000; width: 100%; height: 0pt;"><\/div>[\s\S]*?<\/div>)/;
+
+  if (html.match(signatureLinePattern)) {
+    console.log("  Found AO 440 signature line, injecting signature");
+
+    // Create the signature container with the image
+    const signatureContainer = `<div style="flex: 1; padding-right: 10px; position: relative;">
+        <div style="border-bottom: 1pt solid #000; width: 100%; min-height: 60pt; position: relative; display: flex; align-items: center; justify-content: center;">
+          <img src="${signatureData.signature_data}"
+               style="position: absolute; left: ${position.x}px; top: ${position.y}px; width: ${size.width}pt; height: ${size.height}pt; object-fit: contain; object-position: left center;"
+               alt="Signature" />
+        </div>
+      </div>`;
+
+    html = html.replace(signatureLinePattern, signatureContainer);
+    console.log("  Signature image injected successfully");
+  } else {
+    console.log("  AO 440 signature line pattern not found, signature not injected");
+  }
+
+  // Inject the date into the date field
+  if (formattedDate) {
+    const datePattern = /(<div style="border-bottom: 1pt solid #000; width: 120pt; height: 0pt; margin-bottom: 2pt;"><\/div>)/;
+    if (html.match(datePattern)) {
+      console.log("  Found date field, injecting date");
+      const dateContainer = `<div style="border-bottom: 1pt solid #000; width: 120pt; height: 20pt; margin-bottom: 2pt; display: flex; align-items: flex-end; padding-bottom: 2pt;">
+          <span style="font-size: 11pt;">${formattedDate}</span>
+        </div>`;
+      html = html.replace(datePattern, dateContainer);
+      console.log("  Date injected successfully");
+    }
+  }
+
+  return html;
+}
+
+/**
  * Generate PDF from HTML using Puppeteer (optimized for Cloud Functions)
  * @param {string} html - HTML content to convert
  * @param {object} options - PDF generation options
@@ -1423,7 +1494,15 @@ exports.generateAffidavit = onCall(
       console.log("Using HTML template mode with Puppeteer");
 
       // Render the HTML template with data
-      const renderedHTML = renderHTMLTemplate(template.html_content, data);
+      let renderedHTML = renderHTMLTemplate(template.html_content, data);
+
+      // Inject signature if present
+      if (data.placed_signature) {
+        console.log("Signature data found, injecting into HTML before PDF generation");
+        renderedHTML = injectSignatureIntoHTML(renderedHTML, data.placed_signature);
+      } else {
+        console.log("No signature data found, generating PDF without signature");
+      }
 
       // Prepare PDF options (headers/footers if configured)
       const pdfOptions = {};

@@ -106,15 +106,18 @@ export class FirebaseEntity {
 
       const docRef = await addDoc(this.collectionRef, docData);
 
-      // Store the document ID in the document itself as job_id
-      await updateDoc(docRef, {
-        job_id: docRef.id
-      });
+      // Only set job_id to document ID if it doesn't already exist
+      // This is mainly for the Job entity itself, not for related documents
+      if (!data.job_id) {
+        await updateDoc(docRef, {
+          job_id: docRef.id
+        });
+      }
 
       // Return the created document with ID
       return {
         id: docRef.id,
-        job_id: docRef.id,
+        job_id: data.job_id || docRef.id,
         ...data,
         created_at: new Date(),
         updated_at: new Date()
@@ -216,6 +219,49 @@ export class FirebaseEntity {
     } catch (error) {
       console.error(`Error bulk creating ${this.collectionName}:`, error);
       throw new Error(`Failed to bulk create ${this.collectionName}: ${error.message}`);
+    }
+  }
+
+  // Bulk update multiple documents at once using batch
+  async bulkUpdate(updates) {
+    try {
+      const { writeBatch } = await import('firebase/firestore');
+      const batch = writeBatch(db);
+      const timestamp = serverTimestamp();
+
+      for (const { id, data } of updates) {
+        const docRef = doc(db, this.collectionName, id);
+        const updateData = {
+          ...data,
+          updated_at: timestamp
+        };
+        batch.update(docRef, updateData);
+      }
+
+      await batch.commit();
+      return updates.map(u => ({ id: u.id, ...u.data, updated: true }));
+    } catch (error) {
+      console.error(`Error bulk updating ${this.collectionName}:`, error);
+      throw new Error(`Failed to bulk update ${this.collectionName}: ${error.message}`);
+    }
+  }
+
+  // Bulk delete multiple documents at once using batch
+  async bulkDelete(ids) {
+    try {
+      const { writeBatch } = await import('firebase/firestore');
+      const batch = writeBatch(db);
+
+      for (const id of ids) {
+        const docRef = doc(db, this.collectionName, id);
+        batch.delete(docRef);
+      }
+
+      await batch.commit();
+      return ids.map(id => ({ id, deleted: true }));
+    } catch (error) {
+      console.error(`Error bulk deleting ${this.collectionName}:`, error);
+      throw new Error(`Failed to bulk delete ${this.collectionName}: ${error.message}`);
     }
   }
 

@@ -11,7 +11,7 @@ import {
 import { getDummyDataState, isDummyDataEnabled } from "@/hooks/useDummyData";
 import { dummyCompany } from "@/data/dummyData";
 import { entities } from "@/firebase/database";
-import { CompanySettings } from "@/api/entities";
+import { CompanySettings, ServerPayRecord } from "@/api/entities";
 import { DirectoryManager } from "@/firebase/schemas";
 
 const GlobalDataContext = createContext();
@@ -32,6 +32,7 @@ export const GlobalDataProvider = ({ children }) => {
   const [courtCases, setCourtCases] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [serverPayRecords, setServerPayRecords] = useState([]);
   const [companyData, setCompanyData] = useState(null);
   const [myCompanyClientId, setMyCompanyClientId] = useState(null);
   const [companySettings, setCompanySettings] = useState({
@@ -53,6 +54,7 @@ export const GlobalDataProvider = ({ children }) => {
       setCourtCases(dummyDataOverride.courtCases);
       setInvoices(dummyDataOverride.invoices);
       setPayments(dummyDataOverride.payments);
+      setServerPayRecords([]);
       setCompanyData(dummyCompany); // Load company data from dummy data
       setMyCompanyClientId('company_12345'); // Use dummy company ID
       setIsLoading(false);
@@ -60,7 +62,8 @@ export const GlobalDataProvider = ({ children }) => {
       return;
     }
 
-    if (!forceRefresh && lastRefresh && Date.now() - lastRefresh < 30000) { // 30 seconds cache
+    // Reduced cache time from 30s to 5s for fresher data
+    if (!forceRefresh && lastRefresh && Date.now() - lastRefresh < 5000) {
       return;
     }
 
@@ -69,7 +72,12 @@ export const GlobalDataProvider = ({ children }) => {
       return;
     }
 
-    setIsLoading(true);
+    // Only show loading on initial load or force refresh
+    // This allows cached data to remain visible during background refreshes
+    const isInitialLoad = !lastRefresh;
+    if (isInitialLoad) {
+      setIsLoading(true);
+    }
     try {
       // Check if user is authenticated
       if (!isAuthenticated || !user) {
@@ -80,6 +88,7 @@ export const GlobalDataProvider = ({ children }) => {
         setCourtCases([]);
         setInvoices([]);
         setPayments([]);
+        setServerPayRecords([]);
         setMyCompanyClientId(null);
         setIsLoading(false);
         return;
@@ -97,6 +106,7 @@ export const GlobalDataProvider = ({ children }) => {
         jobsData,
         invoicesData,
         paymentsData,
+        serverPayRecordsData,
         prioritySettings,
         jobSharingSettings,
         kanbanSettings,
@@ -109,6 +119,7 @@ export const GlobalDataProvider = ({ children }) => {
         SecureJobAccess.list().catch(() => []),
         SecureInvoiceAccess.list().catch(() => []),
         SecurePaymentAccess.list().catch(() => []),
+        ServerPayRecord.list().catch(() => []),
         CompanySettings.filter({ setting_key: "job_priorities" }).catch(() => []),
         CompanySettings.filter({ setting_key: "job_sharing" }).catch(() => []),
         CompanySettings.filter({ setting_key: "kanban_board" }).catch(() => []),
@@ -122,6 +133,7 @@ export const GlobalDataProvider = ({ children }) => {
       setJobs(jobsData.sort((a, b) => new Date(b.created_date || b.created_at) - new Date(a.created_date || a.created_at)));
       setInvoices(invoicesData);
       setPayments(paymentsData);
+      setServerPayRecords(serverPayRecordsData);
 
       console.log('[GlobalDataContext] Jobs loaded:', jobsData.length);
       console.log('[GlobalDataContext] Sample job:', jobsData[0]);
@@ -176,9 +188,14 @@ export const GlobalDataProvider = ({ children }) => {
       setCourtCases([]);
       setInvoices([]);
       setPayments([]);
+      setServerPayRecords([]);
     }
-    setIsLoading(false);
-  }, [isAuthenticated, user, authLoading]);
+
+    // Only update loading state on initial load
+    if (isInitialLoad) {
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, user, authLoading, lastRefresh]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -201,6 +218,7 @@ export const GlobalDataProvider = ({ children }) => {
     courtCases,
     invoices,
     payments,
+    serverPayRecords,
     companyData,
     companySettings,
     myCompanyClientId,

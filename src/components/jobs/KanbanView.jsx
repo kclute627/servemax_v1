@@ -60,8 +60,10 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
     }, {});
 
     jobs.forEach(job => {
-      if (groupedJobs[job.status]) {
-        groupedJobs[job.status].push(job);
+      // Use kanban_column_id if set, otherwise default to first column
+      const columnId = job.kanban_column_id || statusColumns[0]?.id;
+      if (groupedJobs[columnId]) {
+        groupedJobs[columnId].push(job);
       }
     });
 
@@ -93,8 +95,8 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
     // Remove from source
     const [removed] = sourceItems.splice(source.index, 1);
 
-    // Update the job's status for optimistic UI
-    const updatedJob = { ...removed, status: destination.droppableId };
+    // Update the job's kanban column for optimistic UI
+    const updatedJob = { ...removed, kanban_column_id: destination.droppableId };
 
     // Add to destination
     destItems.splice(destination.index, 0, updatedJob);
@@ -105,20 +107,6 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
       [destination.droppableId]: destItems
     });
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex gap-4 overflow-x-auto p-2">
-        {[...Array(5)].map((_, i) => (
-          <div key={i} className="w-80 flex-shrink-0 bg-slate-100 rounded-xl p-3">
-            <Skeleton className="h-6 w-1/2 mb-4" />
-            <Skeleton className="h-24 w-full mb-3" />
-            <Skeleton className="h-24 w-full" />
-          </div>
-        ))}
-      </div>
-    );
-  }
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>

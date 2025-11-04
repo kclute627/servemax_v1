@@ -49,6 +49,7 @@ export default function JobsPage() {
     jobs,
     clients,
     employees,
+    invoices,
     allAssignableServers,
     myCompanyClientId,
     companySettings,
@@ -239,32 +240,45 @@ export default function JobsPage() {
 
   const handleBulkStatusUpdate = async (newStatus) => {
     try {
-      // Update all selected jobs
-      await Promise.all(
-        selectedJobs.map(jobId =>
-          Job.update(jobId, { status: newStatus })
-        )
-      );
-      // Clear selection and refresh data
+      // Clear selection immediately for better UX
       setSelectedJobs([]);
-      refreshData(); // Use context refresh instead
+
+      // Use batch update for better performance (single Firestore transaction)
+      const updates = selectedJobs.map(jobId => ({
+        id: jobId,
+        data: { status: newStatus }
+      }));
+
+      await Job.bulkUpdate(updates);
+
+      // Refresh to get latest data from server
+      refreshData();
     } catch (error) {
       console.error("Failed to update job statuses:", error);
       alert("Failed to update some jobs. Please try again.");
+      // Refresh to show accurate state
+      refreshData();
     }
   };
 
   const handleBulkDelete = async () => {
     if (window.confirm(`Are you sure you want to delete ${selectedJobs.length} selected jobs? This action cannot be undone.`)) {
+      const jobsToDelete = selectedJobs;
+
       try {
-        await Promise.all(
-          selectedJobs.map(jobId => Job.delete(jobId))
-        );
+        // Clear selection immediately for better UX
         setSelectedJobs([]);
-        refreshData(); // Use context refresh instead
+
+        // Use batch delete for better performance (single Firestore transaction)
+        await Job.bulkDelete(jobsToDelete);
+
+        // Refresh to get latest data
+        refreshData();
       } catch (error) {
         console.error("Failed to delete jobs:", error);
         alert("Failed to delete some jobs. Please try again.");
+        // Refresh to show accurate state
+        refreshData();
       }
     }
   };
@@ -284,15 +298,15 @@ export default function JobsPage() {
     }
   };
 
-  // New handler for Kanban drag-and-drop status updates
-  const handleJobStatusUpdate = useCallback(async (jobId, newStatus) => {
-    // Note: We can't directly update context state here,
-    // but the KanbanView component can handle optimistic UI updates locally.
+  // New handler for Kanban drag-and-drop column updates
+  const handleJobStatusUpdate = useCallback(async (jobId, newColumnId) => {
+    // The KanbanView component handles optimistic UI updates locally
+    // We only update the database here and don't refresh to keep the drag smooth
     try {
-      await Job.update(jobId, { status: newStatus });
-      await refreshData(); // Refresh to update global context with new status
+      await Job.update(jobId, { kanban_column_id: newColumnId });
+      // Don't refresh here - rely on optimistic UI for smooth dragging
     } catch (error) {
-      console.error("Failed to update job status via Kanban drag-and-drop:", error);
+      console.error("Failed to update job kanban column via drag-and-drop:", error);
       await refreshData(); // Refresh on error to revert optimistic update
     }
   }, [refreshData]);
@@ -543,6 +557,7 @@ export default function JobsPage() {
               jobs={paginatedJobs} // Use paginated jobs instead of filteredJobs
               clients={clients}
               employees={employees} // JobsTable still receives the original employees for internal server lookup
+              invoices={invoices} // Pass invoices for badge logic
               isLoading={isLoading}
               onJobUpdate={refreshData} // Use context refresh
               myCompanyClientId={myCompanyClientId} // Pass myCompanyClientId for JobsTable to identify shared jobs assigned to us

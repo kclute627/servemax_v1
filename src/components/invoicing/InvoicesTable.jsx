@@ -57,7 +57,9 @@ export default function InvoicesTable({ invoices, clients, isLoading }) {
                 <TableHead>Client</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Due Date</TableHead>
+                <TableHead>Paid</TableHead>
                 <TableHead>Amount</TableHead>
+                <TableHead>Balance</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -69,6 +71,8 @@ export default function InvoicesTable({ invoices, clients, isLoading }) {
                   <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                   <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
                   <TableCell><Skeleton className="h-8 w-20 rounded-md" /></TableCell>
@@ -106,7 +110,9 @@ export default function InvoicesTable({ invoices, clients, isLoading }) {
                 <TableHead className="font-semibold text-slate-700">Client</TableHead>
                 <TableHead className="font-semibold text-slate-700">Date</TableHead>
                 <TableHead className="font-semibold text-slate-700">Due Date</TableHead>
+                <TableHead className="font-semibold text-slate-700">Paid</TableHead>
                 <TableHead className="font-semibold text-slate-700">Amount</TableHead>
+                <TableHead className="font-semibold text-slate-700">Balance</TableHead>
                 <TableHead className="font-semibold text-slate-700">Status</TableHead>
                 <TableHead className="font-semibold text-slate-700 text-right">Actions</TableHead>
               </TableRow>
@@ -118,7 +124,9 @@ export default function InvoicesTable({ invoices, clients, isLoading }) {
                   <TableCell className="text-slate-700">{getClientName(invoice.client_id)}</TableCell>
                   <TableCell className="text-slate-700">{format(new Date(invoice.invoice_date), "MMM d, yyyy")}</TableCell>
                   <TableCell className="text-slate-700">{format(new Date(invoice.due_date), "MMM d, yyyy")}</TableCell>
-                  <TableCell className="font-medium text-slate-900">${invoice.total_amount?.toFixed(2)}</TableCell>
+                  <TableCell className="font-medium text-green-600">${(invoice.total_paid || 0).toFixed(2)}</TableCell>
+                  <TableCell className="font-medium text-slate-900">${(invoice.total || 0).toFixed(2)}</TableCell>
+                  <TableCell className="font-medium text-slate-900">${(invoice.balance_due || 0).toFixed(2)}</TableCell>
                   <TableCell>
                     <Badge className={statusConfig[invoice.status]?.color || "bg-slate-100 text-slate-700"}>
                       {statusConfig[invoice.status]?.label || invoice.status}

@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { Job, Client, Employee, CourtCase, Attempt, Document, CompanySettings, AffidavitTemplate, SystemAffidavitTemplate, User } from '@/api/entities';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, AlertTriangle, Printer, Pencil, Save, Camera } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertTriangle, Printer, Pencil, Save, Camera, Check } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import AffidavitPreview from '../components/affidavit/AffidavitPreview';
 import { generateAffidavit } from '@/api/functions';
+import { UploadFile } from '@/api/integrations';
 import PhotoModal from '../components/affidavit/PhotoModal';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { format } from 'date-fns';
@@ -15,9 +16,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useGlobalData } from '@/components/GlobalDataContext';
 import { STARTER_TEMPLATES } from '@/utils/starterTemplates';
+import { PDFDocument } from 'pdf-lib';
 
 export default function GenerateAffidavitPage() {
   const { companyData } = useGlobalData();
+  const navigate = useNavigate();
   const [job, setJob] = useState(null);
   const [client, setClient] = useState(null);
   const [courtCase, setCourtCase] = useState(null);
@@ -27,6 +30,8 @@ export default function GenerateAffidavitPage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState(null);
   const [affidavitData, setAffidavitData] = useState(null);
   const [selectedPhotos, setSelectedPhotos] = useState([]);
@@ -351,7 +356,22 @@ export default function GenerateAffidavitPage() {
     console.log('Server Address being set:', data.server_address);
     console.log('Server Name and Title:', data.server_name_and_title);
 
-    setAffidavitData(data);
+    setAffidavitData(prev => {
+      const newData = {
+        ...data,
+        // Preserve user-added data that should never be overwritten
+        placed_signature: prev?.placed_signature || data.placed_signature,
+      };
+
+      console.log('[GenerateAffidavit] affidavitData UPDATE:');
+      console.log('  Previous placed_signature:', prev?.placed_signature ? 'EXISTS' : 'NULL');
+      console.log('  New placed_signature:', newData.placed_signature ? 'EXISTS' : 'NULL');
+      console.log('  Previous service_date:', prev?.service_date);
+      console.log('  New service_date:', newData.service_date);
+      console.log('  Full new affidavitData:', newData);
+
+      return newData;
+    });
   }, [job, client, courtCase, attempts, documents, employees, selectedPhotos, includeNotary, includeCompanyInfo, companyInfo, hasCompanyInfo, selectedTemplateId, selectedTemplate, currentUser]);
 
   // Smart auto-select template based on court location with priority matching
@@ -460,6 +480,16 @@ export default function GenerateAffidavitPage() {
     setIsGenerating(true);
     try {
       console.log('=== PDF Generation Debug ===');
+      console.log('[handlePrint] About to generate PDF');
+      console.log('  affidavitData.placed_signature:', affidavitData.placed_signature ? 'EXISTS' : 'NULL');
+      if (affidavitData.placed_signature) {
+        console.log('  Signature details:', {
+          hasSignatureData: !!affidavitData.placed_signature.signature_data,
+          signedDate: affidavitData.placed_signature.signed_date,
+          position: affidavitData.placed_signature.position,
+          size: affidavitData.placed_signature.size
+        });
+      }
       console.log('Affidavit Data:', affidavitData);
       console.log('Selected Template:', selectedTemplate);
       console.log('Template Mode:', selectedTemplate?.template_mode);
@@ -497,12 +527,179 @@ export default function GenerateAffidavitPage() {
     setIsGenerating(false);
   };
 
+  const handleSave = async () => {
+    if (isEditing) {
+      alert("Please save your changes before saving the affidavit.");
+      return;
+    }
+    if (!affidavitData) {
+      alert("Affidavit data is not ready to save.");
+      return;
+    }
+    if (!job?.id) {
+      alert("Job information is missing. Cannot save affidavit.");
+      return;
+    }
+
+    // Validate AO 440 form if that template is selected
+    const isAO440Template = selectedTemplateId === 'ao440_federal' ||
+                            selectedTemplate?.name?.includes('AO 440') ||
+                            selectedTemplate?.name?.includes('Federal Proof of Service');
+
+    if (isAO440Template) {
+      const validationErrors = validateAO440Form();
+      if (validationErrors.length > 0) {
+        const errorMessage = "Please complete all required fields before saving:\n\n" +
+                            validationErrors.map((err, i) => `${i + 1}. ${err}`).join('\n');
+        alert(errorMessage);
+        return;
+      }
+    }
+
+    setIsSaving(true);
+    setSaveSuccess(false);
+    try {
+      console.log('=== Saving Affidavit - START ===');
+      console.log('Job ID:', job.id);
+      console.log('Job Number:', job.job_number);
+      console.log('Selected Template:', selectedTemplate);
+
+      // Step 1: Generate the PDF
+      console.log('[Step 1] Generating PDF...');
+      console.log('[handleSave] About to generate PDF for saving');
+      console.log('  affidavitData.placed_signature:', affidavitData.placed_signature ? 'EXISTS' : 'NULL');
+      if (affidavitData.placed_signature) {
+        console.log('  Signature details:', {
+          hasSignatureData: !!affidavitData.placed_signature.signature_data,
+          signedDate: affidavitData.placed_signature.signed_date,
+          position: affidavitData.placed_signature.position,
+          size: affidavitData.placed_signature.size
+        });
+      }
+      const response = await generateAffidavit(affidavitData);
+      console.log('[Step 1] PDF generated successfully');
+      console.log('Response structure:', { hasData: !!response.data, dataLength: response.data ? Object.keys(response.data).length : 0 });
+
+      if (!response || !response.data) {
+        throw new Error('PDF generation failed - no data returned');
+      }
+
+      // Convert response.data object to Uint8Array
+      const pdfData = response.data;
+      const uint8Array = new Uint8Array(Object.keys(pdfData).length);
+      for (let i = 0; i < uint8Array.length; i++) {
+        uint8Array[i] = pdfData[i];
+      }
+
+      const blob = new Blob([uint8Array], { type: 'application/pdf' });
+      console.log('[Step 1] PDF Blob created - size:', blob.size, 'bytes');
+
+      if (blob.size === 0) {
+        throw new Error('Generated PDF is empty');
+      }
+
+      // Step 2: Get page count from PDF
+      console.log('[Step 2] Extracting page count...');
+      let pageCount = 1;
+      try {
+        const arrayBuffer = await blob.arrayBuffer();
+        const pdfDoc = await PDFDocument.load(arrayBuffer);
+        pageCount = pdfDoc.getPageCount();
+        console.log('[Step 2] Page count:', pageCount);
+      } catch (error) {
+        console.warn('[Step 2] Could not determine page count, using default:', error);
+      }
+
+      // Step 3: Create File object
+      console.log('[Step 3] Creating File object...');
+      const fileName = `affidavit_${job.job_number || job.id}_${Date.now()}.pdf`;
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+      console.log('[Step 3] File created:', fileName, '- Size:', file.size, 'bytes');
+
+      // Step 4: Upload to Firebase Storage
+      console.log('[Step 4] Uploading to Firebase Storage...');
+      const uploadResult = await UploadFile(file);
+      console.log('[Step 4] Upload successful!');
+      console.log('Upload result:', uploadResult);
+
+      if (!uploadResult || !uploadResult.url) {
+        throw new Error('File upload failed - no URL returned');
+      }
+
+      // Step 5: Create Document record in database
+      console.log('[Step 5] Creating Document record in Firestore...');
+      const documentData = {
+        job_id: job.id,
+        title: `Affidavit - ${selectedTemplate?.name || 'Service Document'}`,
+        file_url: uploadResult.url,
+        document_category: 'affidavit',
+        content_type: 'application/pdf',
+        page_count: pageCount,
+        file_size: blob.size,
+        received_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        metadata: {
+          template_id: selectedTemplateId,
+          template_name: selectedTemplate?.name || 'Standard',
+          includes_notary: includeNotary,
+          includes_company_info: includeCompanyInfo,
+          photo_count: selectedPhotos.length,
+          // Signature metadata
+          has_signature: !!affidavitData.placed_signature,
+          signature_date: affidavitData.placed_signature?.signed_date || null,
+          server_signed: !!affidavitData.placed_signature,
+        }
+      };
+      console.log('Document data to save:', documentData);
+
+      const savedDocument = await Document.create(documentData);
+      console.log('[Step 5] Document saved successfully!');
+      console.log('Saved document:', savedDocument);
+
+      // Step 6: Update job to mark it has a signed affidavit if it's signed
+      console.log('[Step 6] Updating job flags...');
+      await Job.update(job.id, {
+        has_signed_affidavit: true
+      });
+      console.log('[Step 6] Job updated with has_signed_affidavit flag');
+
+      // Step 7: Show success message and navigate back
+      console.log('=== Saving Affidavit - SUCCESS ===');
+      setSaveSuccess(true);
+
+      // Navigate back to JobDetails with a timestamp to force refresh
+      setTimeout(() => {
+        navigate(createPageUrl(`JobDetails?id=${job.id}&refresh=${Date.now()}`));
+      }, 1000);
+
+    } catch (error) {
+      console.error("=== Saving Affidavit - FAILED ===");
+      console.error("Error details:", error);
+      console.error("Error stack:", error.stack);
+      alert("Error saving affidavit: " + (error.message || "An unexpected error occurred. Check console for details."));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleAffidavitDataChange = (field, value) => {
+    console.log('[GenerateAffidavit] handleAffidavitDataChange CALLED:');
+    console.log('  field:', field);
+    console.log('  value:', value);
+
     // Special handling for AO 440 fields - merge them into affidavitData
     if (field === 'ao440_fields') {
-      setAffidavitData(prev => ({...prev, ...value}));
+      setAffidavitData(prev => {
+        const updated = {...prev, ...value};
+        console.log('  Updated affidavitData (ao440_fields merge):', updated);
+        return updated;
+      });
     } else {
-      setAffidavitData(prev => ({...prev, [field]: value}));
+      setAffidavitData(prev => {
+        const updated = {...prev, [field]: value};
+        console.log('  Updated affidavitData (field update):', updated);
+        return updated;
+      });
     }
   };
 
@@ -633,17 +830,47 @@ export default function GenerateAffidavitPage() {
                     </TooltipContent>
                   )}
                 </Tooltip>
-                <Button 
+                <Button
                   variant="outline"
-                  onClick={() => setIsEditing(!isEditing)}
+                  onClick={() => {
+                    console.log('[GenerateAffidavit] EDIT MODE TOGGLE:');
+                    console.log('  Current isEditing:', isEditing);
+                    console.log('  Will become:', !isEditing);
+                    console.log('  Current affidavitData.placed_signature:', affidavitData?.placed_signature ? 'EXISTS' : 'NULL');
+                    console.log('  Current affidavitData.service_date:', affidavitData?.service_date);
+                    setIsEditing(!isEditing);
+                  }}
                   className="gap-2"
                 >
                   {isEditing ? <Save className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
                   {isEditing ? 'Save' : 'Edit'}
                 </Button>
-                <Button 
-                  onClick={handlePrint} 
-                  disabled={!affidavitData || isGenerating || isEditing}
+                <Button
+                  onClick={handleSave}
+                  disabled={!affidavitData || isSaving || isEditing || isGenerating}
+                  variant={saveSuccess ? "default" : "outline"}
+                  className="gap-2"
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : saveSuccess ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Saved!
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save to Job
+                    </>
+                  )}
+                </Button>
+                <Button
+                  onClick={handlePrint}
+                  disabled={!affidavitData || isGenerating || isEditing || isSaving}
                   className="gap-2"
                 >
                   {isGenerating ? (

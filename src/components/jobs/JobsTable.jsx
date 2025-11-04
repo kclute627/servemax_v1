@@ -61,6 +61,7 @@ export default function JobsTable({
   jobs,
   clients,
   employees,
+  invoices = [],
   isLoading,
   onJobUpdate,
   myCompanyClientId,
@@ -96,28 +97,14 @@ export default function JobsTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? (
-              [...Array(8)].map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell><Skeleton className="h-4 w-4" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                  <TableCell>
-                    <Skeleton className="h-4 w-32 mb-2" />
-                    <Skeleton className="h-3 w-28" />
-                  </TableCell>
-                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-20" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                  <TableCell><Skeleton className="h-8 w-8" /></TableCell>
-                </TableRow>
-              ))
-            ) : jobs.length > 0 ? (
+            {jobs.length > 0 ? (
               jobs.map(job => (
                 <JobsTableRow
                   key={job.id}
                   job={job}
                   clients={clients}
                   employees={employees}
+                  invoices={invoices}
                   onJobUpdate={onJobUpdate}
                   myCompanyClientId={myCompanyClientId}
                   onUpdateSharedJobStatus={onUpdateSharedJobStatus}
@@ -147,6 +134,7 @@ function JobsTableRow({
   job,
   clients,
   employees,
+  invoices = [],
   onJobUpdate,
   myCompanyClientId,
   onUpdateSharedJobStatus,
@@ -203,6 +191,14 @@ function JobsTableRow({
   const isIncomingSharedJob = job.assigned_server_id === myCompanyClientId && job.shared_from_client_id;
   const jobIsOverdue = isOverdue(job);
 
+  // Determine which badges to show
+  const jobInvoice = invoices.find(inv =>
+    inv.job_ids && (inv.job_ids.includes(job.id) || inv.job_ids === job.id)
+  );
+  const hasUninvoicedJob = jobInvoice && jobInvoice.status === 'draft';
+  const isCompleted = job.has_signed_affidavit && jobInvoice && jobInvoice.status === 'issued';
+  const needsAffidavit = job.status === 'needs_affidavit' && !job.has_signed_affidavit;
+
   return (
     <TableRow
       className={`hover:bg-slate-50 transition-colors ${isSelected ? 'bg-blue-50' : ''}`}
@@ -220,8 +216,32 @@ function JobsTableRow({
               {job.job_number}
             </Link>
           </div>
-          <div className="flex items-center gap-2 mt-1">
-            <StatusBadge status={job.status} />
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {/* Show Completed badge if all steps are done */}
+            {isCompleted ? (
+              <Badge variant="outline" className="w-fit bg-green-100 text-green-700">
+                Completed
+              </Badge>
+            ) : (
+              <>
+                {/* Show status badge only if not "needs_affidavit" or if it actually needs one */}
+                {needsAffidavit ? (
+                  <Badge variant="outline" className="w-fit bg-purple-100 text-purple-700">
+                    Needs Affidavit
+                  </Badge>
+                ) : job.status !== 'needs_affidavit' && (
+                  <StatusBadge status={job.status} />
+                )}
+
+                {/* Show Needs Invoiced badge if has draft invoice */}
+                {hasUninvoicedJob && (
+                  <Badge variant="outline" className="w-fit bg-amber-100 text-amber-700">
+                    Needs Invoiced
+                  </Badge>
+                )}
+              </>
+            )}
+
             {job.priority !== 'standard' && (
               <PriorityBadge priority={job.priority} />
             )}
