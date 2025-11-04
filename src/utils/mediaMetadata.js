@@ -26,6 +26,63 @@ function convertGPSToDecimal(gpsArray, ref) {
 }
 
 /**
+ * Convert Uint8Array to a serializable format for Firebase
+ * Firebase Firestore doesn't support Uint8Array objects
+ */
+function convertUint8ArrayToSerializable(value) {
+  if (value instanceof Uint8Array) {
+    // For single-byte values (like GPS ref fields), convert to number
+    if (value.length === 1) {
+      return value[0];
+    }
+    // For multi-byte values, convert to regular array
+    return Array.from(value);
+  }
+  return value;
+}
+
+/**
+ * Sanitize metadata to remove or convert non-serializable values
+ * This ensures the data can be stored in Firebase Firestore
+ */
+function sanitizeMetadata(obj) {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.map(item => sanitizeMetadata(item));
+  }
+
+  // Handle Uint8Array
+  if (obj instanceof Uint8Array) {
+    return convertUint8ArrayToSerializable(obj);
+  }
+
+  // Handle Date objects
+  if (obj instanceof Date) {
+    return obj.toISOString();
+  }
+
+  // Handle plain objects
+  if (typeof obj === 'object') {
+    const sanitized = {};
+    for (const [key, value] of Object.entries(obj)) {
+      // Skip functions and undefined values
+      if (typeof value === 'function' || value === undefined) {
+        continue;
+      }
+      sanitized[key] = sanitizeMetadata(value);
+    }
+    return sanitized;
+  }
+
+  // Return primitives as-is
+  return obj;
+}
+
+/**
  * Extract metadata from image file
  */
 async function extractImageMetadata(file) {
@@ -114,13 +171,13 @@ async function extractImageMetadata(file) {
       // Copyright and Artist
       copyright: exif.Copyright || null,
       artist: exif.Artist || null,
-
-      // Raw EXIF for debugging/future use
-      raw_exif: exif
     };
 
+    // Sanitize to convert Uint8Arrays and other non-serializable types
+    const sanitized = sanitizeMetadata(metadata);
+
     // Clean up null values
-    const cleanedMetadata = Object.entries(metadata).reduce((acc, [key, value]) => {
+    const cleanedMetadata = Object.entries(sanitized).reduce((acc, [key, value]) => {
       if (value !== null && value !== undefined) {
         acc[key] = value;
       }
@@ -289,8 +346,11 @@ export async function extractFileMetadata(file, options = {}) {
     has_browser_location: !!browserLocation,
   };
 
-  console.log('Full metadata extracted:', fullMetadata);
-  return fullMetadata;
+  // Final sanitization to ensure all data is Firebase-compatible
+  const sanitizedMetadata = sanitizeMetadata(fullMetadata);
+
+  console.log('Full metadata extracted:', sanitizedMetadata);
+  return sanitizedMetadata;
 }
 
 /**
