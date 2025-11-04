@@ -24,7 +24,7 @@ import {
   Target
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import DocumentUpload from '../components/jobs/DocumentUpload';
+import PhotoVideoUpload from '../components/jobs/PhotoVideoUpload';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
 
 // New helper function as per outline
@@ -1346,14 +1346,14 @@ export default function LogAttemptPage() {
                 </div>
               </div>
 
-              {/* File Upload Section - Using DocumentUpload component */}
+              {/* File Upload Section - Using PhotoVideoUpload component */}
               <div>
                 <Label>Photos & Videos</Label>
                 <CardDescription className="mb-3">Upload photos, videos, or other documentation from this attempt</CardDescription>
-                <DocumentUpload
-                  jobId={job.id} // Assuming DocumentUpload needs jobId to associate files
+                <PhotoVideoUpload
+                  jobId={job.id}
                   onUploadSuccess={handleDocumentUploadSuccess}
-                  existingFiles={uploadedFiles} // Use separate uploadedFiles state
+                  existingFiles={uploadedFiles}
                   onRemoveFile={handleRemoveUploadedFile}
                 />
               </div>

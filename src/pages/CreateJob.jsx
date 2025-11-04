@@ -61,6 +61,7 @@ import CaseNumberAutocomplete from "../components/jobs/CaseNumberAutocomplete"; 
 import QuickInvoice from "../components/jobs/QuickInvoice";
 // FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { generateFieldSheet } from "@/api/functions"; // Added import for generateFieldSheet
+import { generateJobNumber, generateInvoiceNumber } from "@/utils/numberGenerators"; // NEW: Fast number generation
 
 export default function CreateJobPage() {
   const navigate = useNavigate();
@@ -520,21 +521,30 @@ export default function CreateJobPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.client_id) {
-      alert("Please select a client before creating a job.");
-      setIsSubmitting(false);
+      // ✅ UX FIX: Replace alert() with toast
+      toast({
+        variant: "destructive",
+        title: "Client required",
+        description: "Please select a client before creating a job.",
+      });
       return;
     }
 
     // Validate marketplace requirements
     if (formData.server_type === 'marketplace' && !isMarketplaceAvailable()) {
-      alert("Cannot post to marketplace: Please upload service documents and complete the service address.");
-      setIsSubmitting(false);
+      // ✅ UX FIX: Replace alert() with toast
+      toast({
+        variant: "destructive",
+        title: "Cannot post to marketplace",
+        description: "Please upload service documents and complete the service address.",
+      });
       return;
     }
 
     setIsSubmitting(true);
 
     try {
+
       // Parallelize all independent operations for faster job creation
       const [jobNumber, currentUser, myCompanyClientId] = await Promise.all([
         generateJobNumber(),
@@ -550,6 +560,7 @@ export default function CreateJobPage() {
           } catch (error) {
             console.error("Error fetching current user's company:", error);
             return null;
+
           }
         })()
       ]);
@@ -727,8 +738,10 @@ export default function CreateJobPage() {
 
       if (invoiceData && invoiceData.line_items && invoiceData.line_items.length > 0) {
         try {
+
           // Use job number as invoice number
           const invoiceNumber = jobNumber;
+
           const invoiceDate = new Date();
           const invoiceDueDate = new Date(invoiceDate);
           invoiceDueDate.setDate(invoiceDate.getDate() + 30);
@@ -880,13 +893,23 @@ export default function CreateJobPage() {
         description: `Job ${newJob.job_number} has been created`,
       });
 
-      // Refresh data to show the new job in the list
-      await refreshData();
+      // ✅ PERFORMANCE FIX: Navigate immediately instead of waiting for full data refresh
+      // The Jobs page will load fresh data when it mounts
+      navigate(createPageUrl("Jobs"), {
+        state: { newJobId: newJob.id, showSuccess: true }
+      });
 
-      navigate(createPageUrl("Jobs"));
+      // Refresh data in background (non-blocking)
+      refreshData().catch(err => console.error('Background refresh failed:', err));
     } catch (error) {
       console.error("Error creating job:", error);
-      alert("Failed to create job. Please check the console for details.");
+
+      // ✅ UX FIX: Replace alert() with toast notification
+      toast({
+        variant: "destructive",
+        title: "Failed to create job",
+        description: error.message || "Please check your input and try again.",
+      });
     }
 
     setIsSubmitting(false);
