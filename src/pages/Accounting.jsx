@@ -14,11 +14,13 @@ import PaymentsTable from '../components/accounting/PaymentsTable';
 import AccountingStats from '../components/accounting/AccountingStats';
 import RevenueChart from '../components/accounting/RevenueChart';
 import InvoiceStatusChart from '../components/accounting/InvoiceStatusChart';
+import ServerPayTable from '../components/accounting/ServerPayTable';
+import ContractorPaymentsTable from '../components/accounting/ContractorPaymentsTable';
 import { useGlobalData } from '../components/GlobalDataContext'; // Import the custom hook
 
 export default function AccountingPage() {
   // Use data from the global context instead of local state
-  const { invoices, payments, clients, isLoading } = useGlobalData();
+  const { invoices, payments, clients, employees, serverPayRecords, isLoading } = useGlobalData();
   const [searchTerm, setSearchTerm] = useState('');
   
   // No need for useEffect or loadData here anymore, as data is provided by context
@@ -47,6 +49,16 @@ export default function AccountingPage() {
     });
   }, [payments, clients, invoices, searchTerm]);
 
+  const filteredServerPay = useMemo(() => {
+    if (!searchTerm) return serverPayRecords;
+    return serverPayRecords.filter(record => {
+        return (
+            record.job_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            record.server_name?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    });
+  }, [serverPayRecords, searchTerm]);
+
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="p-6 md:p-8">
@@ -74,14 +86,16 @@ export default function AccountingPage() {
           {/* Data Tables */}
           <Tabs defaultValue="invoices">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-                <TabsList className="grid w-full md:w-auto grid-cols-2">
+                <TabsList className="grid w-full md:w-auto grid-cols-4">
                   <TabsTrigger value="invoices">Invoices</TabsTrigger>
                   <TabsTrigger value="payments">Payments</TabsTrigger>
+                  <TabsTrigger value="server-pay">Server Pay</TabsTrigger>
+                  <TabsTrigger value="contractor-payments">Contractor Payments</TabsTrigger>
                 </TabsList>
                 <div className="relative w-full md:max-w-sm">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                  <Input 
-                    placeholder="Search invoices or payments..."
+                  <Input
+                    placeholder="Search..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-10"
@@ -89,7 +103,7 @@ export default function AccountingPage() {
                 </div>
             </div>
             <TabsContent value="invoices">
-                <InvoicesTable 
+                <InvoicesTable
                     invoices={filteredInvoices}
                     clients={clients}
                     isLoading={isLoading}
@@ -100,6 +114,19 @@ export default function AccountingPage() {
                     payments={filteredPayments}
                     invoices={invoices}
                     clients={clients}
+                    isLoading={isLoading}
+                />
+            </TabsContent>
+            <TabsContent value="server-pay">
+                <ServerPayTable
+                    serverPayRecords={filteredServerPay}
+                    employees={employees}
+                    isLoading={isLoading}
+                />
+            </TabsContent>
+            <TabsContent value="contractor-payments">
+                <ContractorPaymentsTable
+                    serverPayRecords={filteredServerPay}
                     isLoading={isLoading}
                 />
             </TabsContent>

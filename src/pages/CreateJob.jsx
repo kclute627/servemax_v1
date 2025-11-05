@@ -397,10 +397,19 @@ export default function CreateJobPage() {
     return (formData.service_fee || 0) + (formData.rush_fee || 0) + (formData.mileage_fee || 0);
   };
 
-  // ✅ PERFORMANCE FIX: Old functions removed
-  // Previously these functions downloaded ALL jobs/invoices just to count them
-  // Now using atomic counters from @/utils/numberGenerators
-  // Performance improvement: 10-30s → <500ms
+  const generateJobNumber = async () => {
+    try {
+      const existingJobs = await Job.list();
+      return (existingJobs.length + 1).toString().padStart(6, '0');
+    } catch (error) {
+      return Date.now().toString();
+    }
+  };
+
+  // Invoice numbers now use the job number (removed separate invoice numbering)
+  // const generateInvoiceNumber = async () => {
+  //   Invoice number will match job number
+  // };
 
   const handleClientSelected = (client) => {
     const primaryContact = client.contacts?.find(c => c.primary) || client.contacts?.[0];
@@ -535,22 +544,26 @@ export default function CreateJobPage() {
     setIsSubmitting(true);
 
     try {
-      // ✅ PERFORMANCE FIX: Use fast atomic counter instead of downloading all jobs
-      const jobNumber = await generateJobNumber(user.company_id);
-      const currentUser = await User.me();
 
-      // Fetch current user's company ID for job sharing
-      let myCompanyClientId = null;
-      try {
-        if (currentUser && currentUser.email) {
-          const myCompanyClients = await Client.filter({ job_sharing_email: currentUser.email });
-          if (myCompanyClients.length > 0) {
-            myCompanyClientId = myCompanyClients[0].id;
+      // Parallelize all independent operations for faster job creation
+      const [jobNumber, currentUser, myCompanyClientId] = await Promise.all([
+        generateJobNumber(),
+        User.me(),
+        (async () => {
+          try {
+            const user = await User.me();
+            if (user && user.email) {
+              const myCompanyClients = await Client.filter({ job_sharing_email: user.email });
+              return myCompanyClients.length > 0 ? myCompanyClients[0].id : null;
+            }
+            return null;
+          } catch (error) {
+            console.error("Error fetching current user's company:", error);
+            return null;
+
           }
-        }
-      } catch (error) {
-        console.error("Error fetching current user's company:", error);
-      }
+        })()
+      ]);
 
       // Determine if assigned server is a collaborating contractor
       let isCollaboratingContractor = false;
@@ -725,8 +738,10 @@ export default function CreateJobPage() {
 
       if (invoiceData && invoiceData.line_items && invoiceData.line_items.length > 0) {
         try {
-          // ✅ PERFORMANCE FIX: Use fast atomic counter instead of downloading all invoices
-          const invoiceNumber = await generateInvoiceNumber(user.company_id);
+
+          // Use job number as invoice number
+          const invoiceNumber = jobNumber;
+
           const invoiceDate = new Date();
           const invoiceDueDate = new Date(invoiceDate);
           invoiceDueDate.setDate(invoiceDate.getDate() + 30);

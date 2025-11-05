@@ -15,6 +15,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator
+} from '@/components/ui/dropdown-menu';
+import {
   ArrowLeft,
   Building2,
   User as UserIcon,
@@ -31,6 +38,7 @@ import {
   StickyNote,
   Activity,
   CheckCircle,
+  CheckCircle2,
   Pencil,
   Lock,
   Unlock,
@@ -48,10 +56,14 @@ import {
   Download,
   QrCode,
   FileClock,
+  Upload,
   Edit,
   PlusCircle, // New icon for expanding details
   MinusCircle, // New icon for collapsing details
   Camera, // New icon for attached files
+  MoreVertical,
+  Share2,
+  Eye,
   UserSquare, // New icon for person served details
   Hash, // New icon for age
   Ruler, // New icon for height
@@ -479,6 +491,7 @@ export default function JobDetailsPage() {
   const [isGeneratingFieldSheet, setIsGeneratingFieldSheet] = useState(false); // Tracks status of field sheet generation.
   const [expandedAttemptId, setExpandedAttemptId] = useState(null); // Tracks which attempt's details are expanded in the UI. THIS STATE IS NO LONGER USED, AS AttemptWithMap MANAGES ITS OWN EXPANSION
   const [isMergingServiceDocs, setIsMergingServiceDocs] = useState(false); // Tracks status of merging service documents
+  const [isUploadingSignedAffidavit, setIsUploadingSignedAffidavit] = useState(false); // Tracks if uploading a signed affidavit
 
   const location = useLocation();
   const { companySettings, refreshData } = useGlobalData();
@@ -682,6 +695,23 @@ export default function JobDetailsPage() {
       setClient(clientData);
       setCourtCase(courtCaseData);
       setDocuments(Array.isArray(documentsData) ? documentsData : []);
+
+      // Auto-sync: Check if job has signed affidavits but flag isn't set
+      const hasSignedAffidavits = Array.isArray(documentsData) && documentsData.some(
+        doc => doc.document_category === 'affidavit' && doc.is_signed === true
+      );
+
+      if (hasSignedAffidavits && !validatedJobData.has_signed_affidavit) {
+        console.log('[Auto-Sync] Job has signed affidavits but flag not set. Updating job...');
+        try {
+          await Job.update(jobId, { has_signed_affidavit: true });
+          // Update local state
+          setJob(prev => ({ ...prev, has_signed_affidavit: true }));
+          console.log('[Auto-Sync] Job flag updated successfully');
+        } catch (error) {
+          console.error('[Auto-Sync] Failed to update job flag:', error);
+        }
+      }
 
       // Prioritize attempts from job document (instant), fallback to collection query
       const attemptsToDisplay = Array.isArray(validatedJobData.attempts) && validatedJobData.attempts.length > 0
@@ -1500,6 +1530,148 @@ export default function JobDetailsPage() {
   /**
    * Merge multiple service document PDFs into a single document
    */
+  const handleUploadSignedAffidavit = async (file) => {
+    if (!file) {
+      alert('Please select a file to upload');
+      return;
+    }
+
+    if (file.type !== 'application/pdf') {
+      alert('Please upload a PDF file');
+      return;
+    }
+
+    setIsUploadingSignedAffidavit(true);
+    try {
+      console.log('[Upload Signed] Starting upload');
+      console.log('[Upload Signed] File:', file.name, file.size, 'bytes');
+
+      // Upload the signed PDF to Firebase Storage
+      const uploadResult = await UploadFile(file);
+      console.log('[Upload Signed] Upload successful:', uploadResult);
+
+      if (!uploadResult || !uploadResult.url) {
+        throw new Error('File upload failed - no URL returned');
+      }
+
+      // Get page count from PDF
+      let pageCount = 1;
+      try {
+        const { PDFDocument: PDFLib } = await import('pdf-lib');
+        const arrayBuffer = await file.arrayBuffer();
+        const pdfDoc = await PDFLib.load(arrayBuffer);
+        pageCount = pdfDoc.getPageCount();
+        console.log('[Upload Signed] Page count:', pageCount);
+      } catch (error) {
+        console.warn('[Upload Signed] Could not determine page count:', error);
+      }
+
+      // Create a new document record
+      const newDocument = await Document.create({
+        job_id: job.id,
+        title: file.name.replace('.pdf', '').replace(/_/g, ' '),
+        file_url: uploadResult.url,
+        document_category: 'affidavit',
+        content_type: 'application/pdf',
+        page_count: pageCount,
+        file_size: file.size,
+        is_signed: true,
+        signed_at: new Date().toISOString(),
+        received_at: new Date().toISOString()
+      });
+
+      console.log('[Upload Signed] Document created successfully:', newDocument);
+
+      // Update local state
+      setDocuments(prev => [...prev, newDocument]);
+
+      // Update job to mark it has a signed affidavit
+      await Job.update(job.id, {
+        has_signed_affidavit: true
+      });
+      console.log('[Upload Signed] Job updated with has_signed_affidavit flag');
+
+      alert('Signed affidavit uploaded successfully!');
+
+    } catch (error) {
+      console.error("Error uploading signed affidavit:", error);
+      alert(`Failed to upload signed affidavit: ${error.message || 'Unknown error'}. Please try again.`);
+    } finally {
+      setIsUploadingSignedAffidavit(false);
+    }
+  };
+
+  const handleMarkAffidavitSigned = async (documentId) => {
+    try {
+      console.log('[Mark Signed] Marking document as signed:', documentId);
+
+      // Update the document to mark it as signed
+      await Document.update(documentId, {
+        is_signed: true,
+        signed_at: new Date().toISOString()
+      });
+
+      console.log('[Mark Signed] Document updated successfully');
+
+      // Update local state
+      setDocuments(prev => prev.map(doc =>
+        doc.id === documentId
+          ? {
+              ...doc,
+              is_signed: true,
+              signed_at: new Date().toISOString()
+            }
+          : doc
+      ));
+
+      // Update job to mark it has a signed affidavit
+      await Job.update(job.id, {
+        has_signed_affidavit: true
+      });
+      console.log('[Mark Signed] Job updated with has_signed_affidavit flag');
+
+      alert('Affidavit marked as signed!');
+
+    } catch (error) {
+      console.error("Error marking affidavit as signed:", error);
+      alert(`Failed to mark affidavit as signed: ${error.message || 'Unknown error'}.`);
+    }
+  };
+
+  const handleShareAffidavit = async (doc) => {
+    try {
+      console.log('[Share] Sharing document:', doc);
+
+      // Check if Web Share API is available
+      if (navigator.share) {
+        await navigator.share({
+          title: doc.title,
+          text: `View ${doc.title} for Job #${job.job_number}`,
+          url: doc.file_url
+        });
+        console.log('[Share] Shared successfully via Web Share API');
+      } else {
+        // Fallback: copy link to clipboard
+        await navigator.clipboard.writeText(doc.file_url);
+        alert('Link copied to clipboard!');
+        console.log('[Share] Link copied to clipboard');
+      }
+
+    } catch (error) {
+      // User cancelled share or clipboard failed
+      if (error.name !== 'AbortError') {
+        console.error("Error sharing affidavit:", error);
+        // Try clipboard as fallback
+        try {
+          await navigator.clipboard.writeText(doc.file_url);
+          alert('Link copied to clipboard!');
+        } catch (clipboardError) {
+          alert('Unable to share. Please copy the link manually.');
+        }
+      }
+    }
+  };
+
   const handleMergeServiceDocuments = async () => {
     setIsMergingServiceDocs(true);
     try {
@@ -2180,31 +2352,124 @@ export default function JobDetailsPage() {
                   <Paperclip className="w-5 h-5" />
                   Affidavits ({affidavitDocuments.length})
                 </CardTitle>
-                <Link to={createPageUrl(`GenerateAffidavit?jobId=${job.id}`)}>
+                <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
                     className="gap-2"
-                    disabled={!attempts || attempts.length === 0}
-                    title={!attempts || attempts.length === 0 ? "At least one service attempt is required to generate an affidavit" : "Generate affidavit based on service attempts"}
+                    disabled={isUploadingSignedAffidavit}
+                    onClick={() => {
+                      const input = document.createElement('input');
+                      input.type = 'file';
+                      input.accept = 'application/pdf';
+                      input.onchange = async (e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          await handleUploadSignedAffidavit(file);
+                        }
+                      };
+                      input.click();
+                    }}
                   >
-                    <Plus className="w-4 h-4" />
-                    Generate Affidavit
+                    {isUploadingSignedAffidavit ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        Upload Signed
+                      </>
+                    )}
                   </Button>
-                </Link>
+                  <Link to={createPageUrl(`GenerateAffidavit?jobId=${job.id}`)}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      disabled={!attempts || attempts.length === 0}
+                      title={!attempts || attempts.length === 0 ? "At least one service attempt is required to generate an affidavit" : "Generate affidavit based on service attempts"}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Generate Affidavit
+                    </Button>
+                  </Link>
+                </div>
               </CardHeader>
               <CardContent>
                 {affidavitDocuments.length > 0 ? (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {affidavitDocuments.map(doc => (
-                      <div key={doc.id} className="flex items-center justify-between p-2 rounded-md bg-slate-50">
-                        <div className="flex items-center gap-2">
-                          <Paperclip className="w-4 h-4 text-slate-600"/>
-                          <span className="font-medium">{doc.title}</span>
+                      <div key={doc.id} className="p-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-3 flex-1">
+                            <Paperclip className="w-5 h-5 text-slate-600 mt-0.5"/>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium text-slate-900">{doc.title}</span>
+                                {doc.is_signed && (
+                                  <Badge variant="default" className="bg-green-600 text-white gap-1">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Signed
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 mt-1 text-sm text-slate-600">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  {doc.created_at ? format(new Date(doc.created_at), 'MMM d, yyyy h:mm a') : 'Date unknown'}
+                                </span>
+                                {doc.page_count && (
+                                  <span className="text-slate-500">
+                                    {doc.page_count} {doc.page_count === 1 ? 'page' : 'pages'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem asChild>
+                                  <a
+                                    href={doc.file_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                    View
+                                  </a>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleShareAffidavit(doc)}
+                                  className="flex items-center gap-2 cursor-pointer"
+                                >
+                                  <Share2 className="w-4 h-4" />
+                                  Share
+                                </DropdownMenuItem>
+                                {!doc.is_signed && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      onClick={() => handleMarkAffidavitSigned(doc.id)}
+                                      className="flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <CheckCircle2 className="w-4 h-4" />
+                                      Mark as Signed
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </div>
-                        <Button variant="outline" size="sm" asChild>
-                          <a href={doc.file_url} target="_blank" rel="noopener noreferrer">View</a>
-                        </Button>
                       </div>
                     ))}
                   </div>

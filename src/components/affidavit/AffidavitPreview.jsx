@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Pencil } from 'lucide-react';
 import { replacePlaceholders, renderHTMLTemplate } from '@/utils/templateEngine';
 import AO440EditableFields from './AO440EditableFields';
+import AO440InteractiveForm from './AO440InteractiveForm';
 
 const EditableField = ({ value, isEditing, onChange, as = 'input', className = '', ...props }) => {
     const Component = as;
@@ -206,7 +207,22 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                                 template?.name?.includes('AO 440') ||
                                 template?.name?.includes('Federal Proof of Service');
 
-        // If not editing, just render static HTML
+        // AO 440 Template - ALWAYS use interactive form component (in both edit and view modes)
+        if (isAO440Template) {
+            console.log('[AffidavitPreview] Rendering AO440 with isEditing:', isEditing);
+            console.log('[AffidavitPreview] affidavitData.placed_signature:', affidavitData?.placed_signature ? 'EXISTS' : 'NULL');
+
+            return (
+                <AO440InteractiveForm
+                    key={isEditing ? 'editing' : 'viewing'}
+                    affidavitData={affidavitData}
+                    onDataChange={onDataChange}
+                    isEditing={isEditing}
+                />
+            );
+        }
+
+        // For other HTML templates, if not editing, just render static HTML
         if (!isEditing) {
             return (
                 <div
@@ -217,32 +233,6 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                     }}
                     dangerouslySetInnerHTML={{ __html: renderedHTML }}
                 />
-            );
-        }
-
-        // AO 440 Template - Show structured editable fields
-        if (isAO440Template) {
-            return (
-                <div style={{ display: 'flex', gap: '20px', flexDirection: 'column' }}>
-                    {/* Editable fields panel */}
-                    <AO440EditableFields
-                        affidavitData={affidavitData}
-                        onDataChange={onDataChange}
-                        isEditing={isEditing}
-                    />
-
-                    {/* Live preview of the form */}
-                    <div
-                        style={{
-                            width: '612pt',
-                            minHeight: '792pt',
-                            backgroundColor: '#FFFFFF',
-                            border: '2px solid #3b82f6',
-                            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
-                        }}
-                        dangerouslySetInnerHTML={{ __html: renderedHTML }}
-                    />
-                </div>
             );
         }
 
