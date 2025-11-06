@@ -1,4 +1,5 @@
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
+const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 const {defineSecret} = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const {PDFDocument, rgb, StandardFonts} = require("pdf-lib");
@@ -1750,3 +1751,465 @@ function wrapText(text, maxLength) {
   if (currentLine) lines.push(currentLine);
   return lines;
 }
+
+// ============================================================================
+// JOB SHARING FEATURE - Cloud Functions
+// ============================================================================
+
+/**
+ * Auto-assign jobs to partners based on zip code configuration
+ * Triggers when a new job is created
+ */
+exports.autoAssignJobOnCreate = onDocumentCreated(
+    "jobs/{jobId}",
+    async (event) => {
+      const job = event.data.data();
+      const jobId = event.params.jobId;
+
+      try {
+        // Only process if job has address and isn't already shared
+        if (!job.addresses?.[0]?.postal_code || job.job_share_chain?.is_shared) {
+          console.log(`Job ${jobId}: Skipping auto-assignment - no zip or already shared`);
+          return null;
+        }
+
+        const serviceZip = job.addresses[0].postal_code;
+        console.log(`Job ${jobId}: Checking auto-assignment for zip ${serviceZip}`);
+
+        // Get the company that created this job
+        const companyDoc = await admin.firestore()
+            .collection("companies")
+            .doc(job.company_id)
+            .get();
+
+        if (!companyDoc.exists) {
+          console.log(`Job ${jobId}: Company not found`);
+          return null;
+        }
+
+        const companyData = companyDoc.data();
+        if (!companyData.job_share_partners || companyData.job_share_partners.length === 0) {
+          console.log(`Job ${jobId}: No job share partners configured`);
+          return null;
+        }
+
+        // Find eligible partners for this zip
+        const eligiblePartners = companyData.job_share_partners
+            .filter((partner) => {
+              if (!partner.auto_assignment_enabled || partner.relationship_status !== "active") {
+                return false;
+              }
+              return partner.auto_assignment_zones?.some((zone) =>
+                zone.enabled && zone.zip_codes.includes(serviceZip),
+              );
+            })
+            .sort((a, b) => {
+              const aPriority = a.auto_assignment_zones
+                  .find((z) => z.zip_codes.includes(serviceZip))?.auto_assign_priority || 999;
+              const bPriority = b.auto_assignment_zones
+                  .find((z) => z.zip_codes.includes(serviceZip))?.auto_assign_priority || 999;
+              return aPriority - bPriority;
+            });
+
+        if (eligiblePartners.length === 0) {
+          console.log(`Job ${jobId}: No eligible partners found for zip ${serviceZip}`);
+          return null;
+        }
+
+        const selectedPartner = eligiblePartners[0];
+        const zone = selectedPartner.auto_assignment_zones
+            .find((z) => z.zip_codes.includes(serviceZip));
+
+        console.log(`Job ${jobId}: Auto-assigning to ${selectedPartner.partner_company_name}`);
+
+        // Create job share request
+        const request = {
+          job_id: jobId,
+          requesting_company_id: job.company_id,
+          requesting_user_id: job.created_by,
+          requesting_company_name: companyData.name || companyData.company_name,
+          target_company_id: selectedPartner.partner_company_id,
+          target_user_id: selectedPartner.partner_user_id,
+          target_company_name: selectedPartner.partner_company_name,
+          status: selectedPartner.requires_acceptance ? "pending" : "accepted",
+          proposed_fee: zone.default_fee,
+          auto_assigned: true,
+          expires_in_hours: selectedPartner.requires_acceptance ? 24 : null,
+          expires_at: selectedPartner.requires_acceptance ?
+            new Date(Date.now() + 24 * 60 * 60 * 1000) :
+            null,
+          job_preview: {
+            service_address: job.addresses[0].address1,
+            city: job.addresses[0].city,
+            state: job.addresses[0].state,
+            zip: serviceZip,
+            due_date: job.due_date,
+            service_type: job.service_type || "standard",
+            documents_count: job.documents?.length || 0,
+            special_instructions: job.service_instructions || "",
+          },
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+          responded_at: selectedPartner.requires_acceptance ?
+            null :
+            admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        const requestRef = await admin.firestore()
+            .collection("job_share_requests")
+            .add(request);
+
+        console.log(`Job ${jobId}: Created share request ${requestRef.id}`);
+
+        // If auto-accept, immediately update the job
+        if (!selectedPartner.requires_acceptance) {
+          await updateJobWithShare(jobId, job, selectedPartner, zone.default_fee, companyData);
+          console.log(`Job ${jobId}: Auto-accepted and job updated`);
+        }
+
+        // Email notification placeholder
+        if (selectedPartner.email_notifications_enabled) {
+          console.log("EMAIL PLACEHOLDER: Send job share notification", {
+            to: selectedPartner.partner_company_name,
+            jobId: jobId,
+            type: selectedPartner.requires_acceptance ? "pending" : "auto-accepted",
+          });
+        }
+
+        return requestRef.id;
+      } catch (error) {
+        console.error(`Error in autoAssignJobOnCreate for job ${jobId}:`, error);
+        // Don't throw - we don't want to fail job creation if auto-assignment fails
+        return null;
+      }
+    },
+);
+
+/**
+ * Helper function to update job with share chain
+ */
+async function updateJobWithShare(jobId, job, partner, fee, companyData) {
+  const chainEntry = {
+    level: 0,
+    company_id: job.company_id,
+    company_name: companyData.name || companyData.company_name || "Unknown",
+    user_id: job.created_by,
+    user_name: job.created_by_name || "Unknown",
+    shared_with_company_id: partner.partner_company_id,
+    shared_with_user_id: partner.partner_user_id,
+    invoice_amount: job.total_fee || job.service_fee || 0,
+    shared_at: admin.firestore.FieldValue.serverTimestamp(),
+    accepted_at: admin.firestore.FieldValue.serverTimestamp(),
+    sees_client_as: job.client_name || "Unknown Client",
+    auto_assigned: true,
+  };
+
+  const partnerChainEntry = {
+    level: 1,
+    company_id: partner.partner_company_id,
+    company_name: partner.partner_company_name,
+    user_id: partner.partner_user_id,
+    shared_with_company_id: null,
+    shared_with_user_id: null,
+    invoice_amount: fee,
+    sees_client_as: (companyData.name || companyData.company_name) + " - Process Serving",
+    auto_assigned: true,
+  };
+
+  await admin.firestore().collection("jobs").doc(jobId).update({
+    "job_share_chain": {
+      is_shared: true,
+      currently_assigned_to_user_id: partner.partner_user_id,
+      currently_assigned_to_company_id: partner.partner_company_id,
+      chain: [chainEntry, partnerChainEntry],
+      total_levels: 1,
+    },
+    "assigned_to": partner.partner_user_id,
+    "assigned_server_id": partner.partner_user_id,
+    "updated_at": admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+/**
+ * Create a manual job share request
+ */
+exports.createJobShareRequest = onCall(async (request) => {
+  try {
+    // Validate authentication
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {jobId, targetCompanyId, targetUserId, proposedFee, expiresInHours} = request.data;
+
+    // Validate required fields
+    if (!jobId || !targetCompanyId || !targetUserId || !proposedFee) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Missing required fields: jobId, targetCompanyId, targetUserId, proposedFee",
+      );
+    }
+
+    console.log(`Creating job share request for job ${jobId} to company ${targetCompanyId}`);
+
+    // Get job and validate ownership/sharing rights
+    const jobDoc = await admin.firestore().collection("jobs").doc(jobId).get();
+    if (!jobDoc.exists) {
+      throw new HttpsError("not-found", "Job not found");
+    }
+
+    const job = jobDoc.data();
+
+    // Check if the requesting user's company can share this job
+    const canShare = job.job_share_chain?.chain ?
+      job.job_share_chain.chain[job.job_share_chain.chain.length - 1].company_id ===
+        request.auth.token.company_id :
+      job.company_id === request.auth.token.company_id;
+
+    if (!canShare) {
+      throw new HttpsError(
+          "permission-denied",
+          "You do not have permission to share this job",
+      );
+    }
+
+    // Get company data for proper naming
+    const companyDoc = await admin.firestore()
+        .collection("companies")
+        .doc(request.auth.token.company_id)
+        .get();
+
+    const companyData = companyDoc.exists ? companyDoc.data() : {};
+
+    // Get target company name
+    const targetCompanyDoc = await admin.firestore()
+        .collection("companies")
+        .doc(targetCompanyId)
+        .get();
+
+    const targetCompanyData = targetCompanyDoc.exists ? targetCompanyDoc.data() : {};
+
+    // Create the share request
+    const shareRequest = {
+      job_id: jobId,
+      requesting_company_id: request.auth.token.company_id,
+      requesting_user_id: request.auth.uid,
+      requesting_company_name: companyData.name || companyData.company_name || "Unknown",
+      target_company_id: targetCompanyId,
+      target_user_id: targetUserId,
+      target_company_name: targetCompanyData.name || targetCompanyData.company_name || "Unknown",
+      status: "pending",
+      proposed_fee: proposedFee,
+      auto_assigned: false,
+      expires_in_hours: expiresInHours || 24,
+      expires_at: expiresInHours ?
+        new Date(Date.now() + expiresInHours * 60 * 60 * 1000) :
+        new Date(Date.now() + 24 * 60 * 60 * 1000),
+      job_preview: {
+        service_address: job.addresses?.[0]?.address1 || "",
+        city: job.addresses?.[0]?.city || "",
+        state: job.addresses?.[0]?.state || "",
+        zip: job.addresses?.[0]?.postal_code || "",
+        due_date: job.due_date || "",
+        service_type: job.service_type || "standard",
+        documents_count: job.documents?.length || 0,
+        special_instructions: job.service_instructions || "",
+      },
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const requestRef = await admin.firestore()
+        .collection("job_share_requests")
+        .add(shareRequest);
+
+    console.log(`Job share request created: ${requestRef.id}`);
+
+    // Email notification placeholder
+    console.log("EMAIL PLACEHOLDER: Notify target company of share request", {
+      to: targetCompanyData.email,
+      from: companyData.name || companyData.company_name,
+      jobId: jobId,
+    });
+
+    return {requestId: requestRef.id, success: true};
+  } catch (error) {
+    console.error("Error in createJobShareRequest:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError(
+        "internal",
+        `Failed to create job share request: ${error.message}`,
+    );
+  }
+});
+
+/**
+ * Respond to a job share request (accept or decline)
+ */
+exports.respondToShareRequest = onCall(async (request) => {
+  try {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {requestId, accept, counterFee} = request.data;
+
+    if (!requestId || accept === undefined) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Missing required fields: requestId, accept",
+      );
+    }
+
+    console.log(`Responding to share request ${requestId}: ${accept ? "accept" : "decline"}`);
+
+    // Get and validate request
+    const requestDoc = await admin.firestore()
+        .collection("job_share_requests")
+        .doc(requestId)
+        .get();
+
+    if (!requestDoc.exists) {
+      throw new HttpsError("not-found", "Share request not found");
+    }
+
+    const shareRequest = requestDoc.data();
+
+    // Validate that the user is the target of this request
+    if (shareRequest.target_company_id !== request.auth.token.company_id) {
+      throw new HttpsError(
+          "permission-denied",
+          "You are not authorized to respond to this request",
+      );
+    }
+
+    // Check if request is still pending
+    if (shareRequest.status !== "pending") {
+      throw new HttpsError(
+          "failed-precondition",
+          `Request has already been ${shareRequest.status}`,
+      );
+    }
+
+    // Check expiration
+    if (shareRequest.expires_at && shareRequest.expires_at.toDate() < new Date()) {
+      await requestDoc.ref.update({status: "expired"});
+      throw new HttpsError("deadline-exceeded", "Request has expired");
+    }
+
+    if (accept) {
+      console.log(`Accepting share request ${requestId}`);
+
+      // Update request status
+      const finalFee = counterFee || shareRequest.proposed_fee;
+      await requestDoc.ref.update({
+        status: "accepted",
+        responded_at: admin.firestore.FieldValue.serverTimestamp(),
+        final_fee: finalFee,
+      });
+
+      // Update job with share chain
+      const jobDoc = await admin.firestore()
+          .collection("jobs")
+          .doc(shareRequest.job_id)
+          .get();
+
+      if (!jobDoc.exists) {
+        throw new HttpsError("not-found", "Job not found");
+      }
+
+      const job = jobDoc.data();
+
+      // Build new chain entry
+      const currentLevel = job.job_share_chain?.total_levels || 0;
+      const newChainEntry = {
+        level: currentLevel + 1,
+        company_id: shareRequest.target_company_id,
+        company_name: shareRequest.target_company_name,
+        user_id: shareRequest.target_user_id,
+        shared_with_company_id: null,
+        shared_with_user_id: null,
+        invoice_amount: finalFee,
+        sees_client_as: shareRequest.requesting_company_name + " - Process Serving",
+        auto_assigned: false,
+      };
+
+      // Get or create initial chain
+      let chain = job.job_share_chain?.chain || [
+        {
+          level: 0,
+          company_id: job.company_id,
+          company_name: job.company_name || "Unknown",
+          user_id: job.created_by,
+          shared_with_company_id: shareRequest.target_company_id,
+          shared_with_user_id: shareRequest.target_user_id,
+          invoice_amount: job.total_fee || job.service_fee || 0,
+          shared_at: admin.firestore.FieldValue.serverTimestamp(),
+          accepted_at: admin.firestore.FieldValue.serverTimestamp(),
+          sees_client_as: job.client_name || "Unknown Client",
+        },
+      ];
+
+      // Update the last entry to show it's been shared
+      chain[chain.length - 1].shared_with_company_id = shareRequest.target_company_id;
+      chain[chain.length - 1].shared_with_user_id = shareRequest.target_user_id;
+      chain[chain.length - 1].accepted_at = admin.firestore.FieldValue.serverTimestamp();
+
+      // Add new entry
+      chain.push(newChainEntry);
+
+      // Update job
+      await jobDoc.ref.update({
+        "job_share_chain": {
+          is_shared: true,
+          currently_assigned_to_user_id: shareRequest.target_user_id,
+          currently_assigned_to_company_id: shareRequest.target_company_id,
+          chain: chain,
+          total_levels: currentLevel + 1,
+        },
+        "assigned_to": shareRequest.target_user_id,
+        "assigned_server_id": shareRequest.target_user_id,
+        "updated_at": admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      console.log(`Job ${shareRequest.job_id} share chain updated`);
+
+      // Email notification placeholder
+      console.log("EMAIL PLACEHOLDER: Job Share Accepted", {
+        to: shareRequest.requesting_company_name,
+        from: shareRequest.target_company_name,
+        jobId: shareRequest.job_id,
+      });
+    } else {
+      // Decline the request
+      console.log(`Declining share request ${requestId}`);
+
+      await requestDoc.ref.update({
+        status: "declined",
+        responded_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Email notification placeholder
+      console.log("EMAIL PLACEHOLDER: Job Share Declined", {
+        to: shareRequest.requesting_company_name,
+        from: shareRequest.target_company_name,
+        jobId: shareRequest.job_id,
+      });
+    }
+
+    return {success: true};
+  } catch (error) {
+    console.error("Error in respondToShareRequest:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError(
+        "internal",
+        `Failed to respond to share request: ${error.message}`,
+    );
+  }
+});

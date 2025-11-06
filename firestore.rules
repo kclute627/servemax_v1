@@ -67,6 +67,56 @@ service cloud.firestore {
                       resource.data.email == request.auth.token.email;
     }
 
+    // Job share requests - users can only see requests to/from their company
+    match /job_share_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        resource.data.requesting_company_id == request.auth.token.company_id ||
+        resource.data.target_company_id == request.auth.token.company_id
+      );
+
+      allow create: if isAuthenticated() &&
+        request.auth.token.company_id == request.resource.data.requesting_company_id;
+
+      allow update: if isAuthenticated() &&
+        request.auth.token.company_id == resource.data.target_company_id &&
+        request.resource.data.status in ['accepted', 'declined'];
+    }
+
+    // Jobs - enhanced to support job sharing chain
+    match /jobs/{jobId} {
+      // Helper function to check if user is in the job share chain
+      function isInShareChain() {
+        return resource.data.company_id == request.auth.token.company_id ||
+               (resource.data.job_share_chain.is_shared == true &&
+                request.auth.token.company_id in resource.data.job_share_chain.chain[0].company_id);
+      }
+
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == request.auth.token.company_id ||
+        isInShareChain()
+      );
+
+      allow write: if isAuthenticated() &&
+                     hasCompanyAccess(resource.data.company_id);
+    }
+
+    // Attempts - visible to all companies in the chain
+    match /attempts/{attemptId} {
+      // Helper to check chain visibility
+      function isVisibleToCompany() {
+        return resource.data.visible_to_companies != null &&
+               request.auth.token.company_id in resource.data.visible_to_companies;
+      }
+
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == request.auth.token.company_id ||
+        isVisibleToCompany()
+      );
+
+      allow write: if isAuthenticated() &&
+                     hasCompanyAccess(resource.data.company_id);
+    }
+
     // Other collections that might exist - default to company-based access
     match /{collection}/{docId} {
       allow read, write: if isAuthenticated() &&
