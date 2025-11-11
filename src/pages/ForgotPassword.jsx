@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Mail, FileText, AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Mail, AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react';
 import { FirebaseAuth } from '@/firebase/auth';
 import { createPageUrl } from '@/utils';
+import PublicNavbar from '@/components/layout/PublicNavbar';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -53,20 +54,19 @@ export default function ForgotPasswordPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <div className="flex items-center justify-center gap-3 mb-4">
-              <div className="w-12 h-12 bg-blue-800 rounded-xl flex items-center justify-center">
-                <FileText className="w-6 h-6 text-white" />
-              </div>
-              <h1 className="text-3xl font-bold text-slate-900">ServeMax</h1>
+      <>
+        <PublicNavbar />
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-white flex items-center justify-center p-4 pt-24">
+          <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Header */}
+            <div className="text-center mb-8">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-900 to-blue-700 bg-clip-text text-transparent mb-2">
+                Check Your Email
+              </h1>
+              <p className="text-slate-600">Password reset email sent</p>
             </div>
-            <p className="text-slate-600">Password reset email sent</p>
-          </div>
 
-          <Card>
+            <Card className="shadow-2xl border-slate-200/50 backdrop-blur-sm bg-white/95">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
@@ -109,26 +109,26 @@ export default function ForgotPasswordPage() {
               </div>
             </CardContent>
           </Card>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-blue-800 rounded-xl flex items-center justify-center">
-              <FileText className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-slate-900">ServeMax</h1>
+    <>
+      <PublicNavbar />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-white flex items-center justify-center p-4 pt-24">
+        <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-900 to-blue-700 bg-clip-text text-transparent mb-2">
+              Reset Password
+            </h1>
+            <p className="text-slate-600">We'll send you a reset link</p>
           </div>
-          <p className="text-slate-600">Reset your password</p>
-        </div>
 
-        <Card>
+          <Card className="shadow-2xl border-slate-200/50 backdrop-blur-sm bg-white/95">
           <CardHeader>
             <CardTitle>Forgot Password?</CardTitle>
             <CardDescription>
@@ -200,5 +200,6 @@ export default function ForgotPasswordPage() {
         </div>
       </div>
     </div>
+  </>
   );
 }

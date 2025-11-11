@@ -7,11 +7,16 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Helper function to get user's company_id from their Firestore document
+    function getUserCompanyId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.company_id;
+    }
+
     // Helper function to check if user owns or has access to company data
     function hasCompanyAccess(companyId) {
       return isAuthenticated() &&
              (resource.data.company_id == companyId ||
-              request.auth.token.company_id == companyId);
+              getUserCompanyId() == companyId);
     }
 
     // Users collection - users can read/write their own data
@@ -19,32 +24,30 @@ service cloud.firestore {
       allow read, write: if isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Companies collection - company owners and employees can access
+    // Companies collection - authenticated users can read any company (needed for directory/partnerships)
+    // Users can create new companies during registration, and update their own company
     match /companies/{companyId} {
-      allow read, write: if isAuthenticated() &&
-                           (request.auth.token.company_id == companyId ||
-                            request.auth.token.user_type == 'company_owner');
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated(); // Allow company creation during registration
+      allow update, delete: if isAuthenticated() && getUserCompanyId() == companyId;
     }
 
     // Stats collections - company members can read their company's stats
     match /company_stats/{docId} {
       allow read: if isAuthenticated() &&
-                    (resource.data.company_id == request.auth.token.company_id ||
-                     request.auth.token.user_type == 'company_owner');
+                    resource.data.company_id == getUserCompanyId();
       allow write: if false; // Stats are written by server-side functions only
     }
 
     match /client_stats/{docId} {
       allow read: if isAuthenticated() &&
-                    (resource.data.company_id == request.auth.token.company_id ||
-                     request.auth.token.user_type == 'company_owner');
+                    resource.data.company_id == getUserCompanyId();
       allow write: if false; // Stats are written by server-side functions only
     }
 
     match /server_stats/{docId} {
       allow read: if isAuthenticated() &&
-                    (resource.data.company_id == request.auth.token.company_id ||
-                     request.auth.token.user_type == 'company_owner');
+                    resource.data.company_id == getUserCompanyId();
       allow write: if false; // Stats are written by server-side functions only
     }
 
@@ -52,33 +55,47 @@ service cloud.firestore {
     match /directory/{companyId} {
       allow read: if true; // Public directory
       allow write: if isAuthenticated() &&
-                     (resource.data.company_id == request.auth.token.company_id ||
-                      request.auth.token.user_type == 'company_owner');
+                     getUserCompanyId() == companyId;
     }
 
     // Invitations - company admins can create, invited users can read/accept
     match /invitations/{invitationId} {
       allow read: if isAuthenticated() &&
                     (resource.data.email == request.auth.token.email ||
-                     resource.data.company_id == request.auth.token.company_id);
-      allow create: if isAuthenticated() &&
-                      request.auth.token.user_type == 'company_owner';
+                     resource.data.company_id == getUserCompanyId());
+      allow create: if isAuthenticated();
       allow update: if isAuthenticated() &&
                       resource.data.email == request.auth.token.email;
+    }
+
+    // Partnership requests - users can only see requests to/from their company
+    match /partnership_requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        resource.data.requesting_company_id == getUserCompanyId() ||
+        resource.data.target_company_id == getUserCompanyId()
+      );
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.requesting_company_id == getUserCompanyId();
+
+      allow update: if isAuthenticated() && (
+        resource.data.requesting_company_id == getUserCompanyId() ||
+        resource.data.target_company_id == getUserCompanyId()
+      );
     }
 
     // Job share requests - users can only see requests to/from their company
     match /job_share_requests/{requestId} {
       allow read: if isAuthenticated() && (
-        resource.data.requesting_company_id == request.auth.token.company_id ||
-        resource.data.target_company_id == request.auth.token.company_id
+        resource.data.requesting_company_id == getUserCompanyId() ||
+        resource.data.target_company_id == getUserCompanyId()
       );
 
       allow create: if isAuthenticated() &&
-        request.auth.token.company_id == request.resource.data.requesting_company_id;
+        getUserCompanyId() == request.resource.data.requesting_company_id;
 
       allow update: if isAuthenticated() &&
-        request.auth.token.company_id == resource.data.target_company_id &&
+        getUserCompanyId() == resource.data.target_company_id &&
         request.resource.data.status in ['accepted', 'declined'];
     }
 
@@ -86,13 +103,13 @@ service cloud.firestore {
     match /jobs/{jobId} {
       // Helper function to check if user is in the job share chain
       function isInShareChain() {
-        return resource.data.company_id == request.auth.token.company_id ||
+        return resource.data.company_id == getUserCompanyId() ||
                (resource.data.job_share_chain.is_shared == true &&
-                request.auth.token.company_id in resource.data.job_share_chain.chain[0].company_id);
+                getUserCompanyId() in resource.data.job_share_chain.chain[0].company_id);
       }
 
       allow read: if isAuthenticated() && (
-        resource.data.company_id == request.auth.token.company_id ||
+        resource.data.company_id == getUserCompanyId() ||
         isInShareChain()
       );
 
@@ -105,11 +122,11 @@ service cloud.firestore {
       // Helper to check chain visibility
       function isVisibleToCompany() {
         return resource.data.visible_to_companies != null &&
-               request.auth.token.company_id in resource.data.visible_to_companies;
+               getUserCompanyId() in resource.data.visible_to_companies;
       }
 
       allow read: if isAuthenticated() && (
-        resource.data.company_id == request.auth.token.company_id ||
+        resource.data.company_id == getUserCompanyId() ||
         isVisibleToCompany()
       );
 
@@ -117,10 +134,115 @@ service cloud.firestore {
                      hasCompanyAccess(resource.data.company_id);
     }
 
-    // Other collections that might exist - default to company-based access
-    match /{collection}/{docId} {
-      allow read, write: if isAuthenticated() &&
-                           hasCompanyAccess(resource.data.company_id);
+    // Company Settings - users can read/write any settings (structure varies)
+    match /company_settings/{settingId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Server Pay Records - users can read any records (app filters client-side)
+    match /server_pay_records/{recordId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Clients - users can read/write their company's clients
+    match /clients/{clientId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.company_id == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.company_id == getUserCompanyId();
+    }
+
+    // Servers - users can read/write their company's servers
+    match /servers/{serverId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.company_id == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.company_id == getUserCompanyId();
+    }
+
+    // Documents - users can read/write their company's documents
+    match /documents/{documentId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.company_id == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.company_id == getUserCompanyId();
+    }
+
+    // Templates - users can read/write their company's templates
+    match /templates/{templateId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.company_id == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.company_id == getUserCompanyId();
+    }
+
+    // Employees - users can read/write their company's employees
+    match /employees/{employeeId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.company_id == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.company_id == getUserCompanyId();
+    }
+
+    // Court Cases - users can read/write their company's court cases
+    match /court_cases/{caseId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.company_id == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.company_id == getUserCompanyId();
+    }
+
+    // Invoices - users can read/write their company's invoices
+    match /invoices/{invoiceId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.company_id == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.company_id == getUserCompanyId();
+    }
+
+    // Payments - users can read/write their company's payments
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.company_id == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.company_id == getUserCompanyId();
+    }
+
+    // Affidavits - users can read/write their company's affidavits
+    match /affidavits/{affidavitId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.company_id == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.company_id == getUserCompanyId();
+    }
+
+    // Service Logs - users can read/write their company's service logs
+    match /service_logs/{logId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.company_id == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.company_id == getUserCompanyId();
     }
   }
 }

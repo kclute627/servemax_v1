@@ -16,10 +16,10 @@ import {
 import BusinessStatsPanel from "../components/dashboard/BusinessStatsPanel";
 // import FirebaseTest from "../components/FirebaseTest";
 import TrialStatusBanner from "../components/trial/TrialStatusBanner";
-import DummyDataToggle from "../components/DummyDataToggle";
 import SuperAdminDashboard from "./SuperAdminDashboard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isSuperAdmin } from "@/utils/permissions";
+import { PendingShareRequests, PartnershipRequests } from "@/components/JobSharing";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -65,11 +65,24 @@ export default function Dashboard() {
             dismissible={true}
           />
 
-          {/* Demo Data Toggle */}
-          <DummyDataToggle />
-
           {/* Business Intelligence Stats */}
           <BusinessStatsPanel />
+
+          {/* Partnership Requests */}
+          {user?.company_id && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-xl font-semibold text-slate-900 mb-4">Partnership Requests</h2>
+              <PartnershipRequests companyId={user.company_id} />
+            </div>
+          )}
+
+          {/* Pending Job Share Requests */}
+          {user?.company_id && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <h2 className="text-xl font-semibold text-slate-900 mb-4">Pending Job Share Requests</h2>
+              <PendingShareRequests companyId={user.company_id} />
+            </div>
+          )}
 
           {/* Firebase Migration Test */}
           {/* <div className="flex justify-center">

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { Client, Job, Invoice } from '@/api/entities';
 import { createPageUrl } from '@/utils';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,8 +38,9 @@ import {
   Plus,
   Trash2,
   Loader2,
-  FileText, // Added FileText icon
-  AlertCircle // Added AlertCircle icon
+  FileText,
+  AlertCircle,
+  Handshake
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -72,10 +74,12 @@ const clientTypeConfig = {
   corporate: { color: "bg-purple-100 text-purple-700", label: "Corporate" },
   government: { color: "bg-amber-100 text-amber-700", label: "Government" },
   individual: { color: "bg-slate-100 text-slate-700", label: "Individual" },
-  process_server: { color: "bg-orange-100 text-orange-700", label: "Process Server" }
+  process_serving: { color: "bg-orange-100 text-orange-700", label: "Process Serving Company" },
+  independent_process_server: { color: "bg-indigo-100 text-indigo-700", label: "Independent Process Server" }
 };
 
 export default function ClientDetails() {
+  const { user } = useAuth();
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const clientId = searchParams.get('id');
@@ -93,13 +97,43 @@ export default function ClientDetails() {
   // State for delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState({ open: false, type: null, index: -1 });
 
+  // Helper function to safely convert Firestore timestamps to Date objects
+  const toDate = (dateValue) => {
+    if (!dateValue) return null;
+
+    // If it's already a Date object
+    if (dateValue instanceof Date) return dateValue;
+
+    // If it's a Firestore Timestamp (has toDate method)
+    if (dateValue && typeof dateValue.toDate === 'function') {
+      return dateValue.toDate();
+    }
+
+    // If it's a string or number, try to convert
+    const date = new Date(dateValue);
+    return isNaN(date.getTime()) ? null : date;
+  };
+
+  // Helper to safely format dates
+  const formatDate = (dateValue, formatString) => {
+    const date = toDate(dateValue);
+    if (!date) return 'N/A';
+
+    try {
+      return format(date, formatString);
+    } catch (error) {
+      console.error('Date formatting error:', error);
+      return 'Invalid date';
+    }
+  };
+
   const loadClientData = useCallback(async () => {
     if (!isEditing) setIsLoading(true); // Only show loading spinner if not already editing
     try {
       const [clientData, jobsData, invoicesData] = await Promise.all([
         Client.findById(clientId),
-        Job.filter({ client_id: clientId }),
-        Invoice.filter({ client_id: clientId })
+        Job.filter({ client_id: clientId, company_id: user?.company_id }),
+        Invoice.filter({ client_id: clientId, company_id: user?.company_id })
       ]);
 
       if (!clientData) {
@@ -120,11 +154,14 @@ export default function ClientDetails() {
       setInvoices([]);
     }
     setIsLoading(false);
-  }, [clientId, isEditing]);
+  }, [clientId, isEditing, user]);
 
   useEffect(() => {
-    if (clientId) {
+    if (clientId && user?.company_id) {
       loadClientData();
+    } else if (clientId && !user?.company_id) {
+      // Waiting for user data
+      setIsLoading(true);
     } else {
       // If clientId becomes null (e.g., URL changes or component unmounts quickly),
       // reset state to avoid displaying stale data.
@@ -133,7 +170,7 @@ export default function ClientDetails() {
       setInvoices([]);
       setIsLoading(false);
     }
-  }, [clientId, loadClientData]);
+  }, [clientId, loadClientData, user]);
 
   // --- FORM HANDLERS FOR EDIT MODE ---
   const handleInputChange = (field, value) => {
@@ -352,6 +389,12 @@ export default function ClientDetails() {
                   <Badge className={statusConfig[client.status]?.color}>
                     {statusConfig[client.status]?.label || client.status}
                   </Badge>
+                  {client.is_job_share_partner && (
+                    <Badge className="bg-purple-100 text-purple-700 gap-1">
+                      <Handshake className="w-3 h-3" />
+                      Job Share Partner
+                    </Badge>
+                  )}
                   {client.collaborating && (
                     <Badge variant="outline" className="bg-blue-50 text-blue-700">
                       <Star className="w-3 h-3 mr-1" />
@@ -499,7 +542,8 @@ export default function ClientDetails() {
                               <SelectItem value="corporate">Corporate</SelectItem>
                               <SelectItem value="government">Government</SelectItem>
                               <SelectItem value="individual">Individual</SelectItem>
-                              <SelectItem value="process_server">Process Server</SelectItem>
+                              <SelectItem value="process_serving">Process Serving Company</SelectItem>
+                              <SelectItem value="independent_process_server">Independent Process Server</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -546,10 +590,10 @@ export default function ClientDetails() {
                             {statusConfig[client.status]?.label || client.status}
                           </Badge>
                         </div>
-                        {client.created_date && (
+                        {toDate(client.created_at) && (
                           <div>
                             <label className="text-sm font-medium text-slate-600">Client Since</label>
-                            <p className="text-slate-900">{format(new Date(client.created_date), "MMM d, yyyy")}</p>
+                            <p className="text-slate-900">{formatDate(client.created_at, "MMM d, yyyy")}</p>
                           </div>
                         )}
                       </div>
@@ -569,9 +613,12 @@ export default function ClientDetails() {
               <Card>
                 <Tabs defaultValue="jobs">
                   <CardHeader>
-                    <TabsList className="grid w-full grid-cols-2">
+                    <TabsList className={`grid w-full ${client.is_job_share_partner ? 'grid-cols-3' : 'grid-cols-2'}`}>
                       <TabsTrigger value="jobs">Recent Jobs ({jobs.length})</TabsTrigger>
                       <TabsTrigger value="invoices">Invoices ({invoices.length})</TabsTrigger>
+                      {client.is_job_share_partner && (
+                        <TabsTrigger value="partnership">Partnership</TabsTrigger>
+                      )}
                     </TabsList>
                   </CardHeader>
                   <CardContent>
@@ -592,8 +639,8 @@ export default function ClientDetails() {
                                   </Badge>
                                 </div>
                                 <p className="text-sm text-slate-600">{job.recipient?.name}</p>
-                                {job.due_date && (
-                                  <p className="text-xs text-slate-500">Due: {format(new Date(job.due_date), "MMM d, yyyy")}</p>
+                                {toDate(job.due_date) && (
+                                  <p className="text-xs text-slate-500">Due: {formatDate(job.due_date, "MMM d, yyyy")}</p>
                                 )}
                               </div>
                               {job.service_fee && (
@@ -662,7 +709,7 @@ export default function ClientDetails() {
                                         )}
                                       </div>
                                       <p className="text-sm text-slate-600">
-                                        {format(new Date(invoice.invoice_date), "MMM d, yyyy")} - Due: {format(new Date(invoice.due_date), "MMM d, yyyy")}
+                                        {formatDate(invoice.invoice_date, "MMM d, yyyy")} - Due: {formatDate(invoice.due_date, "MMM d, yyyy")}
                                       </p>
                                       {!isPaid && paid > 0 && (
                                         <div className="mt-2">
@@ -702,6 +749,77 @@ export default function ClientDetails() {
                         </>
                       )}
                     </TabsContent>
+
+                    {/* Partnership Tab Content */}
+                    {client.is_job_share_partner && (
+                      <TabsContent value="partnership" className="space-y-6">
+                        {/* Partnership Status Card */}
+                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
+                          <div className="flex items-start gap-4">
+                            <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                              <Handshake className="w-6 h-6 text-purple-600" />
+                            </div>
+                            <div className="flex-1">
+                              <h3 className="text-lg font-semibold text-purple-900 mb-2">Job Sharing Partnership Active</h3>
+                              <p className="text-sm text-purple-700 mb-3">
+                                This company is a trusted job sharing partner. You can share jobs with them and receive shared jobs from them.
+                              </p>
+                              {toDate(client.partnership_established_at) && (
+                                <div className="flex items-center gap-2 text-sm text-purple-600">
+                                  <Clock className="w-4 h-4" />
+                                  <span>Partnership established on {formatDate(client.partnership_established_at, "MMM d, yyyy 'at' h:mm a")}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Partnership Activity Log */}
+                        <div>
+                          <h4 className="font-semibold text-slate-900 mb-4">Partnership Activity</h4>
+                          <div className="space-y-3">
+                            {toDate(client.partnership_established_at) && (
+                              <div className="flex items-start gap-3 p-4 bg-slate-50 rounded-lg">
+                                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                                  <CheckCircle className="w-4 h-4 text-green-600" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-slate-900">Partnership Established</p>
+                                  <p className="text-sm text-slate-600">
+                                    {formatDate(client.partnership_established_at, "MMMM d, yyyy 'at' h:mm a")}
+                                  </p>
+                                  <p className="text-xs text-slate-500 mt-1">
+                                    {client.partnership_source === "job_sharing" ? "Created via job sharing partnership request" : "Partnership established"}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Future: Add more activity items like jobs shared, requests sent, etc. */}
+                            <div className="text-center py-6 text-sm text-slate-500">
+                              <p>More partnership activity will appear here as you share jobs</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Partnership Stats (placeholder for future) */}
+                        <div>
+                          <h4 className="font-semibold text-slate-900 mb-4">Partnership Stats</h4>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="p-4 bg-slate-50 rounded-lg">
+                              <p className="text-sm text-slate-600 mb-1">Jobs Shared</p>
+                              <p className="text-2xl font-bold text-slate-900">0</p>
+                              <p className="text-xs text-slate-500 mt-1">Coming soon</p>
+                            </div>
+                            <div className="p-4 bg-slate-50 rounded-lg">
+                              <p className="text-sm text-slate-600 mb-1">Jobs Received</p>
+                              <p className="text-2xl font-bold text-slate-900">0</p>
+                              <p className="text-xs text-slate-500 mt-1">Coming soon</p>
+                            </div>
+                          </div>
+                        </div>
+                      </TabsContent>
+                    )}
                   </CardContent>
                 </Tabs>
               </Card>

@@ -16,8 +16,8 @@ export default function SelectedClientBox({
   const getClientTypeBadge = (type) => {
     const typeMap = {
       law_firm: "Law Firm",
-      process_serving: "Process Serving",
-      independent_contractor: "Independent Server"
+      process_serving: "Process Serving Company",
+      independent_process_server: "Independent Process Server"
     };
     return typeMap[type] || type;
   };

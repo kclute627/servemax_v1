@@ -108,7 +108,8 @@ export class FirebaseEntity {
 
       // Only set job_id to document ID if it doesn't already exist
       // This is mainly for the Job entity itself, not for related documents
-      if (!data.job_id) {
+      // Skip for companies collection since they don't need job_id
+      if (!data.job_id && this.collectionName !== 'companies') {
         await updateDoc(docRef, {
           job_id: docRef.id
         });

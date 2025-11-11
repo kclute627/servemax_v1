@@ -6,9 +6,12 @@ import { Input } from '../ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Switch } from '../ui/switch';
+import { useToast } from '../ui/use-toast';
 import { Loader2, Settings, Users, CheckCircle2, XCircle } from 'lucide-react';
 
-const PartnerManagement = ({ companyId, partners = [] }) => {
+const PartnerManagement = ({ companyId }) => {
+  const { toast } = useToast();
+  const [partners, setPartners] = useState([]);
   const [editingPartner, setEditingPartner] = useState(null);
   const [zipCodes, setZipCodes] = useState('');
   const [defaultFee, setDefaultFee] = useState('');
@@ -16,16 +19,46 @@ const PartnerManagement = ({ companyId, partners = [] }) => {
   const [requiresAcceptance, setRequiresAcceptance] = useState(false);
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch partners from Firestore
+  useEffect(() => {
+    if (!companyId) return;
+
+    const fetchPartners = async () => {
+      try {
+        const companyDoc = await getDoc(doc(db, 'companies', companyId));
+        if (companyDoc.exists()) {
+          const companyData = companyDoc.data();
+          const partnersList = companyData.job_share_partners || [];
+          setPartners(partnersList);
+        }
+      } catch (error) {
+        console.error('Error fetching partners:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPartners();
+  }, [companyId]);
 
   const updatePartnerSettings = async (partnerId) => {
     if (!zipCodes.trim() && autoAssignEnabled) {
-      alert('Please enter at least one ZIP code for auto-assignment');
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Please enter at least one ZIP code for auto-assignment",
+      });
       return;
     }
 
     if (!defaultFee && autoAssignEnabled) {
-      alert('Please enter a default fee');
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Please enter a default fee",
+      });
       return;
     }
 
@@ -65,14 +98,21 @@ const PartnerManagement = ({ companyId, partners = [] }) => {
         job_share_partners: arrayUnion(updatedPartner)
       });
 
-      alert('Partner settings updated successfully!');
+      toast({
+        title: "Success",
+        description: "Partner settings updated successfully!",
+      });
       setEditingPartner(null);
 
       // Refresh the page to show updated data
       window.location.reload();
     } catch (error) {
       console.error('Error updating partner:', error);
-      alert(`Failed to update partner settings: ${error.message}`);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: `Failed to update partner settings: ${error.message}`,
+      });
     } finally {
       setSaving(false);
     }
@@ -101,7 +141,11 @@ const PartnerManagement = ({ companyId, partners = [] }) => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {partners.length === 0 ? (
+          {loading ? (
+            <div className="flex items-center justify-center p-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : partners.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <p>No partners configured yet.</p>
               <p className="text-sm mt-2">

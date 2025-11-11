@@ -6,10 +6,12 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
+import { useToast } from '../ui/use-toast';
 import { Loader2, Clock, MapPin, FileText, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 
 const PendingShareRequests = ({ companyId }) => {
+  const { toast } = useToast();
   const [pendingRequests, setPendingRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [responding, setResponding] = useState({});
@@ -54,10 +56,17 @@ const PendingShareRequests = ({ companyId }) => {
       });
 
       console.log('Response result:', result.data);
-      alert(accept ? 'Job share accepted successfully!' : 'Job share declined');
+      toast({
+        title: accept ? "Job Accepted" : "Job Declined",
+        description: accept ? "Job share accepted successfully!" : "Job share has been declined",
+      });
     } catch (error) {
       console.error('Error responding to request:', error);
-      alert(`Failed to respond: ${error.message}`);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: `Failed to respond: ${error.message}`,
+      });
     } finally {
       setResponding(prev => ({ ...prev, [requestId]: false }));
     }

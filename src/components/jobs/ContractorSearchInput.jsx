@@ -26,7 +26,7 @@ const getCompanyTypeLabel = (company) => {
     'corporate': 'Corporate',
     'government': 'Government',
     'process_serving': 'Process Serving Company',
-    'independent_contractor': 'Independent Process Server',
+    'independent_process_server': 'Independent Process Server',
     'client': 'Client'
   };
 
@@ -41,7 +41,7 @@ const getCompanyTypeBadgeColor = (companyType) => {
     'corporate': 'bg-purple-100 text-purple-700',
     'government': 'bg-amber-100 text-amber-700',
     'process_serving': 'bg-orange-100 text-orange-700',
-    'independent_contractor': 'bg-teal-100 text-teal-700',
+    'independent_process_server': 'bg-indigo-100 text-indigo-700',
     'client': 'bg-slate-100 text-slate-700'
   };
 

@@ -16,10 +16,12 @@ import {
   AlertCircle,
   CheckCircle,
   Building2,
-  Users
+  Users,
+  ArrowLeft
 } from 'lucide-react';
 import { User as FirebaseAuth, Invitation } from '@/api/entities';
 import { createPageUrl } from '@/utils';
+import PublicNavbar from '@/components/layout/PublicNavbar';
 
 export default function InviteSignUpPage() {
   const navigate = useNavigate();
@@ -153,205 +155,224 @@ export default function InviteSignUpPage() {
 
   if (isLoadingInvitation) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading invitation...</p>
+      <>
+        <PublicNavbar />
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-white flex items-center justify-center pt-24">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-800 mx-auto mb-4"></div>
+            <p className="text-slate-600 font-medium">Loading invitation...</p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (!invitation) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-red-500" />
+      <>
+        <PublicNavbar />
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-white flex items-center justify-center p-4 pt-24">
+          <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Header */}
+            <div className="text-center mb-8">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-900 to-blue-700 bg-clip-text text-transparent mb-2">
                 Invalid Invitation
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
+              </h1>
+              <p className="text-slate-600">Unable to load your invitation</p>
+            </div>
 
-              <div className="mt-4 text-center">
-                <Link
-                  to={createPageUrl('Login')}
-                  className="text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  Return to Login
+            <Card className="shadow-2xl border-slate-200/50 backdrop-blur-sm bg-white/95">
+              <CardHeader>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center">
+                    <AlertCircle className="w-6 h-6 text-red-600" />
+                  </div>
+                  <div>
+                    <CardTitle>Invitation Error</CardTitle>
+                    <CardDescription>This invitation link is not valid</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+
+                <Link to={createPageUrl('Login')} className="block">
+                  <Button variant="ghost" className="w-full">
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Back to Login
+                  </Button>
                 </Link>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   const userTypeInfo = getUserTypeDisplay(invitation.user_type, invitation.employee_role);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-blue-800 rounded-xl flex items-center justify-center">
-              <FileText className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-slate-900">ServeMax</h1>
+    <>
+      <PublicNavbar />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-white flex items-center justify-center p-4 pt-24">
+        <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-900 to-blue-700 bg-clip-text text-transparent mb-2">
+              You're Invited!
+            </h1>
+            <p className="text-slate-600">Complete your account setup</p>
           </div>
-          <p className="text-slate-600">Complete your account setup</p>
-        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>You're Invited!</CardTitle>
-            <CardDescription>
-              Complete your account to get started
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Invitation Details */}
-            {userTypeInfo && (
-              <div className="bg-slate-50 border rounded-lg p-4">
-                <div className="flex items-center gap-3 mb-2">
-                  <userTypeInfo.icon className="h-5 w-5 text-slate-600" />
-                  <span className="font-medium">Invitation Details</span>
+          <Card className="shadow-2xl border-slate-200/50 backdrop-blur-sm bg-white/95">
+            <CardHeader>
+              <CardTitle>Join ServeMax</CardTitle>
+              <CardDescription>
+                Complete your account to get started with your team
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Invitation Details */}
+              {userTypeInfo && (
+                <div className="bg-gradient-to-br from-blue-50 to-slate-50 border border-blue-100 rounded-lg p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <userTypeInfo.icon className="h-5 w-5 text-blue-700" />
+                    </div>
+                    <span className="font-semibold text-slate-800">Your Role</span>
+                  </div>
+                  <div className="space-y-2">
+                    <Badge className={userTypeInfo.color}>
+                      {userTypeInfo.title}
+                    </Badge>
+                    <p className="text-sm text-slate-600">{userTypeInfo.description}</p>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Badge className={userTypeInfo.color}>
-                    {userTypeInfo.title}
-                  </Badge>
-                  <p className="text-sm text-slate-600">{userTypeInfo.description}</p>
-                </div>
-              </div>
-            )}
-
-            <form onSubmit={handleSignUp} className="space-y-4">
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
               )}
 
-              <div>
-                <Label htmlFor="full_name">Full Name</Label>
-                <div className="relative">
-                  <User className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="full_name"
-                    type="text"
-                    placeholder="John Smith"
-                    className="pl-10"
-                    value={formData.full_name}
-                    onChange={(e) => handleInputChange('full_name', e.target.value)}
-                    disabled={isLoading}
-                    required
-                  />
+              <form onSubmit={handleSignUp} className="space-y-4">
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="full_name" className="text-slate-700 font-medium">Full Name</Label>
+                  <div className="relative group">
+                    <User className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+                    <Input
+                      id="full_name"
+                      type="text"
+                      placeholder="John Smith"
+                      className="pl-10 h-11 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      value={formData.full_name}
+                      onChange={(e) => handleInputChange('full_name', e.target.value)}
+                      disabled={isLoading}
+                      required
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <Label htmlFor="email">Email Address</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="email"
-                    type="email"
-                    className="pl-10"
-                    value={formData.email}
-                    onChange={(e) => handleInputChange('email', e.target.value)}
-                    disabled={true} // Email is pre-filled from invitation
-                    required
-                  />
+                <div className="space-y-2">
+                  <Label htmlFor="email" className="text-slate-700 font-medium">Email Address</Label>
+                  <div className="relative group">
+                    <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <Input
+                      id="email"
+                      type="email"
+                      className="pl-10 h-11 bg-slate-50 transition-all duration-200"
+                      value={formData.email}
+                      onChange={(e) => handleInputChange('email', e.target.value)}
+                      disabled={true} // Email is pre-filled from invitation
+                      required
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    This email was provided in your invitation
+                  </p>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  This email was provided in your invitation
-                </p>
-              </div>
 
-              <div>
-                <Label htmlFor="phone">Phone Number (Optional)</Label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="phone"
-                    type="tel"
-                    placeholder="(555) 123-4567"
-                    className="pl-10"
-                    value={formData.phone}
-                    onChange={(e) => handleInputChange('phone', e.target.value)}
-                    disabled={isLoading}
-                  />
+                <div className="space-y-2">
+                  <Label htmlFor="phone" className="text-slate-700 font-medium">Phone Number <span className="text-slate-400 font-normal">(Optional)</span></Label>
+                  <div className="relative group">
+                    <Phone className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="(555) 123-4567"
+                      className="pl-10 h-11 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      value={formData.phone}
+                      onChange={(e) => handleInputChange('phone', e.target.value)}
+                      disabled={isLoading}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="At least 6 characters"
-                    className="pl-10"
-                    value={formData.password}
-                    onChange={(e) => handleInputChange('password', e.target.value)}
-                    disabled={isLoading}
-                    required
-                  />
+                <div className="space-y-2">
+                  <Label htmlFor="password" className="text-slate-700 font-medium">Password</Label>
+                  <div className="relative group">
+                    <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="At least 6 characters"
+                      className="pl-10 h-11 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      value={formData.password}
+                      onChange={(e) => handleInputChange('password', e.target.value)}
+                      disabled={isLoading}
+                      required
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    placeholder="Confirm your password"
-                    className="pl-10"
-                    value={formData.confirmPassword}
-                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                    disabled={isLoading}
-                    required
-                  />
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword" className="text-slate-700 font-medium">Confirm Password</Label>
+                  <div className="relative group">
+                    <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      placeholder="Confirm your password"
+                      className="pl-10 h-11 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      value={formData.confirmPassword}
+                      onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                      disabled={isLoading}
+                      required
+                    />
+                  </div>
                 </div>
+
+                <Button
+                  type="submit"
+                  className="w-full bg-gradient-to-r from-blue-800 to-blue-900 hover:from-blue-900 hover:to-blue-950 shadow-md hover:shadow-lg transition-all duration-200 hover:scale-[1.02]"
+                  size="lg"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Creating Account...' : 'Complete Setup'}
+                </Button>
+              </form>
+
+              <Separator className="my-6" />
+
+              <div className="text-center text-sm text-slate-600">
+                Already have an account?{' '}
+                <Link
+                  to={createPageUrl('Login')}
+                  className="text-blue-600 hover:text-blue-800 font-semibold hover:underline transition-all"
+                >
+                  Sign in here
+                </Link>
               </div>
-
-              <Button
-                type="submit"
-                className="w-full"
-                size="lg"
-                disabled={isLoading}
-              >
-                {isLoading ? 'Creating Account...' : 'Complete Setup'}
-              </Button>
-            </form>
-
-            <Separator />
-
-            <div className="text-center text-sm text-slate-600">
-              Already have an account?{' '}
-              <Link
-                to={createPageUrl('Login')}
-                className="text-blue-600 hover:text-blue-800 font-medium"
-              >
-                Sign in here
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -17,13 +17,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { 
+import {
   MoreHorizontal,
   Eye,
   Mail,
   Phone,
   Building2,
-  MapPin
+  MapPin,
+  Handshake
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
@@ -36,13 +37,37 @@ const clientTypeConfig = {
   corporate: { color: "bg-purple-100 text-purple-700", label: "Corporate" },
   government: { color: "bg-amber-100 text-amber-700", label: "Government" },
   individual: { color: "bg-slate-100 text-slate-700", label: "Individual" },
-  process_server: { color: "bg-orange-100 text-orange-700", label: "Process Server" }
+  process_serving: { color: "bg-orange-100 text-orange-700", label: "Process Serving Company" },
+  independent_process_server: { color: "bg-indigo-100 text-indigo-700", label: "Independent Process Server" }
 };
 
 const statusConfig = {
   active: { color: "bg-green-100 text-green-700", label: "Active" },
   inactive: { color: "bg-slate-100 text-slate-700", label: "Inactive" },
   pending: { color: "bg-amber-100 text-amber-700", label: "Pending" }
+};
+
+// Helper function to safely convert Firestore timestamps to Date objects
+const toDate = (dateValue) => {
+  if (!dateValue) return null;
+  if (dateValue instanceof Date) return dateValue;
+  if (dateValue && typeof dateValue.toDate === 'function') {
+    return dateValue.toDate();
+  }
+  const date = new Date(dateValue);
+  return isNaN(date.getTime()) ? null : date;
+};
+
+// Helper to safely format dates
+const formatDate = (dateValue, formatString) => {
+  const date = toDate(dateValue);
+  if (!date) return 'N/A';
+  try {
+    return format(date, formatString);
+  } catch (error) {
+    console.error('Date formatting error:', error);
+    return 'Invalid date';
+  }
 };
 
 export default function ClientsTable({ clients, isLoading, onClientUpdate }) {
@@ -139,12 +164,20 @@ export default function ClientsTable({ clients, isLoading, onClientUpdate }) {
                         <Building2 className="w-5 h-5 text-slate-600" />
                       </div>
                       <div>
-                        <Link 
-                          to={`${createPageUrl("ClientDetails")}?id=${client.id}`}
-                          className="font-semibold text-slate-900 hover:text-blue-600 hover:underline"
-                        >
-                          {client.company_name}
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            to={`${createPageUrl("ClientDetails")}?id=${client.id}`}
+                            className="font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                          >
+                            {client.company_name}
+                          </Link>
+                          {client.is_job_share_partner && (
+                            <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-200 gap-1 text-xs">
+                              <Handshake className="w-3 h-3" />
+                              Partner
+                            </Badge>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1 mt-1">
                           <MapPin className="w-3 h-3 text-slate-400" />
                           <span className="text-sm text-slate-500">{getPrimaryAddress(client)}</span>
@@ -185,9 +218,7 @@ export default function ClientsTable({ clients, isLoading, onClientUpdate }) {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-slate-600">
-                    {client.created_date && !isNaN(new Date(client.created_date).getTime())
-                      ? format(new Date(client.created_date), "MMM d, yyyy")
-                      : "N/A"}
+                    {formatDate(client.created_at, "MMM d, yyyy")}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>

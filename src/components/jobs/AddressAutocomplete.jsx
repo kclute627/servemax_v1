@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MapPin, Loader2, X } from "lucide-react";
-import { googlePlaces, googlePlaceDetails } from "@/api/functions";
+import { getPlacePredictions, getPlaceDetails } from "@/utils/googlePlaces";
 
 export default function AddressAutocomplete({ 
   value, 
@@ -70,15 +70,19 @@ export default function AddressAutocomplete({
   const fetchSuggestions = async (query) => {
     setIsLoading(true);
     try {
-      const response = await googlePlaces({ query });
-      if (response.data?.suggestions) {
-        setSuggestions(response.data.suggestions);
+      const predictions = await getPlacePredictions(query);
+      if (predictions && predictions.length > 0) {
+        setSuggestions(predictions);
         setShowSuggestions(true);
         setSelectedIndex(-1);
+      } else {
+        setSuggestions([]);
+        setShowSuggestions(false);
       }
     } catch (error) {
       console.error('Error fetching suggestions:', error);
       setSuggestions([]);
+      setShowSuggestions(false);
     }
     setIsLoading(false);
   };
@@ -91,67 +95,29 @@ export default function AddressAutocomplete({
     justSelectedRef.current = true;
 
     try {
-      const response = await googlePlaceDetails({ place_id: suggestion.place_id });
-      console.log('[AddressAutocomplete] API Response:', response);
+      const addressData = await getPlaceDetails(suggestion.place_id);
+      console.log('[AddressAutocomplete] Client-side API Response:', addressData);
 
-      if (response.data?.address) {
-        const addressData = {
-          address1: response.data.address.address1 || '',
-          address2: response.data.address.address2 || '',
-          city: response.data.address.city || '',
-          state: response.data.address.state || '',
-          postal_code: response.data.address.postal_code || '',
-          county: response.data.address.county || '',
-          latitude: response.data.address.latitude || null,
-          longitude: response.data.address.longitude || null,
-          formatted_address: response.data.address.formatted_address || ''
-        };
+      const streetAddress = addressData.address1;
+      setSelectedAddress(streetAddress);
 
-        console.log('[AddressAutocomplete] Parsed address data:', addressData);
-
-        const streetAddress = addressData.address1;
-        setSelectedAddress(streetAddress);
-
-        // Call onAddressSelect with complete address data
-        if (onAddressSelect) {
-          console.log('[AddressAutocomplete] Calling onAddressSelect with:', addressData);
-          onAddressSelect(addressData);
-          // Note: Parent component should update the value prop with address1
-          // We don't call onChange to avoid conflicting updates
-        } else {
-          // Fallback: if no onAddressSelect callback, use onChange
-          if (onChange) {
-            onChange(streetAddress);
-          }
-        }
+      // Call onAddressSelect with complete address data
+      if (onAddressSelect) {
+        console.log('[AddressAutocomplete] Calling onAddressSelect with:', addressData);
+        onAddressSelect(addressData);
+        // Note: Parent component should update the value prop with address1
+        // We don't call onChange to avoid conflicting updates
       } else {
-        // Fallback: try to parse the formatted address
-        const fallbackData = {
-          address1: suggestion.main_text || suggestion.description || '',
-          address2: '',
-          city: '',
-          state: '',
-          postal_code: '',
-          county: '',
-          latitude: null,
-          longitude: null,
-          formatted_address: suggestion.description || ''
-        };
-        
-        setSelectedAddress(fallbackData.address1);
-        
-        if (onAddressSelect) {
-          onAddressSelect(fallbackData);
-        }
-        
+        // Fallback: if no onAddressSelect callback, use onChange
         if (onChange) {
-          onChange(fallbackData.address1);
+          onChange(streetAddress);
         }
       }
     } catch (error) {
       console.error('Error fetching address details:', error);
+      // Fallback: use suggestion data
       const fallbackData = {
-        address1: suggestion.description || '',
+        address1: suggestion.main_text || suggestion.description || '',
         address2: '',
         city: '',
         state: '',
@@ -161,13 +127,13 @@ export default function AddressAutocomplete({
         longitude: null,
         formatted_address: suggestion.description || ''
       };
-      
+
       setSelectedAddress(fallbackData.address1);
-      
+
       if (onAddressSelect) {
         onAddressSelect(fallbackData);
       }
-      
+
       if (onChange) {
         onChange(fallbackData.address1);
       }

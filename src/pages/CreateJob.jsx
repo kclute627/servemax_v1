@@ -297,7 +297,10 @@ export default function CreateJobPage() {
         address1: addressDetails.address1 || '',
         city: addressDetails.city || '',
         state: addressDetails.state || '',
-        postal_code: addressDetails.postal_code || ''
+        postal_code: addressDetails.postal_code || '',
+        county: addressDetails.county || '',
+        latitude: addressDetails.latitude || null,
+        longitude: addressDetails.longitude || null
       },
       court_county: addressDetails.county || prev.court_county
     }));

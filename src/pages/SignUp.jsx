@@ -9,14 +9,8 @@ import { Separator } from '@/components/ui/separator';
 import {
   Building2,
   User,
-  Mail,
-  Lock,
-  Phone,
-  MapPin,
-  FileText,
-  CheckCircle,
   AlertCircle,
-  Globe
+  Check
 } from 'lucide-react';
 import { FirebaseAuth } from '@/firebase/auth';
 import { createPageUrl } from '@/utils';
@@ -31,44 +25,47 @@ import {
   validatePasswords,
   formatPhoneNumber
 } from '@/utils/authErrors';
+import AddressAutocomplete from '@/components/jobs/AddressAutocomplete';
+import PublicNavbar from '@/components/layout/PublicNavbar';
 
 export default function SignUpPage() {
   const navigate = useNavigate();
-  const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-
-  // Form data
-  const [userData, setUserData] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-    phone: ''
-  });
 
   // Field-specific errors
   const [fieldErrors, setFieldErrors] = useState({});
 
-  const [companyData, setCompanyData] = useState({
-    name: '',
+  // Combined form data - single source of truth
+  const [formData, setFormData] = useState({
+    // Personal Information
+    first_name: '',
+    last_name: '',
     email: '',
     phone: '',
+    password: '',
+    confirmPassword: '',
+    // Company Information
+    company_name: '',
     website: '',
     address: '',
     city: '',
     state: '',
-    zip: ''
+    zip: '',
+    county: '',
+    latitude: null,
+    longitude: null
   });
 
-  const handleUserDataChange = (field, value) => {
+  const [isAddressLoading, setIsAddressLoading] = useState(false);
+
+  const handleInputChange = (field, value) => {
     // Format phone number on input
     if (field === 'phone') {
       value = formatPhoneNumber(value);
     }
 
-    setUserData(prev => ({ ...prev, [field]: value }));
+    setFormData(prev => ({ ...prev, [field]: value }));
     setError('');
 
     // Clear field-specific error when user starts typing
@@ -77,42 +74,40 @@ export default function SignUpPage() {
     }
   };
 
-  const handleCompanyDataChange = (field, value) => {
-    // Format phone number on input
-    if (field === 'phone') {
-      value = formatPhoneNumber(value);
-    }
-
-    setCompanyData(prev => ({ ...prev, [field]: value }));
-    setError('');
-
-    // Clear field-specific error when user starts typing
-    if (fieldErrors[field]) {
-      setFieldErrors(prev => ({ ...prev, [field]: null }));
-    }
+  const handleAddressSelect = (addressDetails) => {
+    setFormData(prev => ({
+      ...prev,
+      address: addressDetails.address1 || '',
+      city: addressDetails.city || '',
+      state: addressDetails.state || '',
+      zip: addressDetails.postal_code || '',
+      county: addressDetails.county || '',
+      latitude: addressDetails.latitude || null,
+      longitude: addressDetails.longitude || null
+    }));
   };
 
-  const validateUserData = () => {
+  const validateForm = () => {
     const errors = {};
 
     // Validate first name
-    const firstNameError = validateName(userData.first_name, 'First name');
+    const firstNameError = validateName(formData.first_name, 'First name');
     if (firstNameError) errors.first_name = firstNameError;
 
     // Validate last name
-    const lastNameError = validateName(userData.last_name, 'Last name');
+    const lastNameError = validateName(formData.last_name, 'Last name');
     if (lastNameError) errors.last_name = lastNameError;
 
     // Validate email
-    const emailError = validateEmail(userData.email);
+    const emailError = validateEmail(formData.email);
     if (emailError) errors.email = emailError;
 
     // Validate phone (optional)
-    const phoneError = validatePhone(userData.phone);
+    const phoneError = validatePhone(formData.phone);
     if (phoneError) errors.phone = phoneError;
 
     // Validate passwords
-    const passwordError = validatePasswords(userData.password, userData.confirmPassword);
+    const passwordError = validatePasswords(formData.password, formData.confirmPassword);
     if (passwordError) {
       if (passwordError.includes('match')) {
         errors.confirmPassword = passwordError;
@@ -121,33 +116,12 @@ export default function SignUpPage() {
       }
     }
 
-    setFieldErrors(errors);
-
-    if (Object.keys(errors).length > 0) {
-      setError('Please fix the errors below');
-      return false;
-    }
-
-    return true;
-  };
-
-  const validateCompanyData = () => {
-    const errors = {};
-
     // Validate company name
-    const nameError = validateCompanyName(companyData.name);
-    if (nameError) errors.name = nameError;
-
-    // Validate company email
-    const emailError = validateEmail(companyData.email);
-    if (emailError) errors.email = emailError;
-
-    // Validate company phone (optional)
-    const phoneError = validatePhone(companyData.phone);
-    if (phoneError) errors.phone = phoneError;
+    const companyNameError = validateCompanyName(formData.company_name);
+    if (companyNameError) errors.company_name = companyNameError;
 
     // Validate company website (optional)
-    const websiteError = validateWebsite(companyData.website);
+    const websiteError = validateWebsite(formData.website);
     if (websiteError) errors.website = websiteError;
 
     setFieldErrors(errors);
@@ -160,26 +134,41 @@ export default function SignUpPage() {
     return true;
   };
 
-  const handleStepOne = () => {
-    if (validateUserData()) {
-      setCurrentStep(2);
-    }
-  };
+  const handleSignUp = async (e) => {
+    e.preventDefault();
 
-  const handleSignUp = async () => {
-    if (!validateCompanyData()) return;
+    if (!validateForm()) return;
 
     setIsLoading(true);
     setError('');
 
     try {
-      // Prepare user data with first_name and last_name
-      const userDataToSubmit = {
-        ...userData,
-        full_name: `${userData.first_name.trim()} ${userData.last_name.trim()}`.trim()
+      // Prepare user data
+      const userData = {
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        email: formData.email,
+        phone: formData.phone,
+        password: formData.password,
+        full_name: `${formData.first_name.trim()} ${formData.last_name.trim()}`.trim()
       };
 
-      await FirebaseAuth.registerCompanyOwner(userDataToSubmit, companyData);
+      // Prepare company data - using same email and phone as user
+      const companyData = {
+        name: formData.company_name,
+        email: formData.email, // Same as user email
+        phone: formData.phone, // Same as user phone
+        website: formData.website,
+        address: formData.address,
+        city: formData.city,
+        state: formData.state,
+        zip: formData.zip,
+        county: formData.county,
+        latitude: formData.latitude, // From address autocomplete
+        longitude: formData.longitude // From address autocomplete
+      };
+
+      await FirebaseAuth.registerCompanyOwner(userData, companyData);
 
       // Give Firebase a moment to update auth state, then navigate
       setTimeout(() => {
@@ -193,111 +182,71 @@ export default function SignUpPage() {
     }
   };
 
-  const steps = [
-    { number: 1, title: 'User Account', icon: User },
-    { number: 2, title: 'Company Info', icon: Building2 },
-    { number: 3, title: 'Welcome!', icon: CheckCircle }
-  ];
-
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-blue-800 rounded-xl flex items-center justify-center">
-              <FileText className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-slate-900">ServeMax</h1>
+    <>
+      <PublicNavbar />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-white flex items-center justify-center p-4 py-24">
+        <div className="w-full max-w-2xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-900 to-blue-700 bg-clip-text text-transparent mb-2">
+              Start Your Free Trial
+            </h1>
+            <p className="text-slate-600">No credit card required • 30 days free • Cancel anytime</p>
           </div>
-          <p className="text-slate-600">Create your account and start your 30-day free trial</p>
-        </div>
 
-        {/* Progress Steps */}
-        <div className="flex items-center justify-center mb-8">
-          {steps.map((step, index) => (
-            <React.Fragment key={step.number}>
-              <div className="flex items-center">
-                <div className={`
-                  w-10 h-10 rounded-full flex items-center justify-center
-                  ${currentStep >= step.number
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-200 text-slate-400'
-                  }
-                `}>
-                  <step.icon className="w-5 h-5" />
-                </div>
-                <span className={`
-                  ml-2 text-sm font-medium
-                  ${currentStep >= step.number ? 'text-blue-600' : 'text-slate-400'}
-                `}>
-                  {step.title}
-                </span>
-              </div>
-              {index < steps.length - 1 && (
-                <div className={`
-                  w-12 h-0.5 mx-4
-                  ${currentStep > step.number ? 'bg-blue-600' : 'bg-slate-200'}
-                `} />
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {currentStep === 1 && 'Create Your Account'}
-              {currentStep === 2 && 'Company Information'}
-            </CardTitle>
-            <CardDescription>
-              {currentStep === 1 && 'Enter your personal information to get started'}
-              {currentStep === 2 && 'Tell us about your company to complete setup'}
+          <Card className="shadow-2xl border-slate-200/50 backdrop-blur-sm bg-white/95">
+          <CardHeader className="space-y-1 pb-6">
+            <CardTitle className="text-2xl">Create Your Account</CardTitle>
+            <CardDescription className="text-base">
+              Set up your account and company profile to get started
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
+          <CardContent>
+            <form onSubmit={handleSignUp} className="space-y-6">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
 
-            {/* Step 1: User Information */}
-            {currentStep === 1 && (
+              {/* Personal Information Section */}
               <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-3 border-b-2 border-blue-100">
+                  <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                    <User className="w-4 h-4 text-white" />
+                  </div>
+                  <h3 className="font-semibold text-lg text-slate-900">Personal Information</h3>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="first_name">First Name</Label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                      <Input
-                        id="first_name"
-                        type="text"
-                        placeholder="John"
-                        className={`pl-10 ${fieldErrors.first_name ? 'border-red-500 focus:border-red-500' : ''}`}
-                        value={userData.first_name}
-                        onChange={(e) => handleUserDataChange('first_name', e.target.value)}
-                      />
-                    </div>
+                    <Label htmlFor="first_name" className="text-slate-700 font-medium">First Name</Label>
+                    <Input
+                      id="first_name"
+                      type="text"
+                      placeholder="John"
+                      className={`h-11 transition-all duration-200 ${fieldErrors.first_name ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                      value={formData.first_name}
+                      onChange={(e) => handleInputChange('first_name', e.target.value)}
+                      required
+                    />
                     {fieldErrors.first_name && (
                       <p className="text-red-500 text-sm mt-1">{fieldErrors.first_name}</p>
                     )}
                   </div>
 
                   <div>
-                    <Label htmlFor="last_name">Last Name</Label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                      <Input
-                        id="last_name"
-                        type="text"
-                        placeholder="Smith"
-                        className={`pl-10 ${fieldErrors.last_name ? 'border-red-500 focus:border-red-500' : ''}`}
-                        value={userData.last_name}
-                        onChange={(e) => handleUserDataChange('last_name', e.target.value)}
-                      />
-                    </div>
+                    <Label htmlFor="last_name" className="text-slate-700 font-medium">Last Name</Label>
+                    <Input
+                      id="last_name"
+                      type="text"
+                      placeholder="Smith"
+                      className={`h-11 transition-all duration-200 ${fieldErrors.last_name ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                      value={formData.last_name}
+                      onChange={(e) => handleInputChange('last_name', e.target.value)}
+                      required
+                    />
                     {fieldErrors.last_name && (
                       <p className="text-red-500 text-sm mt-1">{fieldErrors.last_name}</p>
                     )}
@@ -305,256 +254,217 @@ export default function SignUpPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="email">Email Address</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="john@company.com"
-                      className={`pl-10 ${fieldErrors.email ? 'border-red-500 focus:border-red-500' : ''}`}
-                      value={userData.email}
-                      onChange={(e) => handleUserDataChange('email', e.target.value)}
-                    />
-                  </div>
+                  <Label htmlFor="email" className="text-slate-700 font-medium">Email Address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="john@company.com"
+                    className={`h-11 transition-all duration-200 ${fieldErrors.email ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                    value={formData.email}
+                    onChange={(e) => handleInputChange('email', e.target.value)}
+                    required
+                  />
                   {fieldErrors.email && (
                     <p className="text-red-500 text-sm mt-1">{fieldErrors.email}</p>
                   )}
+                  <p className="text-xs text-slate-500 mt-1.5">This will be used for your account and company contact</p>
                 </div>
 
                 <div>
-                  <Label htmlFor="phone">Phone Number (Optional)</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="phone"
-                      type="tel"
-                      placeholder="(555) 123-4567"
-                      className={`pl-10 ${fieldErrors.phone ? 'border-red-500 focus:border-red-500' : ''}`}
-                      value={userData.phone}
-                      onChange={(e) => handleUserDataChange('phone', e.target.value)}
-                    />
-                  </div>
+                  <Label htmlFor="phone" className="text-slate-700 font-medium">Phone Number (Optional)</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    placeholder="(555) 123-4567"
+                    className={`h-11 transition-all duration-200 ${fieldErrors.phone ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                    value={formData.phone}
+                    onChange={(e) => handleInputChange('phone', e.target.value)}
+                  />
                   {fieldErrors.phone && (
                     <p className="text-red-500 text-sm mt-1">{fieldErrors.phone}</p>
                   )}
                 </div>
 
                 <div>
-                  <Label htmlFor="password">Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="At least 8 characters with uppercase, lowercase, and number"
-                      className={`pl-10 ${fieldErrors.password ? 'border-red-500 focus:border-red-500' : ''}`}
-                      value={userData.password}
-                      onChange={(e) => handleUserDataChange('password', e.target.value)}
-                    />
-                  </div>
+                  <Label htmlFor="password" className="text-slate-700 font-medium">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="At least 8 characters"
+                    className={`h-11 transition-all duration-200 ${fieldErrors.password ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                    value={formData.password}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                    required
+                  />
                   {fieldErrors.password && (
                     <p className="text-red-500 text-sm mt-1">{fieldErrors.password}</p>
                   )}
                 </div>
 
                 <div>
-                  <Label htmlFor="confirmPassword">Confirm Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="confirmPassword"
-                      type="password"
-                      placeholder="Confirm your password"
-                      className={`pl-10 ${fieldErrors.confirmPassword ? 'border-red-500 focus:border-red-500' : ''}`}
-                      value={userData.confirmPassword}
-                      onChange={(e) => handleUserDataChange('confirmPassword', e.target.value)}
-                    />
-                  </div>
+                  <Label htmlFor="confirmPassword" className="text-slate-700 font-medium">Confirm Password</Label>
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="Confirm your password"
+                    className={`h-11 transition-all duration-200 ${fieldErrors.confirmPassword ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                    value={formData.confirmPassword}
+                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                    required
+                  />
                   {fieldErrors.confirmPassword && (
                     <p className="text-red-500 text-sm mt-1">{fieldErrors.confirmPassword}</p>
                   )}
                 </div>
-
-                <Button
-                  onClick={handleStepOne}
-                  className="w-full"
-                  size="lg"
-                >
-                  Continue to Company Info
-                </Button>
               </div>
-            )}
 
-            {/* Step 2: Company Information */}
-            {currentStep === 2 && (
+              {/* Company Information Section */}
               <div className="space-y-4">
-                <div>
-                  <Label htmlFor="company_name">Company Name</Label>
-                  <div className="relative">
-                    <Building2 className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="company_name"
-                      type="text"
-                      placeholder="ABC Process Serving"
-                      className={`pl-10 ${fieldErrors.name ? 'border-red-500 focus:border-red-500' : ''}`}
-                      value={companyData.name}
-                      onChange={(e) => handleCompanyDataChange('name', e.target.value)}
-                    />
+                <div className="flex items-center gap-2 pb-3 border-b-2 border-blue-100">
+                  <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                    <Building2 className="w-4 h-4 text-white" />
                   </div>
-                  {fieldErrors.name && (
-                    <p className="text-red-500 text-sm mt-1">{fieldErrors.name}</p>
+                  <h3 className="font-semibold text-lg text-slate-900">Company Information</h3>
+                </div>
+
+                <div>
+                  <Label htmlFor="company_name" className="text-slate-700 font-medium">Company Name</Label>
+                  <Input
+                    id="company_name"
+                    type="text"
+                    placeholder="ABC Process Serving"
+                    className={`h-11 transition-all duration-200 ${fieldErrors.company_name ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                    value={formData.company_name}
+                    onChange={(e) => handleInputChange('company_name', e.target.value)}
+                    required
+                  />
+                  {fieldErrors.company_name && (
+                    <p className="text-red-500 text-sm mt-1">{fieldErrors.company_name}</p>
                   )}
                 </div>
 
                 <div>
-                  <Label htmlFor="company_email">Company Email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="company_email"
-                      type="email"
-                      placeholder="info@company.com"
-                      className={`pl-10 ${fieldErrors.email ? 'border-red-500 focus:border-red-500' : ''}`}
-                      value={companyData.email}
-                      onChange={(e) => handleCompanyDataChange('email', e.target.value)}
-                    />
-                  </div>
-                  {fieldErrors.email && (
-                    <p className="text-red-500 text-sm mt-1">{fieldErrors.email}</p>
-                  )}
-                </div>
-
-                <div>
-                  <Label htmlFor="company_phone">Company Phone (Optional)</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="company_phone"
-                      type="tel"
-                      placeholder="(555) 123-4567"
-                      className={`pl-10 ${fieldErrors.phone ? 'border-red-500 focus:border-red-500' : ''}`}
-                      value={companyData.phone}
-                      onChange={(e) => handleCompanyDataChange('phone', e.target.value)}
-                    />
-                  </div>
-                  {fieldErrors.phone && (
-                    <p className="text-red-500 text-sm mt-1">{fieldErrors.phone}</p>
-                  )}
-                </div>
-
-                <div>
-                  <Label htmlFor="company_website">Company Website (Optional)</Label>
-                  <div className="relative">
-                    <Globe className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="company_website"
-                      type="url"
-                      placeholder="www.yourcompany.com"
-                      className={`pl-10 ${fieldErrors.website ? 'border-red-500 focus:border-red-500' : ''}`}
-                      value={companyData.website}
-                      onChange={(e) => handleCompanyDataChange('website', e.target.value)}
-                    />
-                  </div>
+                  <Label htmlFor="company_website" className="text-slate-700 font-medium">Company Website (Optional)</Label>
+                  <Input
+                    id="company_website"
+                    type="url"
+                    placeholder="www.yourcompany.com"
+                    className={`h-11 transition-all duration-200 ${fieldErrors.website ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                    value={formData.website}
+                    onChange={(e) => handleInputChange('website', e.target.value)}
+                  />
                   {fieldErrors.website && (
                     <p className="text-red-500 text-sm mt-1">{fieldErrors.website}</p>
                   )}
                 </div>
 
                 <div>
-                  <Label htmlFor="address">Address</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <Input
-                      id="address"
-                      type="text"
-                      placeholder="123 Main Street"
-                      className="pl-10"
-                      value={companyData.address}
-                      onChange={(e) => handleCompanyDataChange('address', e.target.value)}
-                    />
-                  </div>
+                  <Label htmlFor="address" className="text-slate-700 font-medium">Address</Label>
+                  <AddressAutocomplete
+                    id="address"
+                    value={formData.address}
+                    onChange={(value) => handleInputChange('address', value)}
+                    onAddressSelect={handleAddressSelect}
+                    onLoadingChange={setIsAddressLoading}
+                    placeholder="Start typing your company address..."
+                  />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <Label htmlFor="city">City</Label>
+                    <Label htmlFor="city" className="text-slate-700 font-medium">City</Label>
                     <Input
                       id="city"
                       type="text"
                       placeholder="City"
-                      value={companyData.city}
-                      onChange={(e) => handleCompanyDataChange('city', e.target.value)}
+                      className="h-11"
+                      value={formData.city}
+                      onChange={(e) => handleInputChange('city', e.target.value)}
+                      disabled={isAddressLoading}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="state">State</Label>
+                    <Label htmlFor="state" className="text-slate-700 font-medium">State</Label>
                     <Input
                       id="state"
                       type="text"
                       placeholder="CA"
-                      value={companyData.state}
-                      onChange={(e) => handleCompanyDataChange('state', e.target.value)}
+                      maxLength={2}
+                      className="h-11"
+                      value={formData.state}
+                      onChange={(e) => handleInputChange('state', e.target.value)}
+                      disabled={isAddressLoading}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="zip" className="text-slate-700 font-medium">ZIP Code</Label>
+                    <Input
+                      id="zip"
+                      type="text"
+                      placeholder="90210"
+                      className="h-11"
+                      value={formData.zip}
+                      onChange={(e) => handleInputChange('zip', e.target.value)}
+                      disabled={isAddressLoading}
                     />
                   </div>
                 </div>
-
-                <div>
-                  <Label htmlFor="zip">ZIP Code</Label>
-                  <Input
-                    id="zip"
-                    type="text"
-                    placeholder="90210"
-                    value={companyData.zip}
-                    onChange={(e) => handleCompanyDataChange('zip', e.target.value)}
-                  />
-                </div>
-
-                {/* Trial Information */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-blue-900 mb-2">🎉 30-Day Free Trial</h3>
-                  <ul className="text-sm text-blue-800 space-y-1">
-                    <li>• Up to 100 jobs during trial period</li>
-                    <li>• Full access to all features</li>
-                    <li>• No credit card required</li>
-                    <li>• Cancel anytime</li>
-                  </ul>
-                </div>
-
-                <div className="flex gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => setCurrentStep(1)}
-                    className="flex-1"
-                  >
-                    Back
-                  </Button>
-                  <Button
-                    onClick={handleSignUp}
-                    disabled={isLoading}
-                    className="flex-1"
-                    size="lg"
-                  >
-                    {isLoading ? 'Creating Account...' : 'Start Free Trial'}
-                  </Button>
-                </div>
               </div>
-            )}
 
-            <Separator />
+              {/* Trial Information */}
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 border-2 border-blue-200 rounded-xl p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                    <Check className="w-5 h-5 text-white" />
+                  </div>
+                  <h3 className="font-bold text-blue-900 text-lg">30-Day Free Trial</h3>
+                </div>
+                <ul className="text-sm text-blue-900 space-y-2.5">
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <span>Up to 100 jobs during trial period</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <span>Full access to all features</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <span>No credit card required</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <span>Cancel anytime</span>
+                  </li>
+                </ul>
+              </div>
 
-            <div className="text-center text-sm text-slate-600">
-              Already have an account?{' '}
-              <Link
-                to={createPageUrl('Login')}
-                className="text-blue-600 hover:text-blue-800 font-medium"
+              {/* Submit Button */}
+              <Button
+                type="submit"
+                disabled={isLoading}
+                className="w-full h-12 bg-gradient-to-r from-blue-800 to-blue-900 hover:from-blue-900 hover:to-blue-950 shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-[1.02] text-base font-semibold"
+                size="lg"
               >
-                Sign in here
-              </Link>
-            </div>
+                {isLoading ? 'Creating Account...' : 'Start Free Trial'}
+              </Button>
+
+              <Separator className="my-6" />
+
+              <div className="text-center text-sm text-slate-600">
+                Already have an account?{' '}
+                <Link
+                  to={createPageUrl('Login')}
+                  className="text-blue-600 hover:text-blue-800 font-semibold hover:underline transition-all"
+                >
+                  Sign in here
+                </Link>
+              </div>
+            </form>
           </CardContent>
         </Card>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -6,9 +6,10 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Mail, Lock, FileText, AlertCircle } from 'lucide-react';
+import { Mail, Lock, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { createPageUrl } from '@/utils';
+import PublicNavbar from '@/components/layout/PublicNavbar';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -65,22 +66,21 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-blue-800 rounded-xl flex items-center justify-center">
-              <FileText className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-slate-900">ServeMax</h1>
+    <>
+      <PublicNavbar />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-white flex items-center justify-center p-4 pt-24">
+        <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-900 to-blue-700 bg-clip-text text-transparent mb-2">
+              Welcome Back
+            </h1>
+            <p className="text-slate-600">Sign in to your account</p>
           </div>
-          <p className="text-slate-600">Sign in to your account</p>
-        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Welcome Back</CardTitle>
+          <Card className="shadow-2xl border-slate-200/50 backdrop-blur-sm bg-white/95">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-2xl">Sign In</CardTitle>
             <CardDescription>
               Enter your credentials to access your account
             </CardDescription>
@@ -95,14 +95,14 @@ export default function LoginPage() {
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Label htmlFor="email" className="text-slate-700 font-medium">Email Address</Label>
+                <div className="relative group">
+                  <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
                   <Input
                     id="email"
                     type="email"
                     placeholder="your@email.com"
-                    className="pl-10"
+                    className="pl-10 h-11 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                     value={formData.email}
                     onChange={(e) => handleInputChange('email', e.target.value)}
                     disabled={isLoading}
@@ -112,14 +112,14 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Label htmlFor="password" className="text-slate-700 font-medium">Password</Label>
+                <div className="relative group">
+                  <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
                   <Input
                     id="password"
                     type="password"
                     placeholder="Your password"
-                    className="pl-10"
+                    className="pl-10 h-11 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                     value={formData.password}
                     onChange={(e) => handleInputChange('password', e.target.value)}
                     disabled={isLoading}
@@ -130,7 +130,7 @@ export default function LoginPage() {
 
               <Button
                 type="submit"
-                className="w-full"
+                className="w-full bg-gradient-to-r from-blue-800 to-blue-900 hover:from-blue-900 hover:to-blue-950 shadow-md hover:shadow-lg transition-all duration-200 hover:scale-[1.02]"
                 size="lg"
                 disabled={isLoading}
               >
@@ -142,7 +142,7 @@ export default function LoginPage() {
             <div className="text-center mt-4">
               <Link
                 to={createPageUrl('ForgotPassword')}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all"
               >
                 Forgot your password?
               </Link>
@@ -155,7 +155,7 @@ export default function LoginPage() {
                 Don't have an account?{' '}
                 <Link
                   to={createPageUrl('SignUp')}
-                  className="text-blue-600 hover:text-blue-800 font-medium"
+                  className="text-blue-600 hover:text-blue-800 font-semibold hover:underline transition-all"
                 >
                   Start your free trial
                 </Link>
@@ -165,7 +165,7 @@ export default function LoginPage() {
                 Have an invitation?{' '}
                 <Link
                   to={createPageUrl('InviteSignUp')}
-                  className="text-blue-600 hover:text-blue-800 font-medium"
+                  className="text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all"
                 >
                   Join a company
                 </Link>
@@ -187,5 +187,6 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  </>
   );
 }

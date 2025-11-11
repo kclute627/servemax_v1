@@ -214,7 +214,8 @@ export default function DirectoryProfilePanel() {
       address: addressDetails.address1 || '',
       city: addressDetails.city || '',
       state: addressDetails.state || '',
-      zip: addressDetails.postal_code || ''
+      zip: addressDetails.postal_code || '',
+      county: addressDetails.county || ''
     }));
   };
 

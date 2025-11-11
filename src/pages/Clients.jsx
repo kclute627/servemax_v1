@@ -22,7 +22,8 @@ export default function ClientsPage() {
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [filters, setFilters] = useState({
     type: "all",
-    status: "all"
+    status: "all",
+    partner: "all" // "all", "partners", "non-partners"
   });
 
   // Loading timeout to show message if stuck
@@ -40,6 +41,7 @@ export default function ClientsPage() {
   // Calculate stats
   const stats = useMemo(() => {
     const activeClients = clients.filter(c => c.status === 'active').length;
+    const partners = clients.filter(c => c.is_job_share_partner === true).length;
     const totalRevenue = jobs.reduce((sum, job) => {
       const jobTotal = job.total_fee || job.service_fee || 0;
       return sum + jobTotal;
@@ -48,6 +50,7 @@ export default function ClientsPage() {
     return {
       total: clients.length,
       active: activeClients,
+      partners: partners,
       revenue: totalRevenue,
       jobCount: jobs.length
     };
@@ -75,6 +78,13 @@ export default function ClientsPage() {
       filtered = filtered.filter(client => client.status === filters.status);
     }
 
+    // Partner filter
+    if (filters.partner === "partners") {
+      filtered = filtered.filter(client => client.is_job_share_partner === true);
+    } else if (filters.partner === "non-partners") {
+      filtered = filtered.filter(client => client.is_job_share_partner !== true);
+    }
+
     setFilteredClients(filtered);
   }, [clients, searchTerm, filters]);
 
@@ -87,7 +97,7 @@ export default function ClientsPage() {
     setShowNewClientDialog(false);
   };
 
-  const hasActiveFilters = filters.type !== "all" || filters.status !== "all";
+  const hasActiveFilters = filters.type !== "all" || filters.status !== "all" || filters.partner !== "all";
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -155,11 +165,11 @@ export default function ClientsPage() {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-slate-600">Total Jobs</p>
-                    <p className="text-2xl font-bold text-slate-900 mt-2">{stats.jobCount}</p>
+                    <p className="text-sm font-medium text-slate-600">Job Share Partners</p>
+                    <p className="text-2xl font-bold text-slate-900 mt-2">{stats.partners}</p>
                   </div>
                   <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                    <TrendingUp className="w-6 h-6 text-purple-600" />
+                    <Users className="w-6 h-6 text-purple-600" />
                   </div>
                 </div>
               </CardContent>
@@ -203,7 +213,8 @@ export default function ClientsPage() {
                       <SelectItem value="corporate">Corporate</SelectItem>
                       <SelectItem value="government">Government</SelectItem>
                       <SelectItem value="individual">Individual</SelectItem>
-                      <SelectItem value="process_server">Process Server</SelectItem>
+                      <SelectItem value="process_serving">Process Serving Company</SelectItem>
+                      <SelectItem value="independent_process_server">Independent Process Server</SelectItem>
                     </Select>
                   </div>
 
@@ -216,10 +227,18 @@ export default function ClientsPage() {
                     </Select>
                   </div>
 
+                  <div className="flex-1">
+                    <Select value={filters.partner} onChange={(e) => setFilters(prev => ({ ...prev, partner: e.target.value }))}>
+                      <SelectItem value="all">All Clients</SelectItem>
+                      <SelectItem value="partners">Job Share Partners</SelectItem>
+                      <SelectItem value="non-partners">Regular Clients</SelectItem>
+                    </Select>
+                  </div>
+
                   {hasActiveFilters && (
                     <Button
                       variant="outline"
-                      onClick={() => setFilters({ type: "all", status: "all" })}
+                      onClick={() => setFilters({ type: "all", status: "all", partner: "all" })}
                       className="gap-2"
                     >
                       <X className="w-4 h-4" />

@@ -2213,3 +2213,455 @@ exports.respondToShareRequest = onCall(async (request) => {
     );
   }
 });
+
+/**
+ * Create a partnership request
+ */
+exports.createPartnershipRequest = onCall(async (request) => {
+  try {
+    // Validate authentication
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {targetCompanyId, message} = request.data;
+
+    // Validate required fields
+    if (!targetCompanyId) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Missing required field: targetCompanyId",
+      );
+    }
+
+    // Get requesting user's data from Firestore
+    const userDoc = await admin.firestore()
+        .collection("users")
+        .doc(request.auth.uid)
+        .get();
+
+    if (!userDoc.exists) {
+      throw new HttpsError("not-found", "User not found");
+    }
+
+    const userData = userDoc.data();
+    const requestingCompanyId = userData.company_id;
+
+    if (!requestingCompanyId) {
+      throw new HttpsError(
+          "failed-precondition",
+          "User does not belong to a company",
+      );
+    }
+
+    // Can't partner with yourself
+    if (requestingCompanyId === targetCompanyId) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Cannot create partnership with your own company",
+      );
+    }
+
+    // Get both company documents
+    const [requestingCompanyDoc, targetCompanyDoc] = await Promise.all([
+      admin.firestore().collection("companies").doc(requestingCompanyId).get(),
+      admin.firestore().collection("companies").doc(targetCompanyId).get(),
+    ]);
+
+    if (!requestingCompanyDoc.exists || !targetCompanyDoc.exists) {
+      throw new HttpsError("not-found", "One or both companies not found");
+    }
+
+    const requestingCompany = requestingCompanyDoc.data();
+    const targetCompany = targetCompanyDoc.data();
+
+    // Check if partnership already exists
+    const existingPartner = requestingCompany.job_share_partners?.find(
+        (p) => p.partner_company_id === targetCompanyId,
+    );
+
+    if (existingPartner) {
+      throw new HttpsError(
+          "already-exists",
+          "Partnership already exists with this company",
+      );
+    }
+
+    // Check for existing pending request
+    const existingRequests = await admin.firestore()
+        .collection("partnership_requests")
+        .where("requesting_company_id", "==", requestingCompanyId)
+        .where("target_company_id", "==", targetCompanyId)
+        .where("status", "==", "pending")
+        .get();
+
+    if (!existingRequests.empty) {
+      throw new HttpsError(
+          "already-exists",
+          "Partnership request already sent",
+      );
+    }
+
+    // Create partnership request
+    const partnershipRequest = {
+      requesting_company_id: requestingCompanyId,
+      requesting_company_name: requestingCompany.name || "Unknown Company",
+      requesting_user_id: request.auth.uid,
+      requesting_user_name: userData.name || userData.email || "Unknown User",
+
+      target_company_id: targetCompanyId,
+      target_company_name: targetCompany.name || "Unknown Company",
+
+      status: "pending",
+      message: message || "",
+
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      responded_at: null,
+    };
+
+    const docRef = await admin.firestore()
+        .collection("partnership_requests")
+        .add(partnershipRequest);
+
+    console.log(`Partnership request created: ${docRef.id}`);
+
+    // TODO: Send email notification to target company
+
+    return {
+      success: true,
+      requestId: docRef.id,
+      message: "Partnership request sent successfully",
+    };
+  } catch (error) {
+    console.error("Error in createPartnershipRequest:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError(
+        "internal",
+        `Failed to create partnership request: ${error.message}`,
+    );
+  }
+});
+
+/**
+ * Respond to a partnership request (accept or decline)
+ */
+exports.respondToPartnershipRequest = onCall(async (request) => {
+  try {
+    // Validate authentication
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {requestId, accept} = request.data;
+
+    if (!requestId || accept === undefined) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Missing required fields: requestId, accept",
+      );
+    }
+
+    // Get requesting user's company_id from Firestore
+    const userDoc = await admin.firestore()
+        .collection("users")
+        .doc(request.auth.uid)
+        .get();
+
+    if (!userDoc.exists) {
+      throw new HttpsError("not-found", "User not found");
+    }
+
+    const userData = userDoc.data();
+    const userCompanyId = userData.company_id;
+
+    if (!userCompanyId) {
+      throw new HttpsError(
+          "failed-precondition",
+          "User does not belong to a company",
+      );
+    }
+
+    // Get partnership request
+    const requestDoc = await admin.firestore()
+        .collection("partnership_requests")
+        .doc(requestId)
+        .get();
+
+    if (!requestDoc.exists) {
+      throw new HttpsError("not-found", "Partnership request not found");
+    }
+
+    const partnershipReq = requestDoc.data();
+
+    // Verify user has permission to respond
+    if (partnershipReq.target_company_id !== userCompanyId) {
+      throw new HttpsError(
+          "permission-denied",
+          "You do not have permission to respond to this request",
+      );
+    }
+
+    // Check if already responded
+    if (partnershipReq.status !== "pending") {
+      throw new HttpsError(
+          "failed-precondition",
+          "This request has already been responded to",
+      );
+    }
+
+    if (accept) {
+      // Get both company documents first (before batch operations)
+      const [requestingCompanyDoc, targetCompanyDoc] = await Promise.all([
+        admin.firestore()
+            .collection("companies")
+            .doc(partnershipReq.requesting_company_id)
+            .get(),
+        admin.firestore()
+            .collection("companies")
+            .doc(partnershipReq.target_company_id)
+            .get(),
+      ]);
+
+      const requestingCompany = requestingCompanyDoc.data();
+      const targetCompany = targetCompanyDoc.data();
+
+      // Check for existing client records (before batch operations)
+      const [existingRequestingClient, existingTargetClient] = await Promise.all([
+        admin.firestore()
+            .collection("companies")
+            .where("company_id", "==", partnershipReq.requesting_company_id)
+            .where("created_by", "==", partnershipReq.target_company_id)
+            .limit(1)
+            .get(),
+        admin.firestore()
+            .collection("companies")
+            .where("company_id", "==", partnershipReq.target_company_id)
+            .where("created_by", "==", partnershipReq.requesting_company_id)
+            .limit(1)
+            .get(),
+      ]);
+
+      // Create partner entries for both companies
+      // Note: Cannot use serverTimestamp() inside arrays, so use new Date()
+      const now = new Date();
+
+      // Start batch operations
+      const batch = admin.firestore().batch();
+
+      // Update partnership request status
+      const requestRef = admin.firestore()
+          .collection("partnership_requests")
+          .doc(requestId);
+      batch.update(requestRef, {
+        status: "accepted",
+        responded_at: now,
+        responded_by: request.auth.uid,
+      });
+
+      const partnerForRequesting = {
+        partner_company_id: partnershipReq.target_company_id,
+        partner_company_name: partnershipReq.target_company_name,
+        partner_user_id: null, // Can be set later
+        partner_type: targetCompany.company_type || "process_serving",
+        relationship_status: "active",
+        established_at: now,
+        auto_assignment_enabled: false,
+        auto_assignment_zones: [],
+        quick_assign_enabled: false,
+        requires_acceptance: true,
+        email_notifications_enabled: true,
+        total_jobs_shared: 0,
+        auto_assigned_count: 0,
+        acceptance_rate: 0,
+        last_shared_at: null,
+      };
+
+      const partnerForTarget = {
+        partner_company_id: partnershipReq.requesting_company_id,
+        partner_company_name: partnershipReq.requesting_company_name,
+        partner_user_id: partnershipReq.requesting_user_id,
+        partner_type: requestingCompany.company_type || "process_serving",
+        relationship_status: "active",
+        established_at: now,
+        auto_assignment_enabled: false,
+        auto_assignment_zones: [],
+        quick_assign_enabled: false,
+        requires_acceptance: true,
+        email_notifications_enabled: true,
+        total_jobs_shared: 0,
+        auto_assigned_count: 0,
+        acceptance_rate: 0,
+        last_shared_at: null,
+      };
+
+      // Add partners to both companies
+      const requestingCompanyRef = admin.firestore()
+          .collection("companies")
+          .doc(partnershipReq.requesting_company_id);
+      const targetCompanyRef = admin.firestore()
+          .collection("companies")
+          .doc(partnershipReq.target_company_id);
+
+      batch.update(requestingCompanyRef, {
+        job_share_partners: admin.firestore.FieldValue.arrayUnion(partnerForRequesting),
+      });
+
+      batch.update(targetCompanyRef, {
+        job_share_partners: admin.firestore.FieldValue.arrayUnion(partnerForTarget),
+      });
+
+      // Create client records for both companies so they appear in each other's client lists
+      const requestingClientData = {
+        company_id: partnershipReq.requesting_company_id,
+        company_name: partnershipReq.requesting_company_name,
+        name: partnershipReq.requesting_company_name,
+        company_type: requestingCompany.company_type || "process_serving",
+        created_by: partnershipReq.target_company_id, // Target company "owns" this client
+        is_job_share_partner: true,
+        partnership_established_at: now,
+        partnership_source: "job_sharing",
+        status: "active",
+        email: requestingCompany.email || "",
+        phone: requestingCompany.phone || "",
+        address: requestingCompany.address || "",
+        city: requestingCompany.city || "",
+        state: requestingCompany.state || "",
+        zip: requestingCompany.zip || "",
+        contacts: (requestingCompany.email || requestingCompany.phone) ? [{
+          first_name: "",
+          last_name: "",
+          email: requestingCompany.email || "",
+          phone: requestingCompany.phone || "",
+          title: "",
+          primary: true,
+        }] : [],
+        addresses: (requestingCompany.address1 || requestingCompany.address) ? [{
+          label: "Main Office",
+          address1: requestingCompany.address1 || requestingCompany.address || "",
+          address2: requestingCompany.address2 || "",
+          city: requestingCompany.city || "",
+          state: requestingCompany.state || "",
+          postal_code: requestingCompany.zip || "",
+          county: requestingCompany.county || "",
+          latitude: requestingCompany.latitude || null,
+          longitude: requestingCompany.longitude || null,
+          primary: true,
+        }] : [],
+        billing_tier: requestingCompany.billing_tier || "trial",
+        created_at: now,
+        updated_at: now,
+      };
+
+      const targetClientData = {
+        company_id: partnershipReq.target_company_id,
+        company_name: partnershipReq.target_company_name,
+        name: partnershipReq.target_company_name,
+        company_type: targetCompany.company_type || "process_serving",
+        created_by: partnershipReq.requesting_company_id, // Requesting company "owns" this client
+        is_job_share_partner: true,
+        partnership_established_at: now,
+        partnership_source: "job_sharing",
+        status: "active",
+        email: targetCompany.email || "",
+        phone: targetCompany.phone || "",
+        address: targetCompany.address || "",
+        city: targetCompany.city || "",
+        state: targetCompany.state || "",
+        zip: targetCompany.zip || "",
+        contacts: (targetCompany.email || targetCompany.phone) ? [{
+          first_name: "",
+          last_name: "",
+          email: targetCompany.email || "",
+          phone: targetCompany.phone || "",
+          title: "",
+          primary: true,
+        }] : [],
+        addresses: (targetCompany.address1 || targetCompany.address) ? [{
+          label: "Main Office",
+          address1: targetCompany.address1 || targetCompany.address || "",
+          address2: targetCompany.address2 || "",
+          city: targetCompany.city || "",
+          state: targetCompany.state || "",
+          postal_code: targetCompany.zip || "",
+          county: targetCompany.county || "",
+          latitude: targetCompany.latitude || null,
+          longitude: targetCompany.longitude || null,
+          primary: true,
+        }] : [],
+        billing_tier: targetCompany.billing_tier || "trial",
+        created_at: now,
+        updated_at: now,
+      };
+
+      // Create or update client records in companies collection
+      if (existingRequestingClient.empty) {
+        const newClientRef = admin.firestore().collection("companies").doc();
+        batch.set(newClientRef, requestingClientData);
+        console.log(`Creating client record for ${partnershipReq.requesting_company_name} in ${partnershipReq.target_company_name}'s client list`);
+      } else {
+        // Update existing to mark as partner
+        const existingDoc = existingRequestingClient.docs[0];
+        batch.update(existingDoc.ref, {
+          is_job_share_partner: true,
+          partnership_established_at: now,
+          partnership_source: "job_sharing",
+          updated_at: now,
+        });
+        console.log(`Updating existing client record for ${partnershipReq.requesting_company_name} to mark as partner`);
+      }
+
+      if (existingTargetClient.empty) {
+        const newClientRef = admin.firestore().collection("companies").doc();
+        batch.set(newClientRef, targetClientData);
+        console.log(`Creating client record for ${partnershipReq.target_company_name} in ${partnershipReq.requesting_company_name}'s client list`);
+      } else {
+        // Update existing to mark as partner
+        const existingDoc = existingTargetClient.docs[0];
+        batch.update(existingDoc.ref, {
+          is_job_share_partner: true,
+          partnership_established_at: now,
+          partnership_source: "job_sharing",
+          updated_at: now,
+        });
+        console.log(`Updating existing client record for ${partnershipReq.target_company_name} to mark as partner`);
+      }
+
+      console.log(`Partnership established between ${partnershipReq.requesting_company_id} and ${partnershipReq.target_company_id}`);
+
+      // Commit all batch operations
+      await batch.commit();
+    } else {
+      // Declined - just update the request status
+      const batch = admin.firestore().batch();
+      const requestRef = admin.firestore()
+          .collection("partnership_requests")
+          .doc(requestId);
+      batch.update(requestRef, {
+        status: "declined",
+        responded_at: new Date(),
+        responded_by: request.auth.uid,
+      });
+      await batch.commit();
+    }
+
+    // TODO: Send notification email
+
+    return {
+      success: true,
+      message: accept ?
+        "Partnership accepted successfully" :
+        "Partnership declined",
+    };
+  } catch (error) {
+    console.error("Error in respondToPartnershipRequest:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError(
+        "internal",
+        `Failed to respond to partnership request: ${error.message}`,
+    );
+  }
+});

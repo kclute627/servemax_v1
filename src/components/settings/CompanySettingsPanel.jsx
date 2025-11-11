@@ -36,6 +36,8 @@ export default function CompanySettingsPanel() {
     state: '',
     postal_code: '',
     county: '',
+    latitude: null,
+    longitude: null,
     phone: '',
     email: ''
   });
@@ -62,6 +64,8 @@ export default function CompanySettingsPanel() {
         state: primaryAddress?.state || companyData.state || '',
         postal_code: primaryAddress?.postal_code || companyData.zip || '',
         county: primaryAddress?.county || companyData.county || '',
+        latitude: primaryAddress?.lat || companyData.latitude || null,
+        longitude: primaryAddress?.lng || companyData.longitude || null,
         phone: companyData.phone || '',
         email: companyData.email || ''
       });
@@ -127,8 +131,8 @@ export default function CompanySettingsPanel() {
         state: companyInfo.state,
         postal_code: companyInfo.postal_code,
         county: companyInfo.county,
-        lat: null, // Will be geocoded later if needed
-        lng: null, // Will be geocoded later if needed
+        lat: companyInfo.latitude || null,
+        lng: companyInfo.longitude || null,
         primary: true,
         created_at: companyData?.addresses?.[0]?.created_at || new Date(),
         updated_at: new Date()
@@ -180,6 +184,8 @@ export default function CompanySettingsPanel() {
             city: companyInfo.city,
             state: companyInfo.state,
             zip: companyInfo.postal_code,
+            lat: companyInfo.latitude || null,
+            lng: companyInfo.longitude || null,
             is_active: true
           });
         } else {
@@ -197,6 +203,8 @@ export default function CompanySettingsPanel() {
             city: companyInfo.city,
             state: companyInfo.state,
             zip: companyInfo.postal_code,
+            lat: companyInfo.latitude || null,
+            lng: companyInfo.longitude || null,
             blurb: directorySettings.blurb,
             is_active: true
           });
@@ -312,9 +320,13 @@ export default function CompanySettingsPanel() {
     setCompanyInfo(prev => ({
       ...prev,
       address1: addressDetails.address1 || '',
+      // Keep existing address2 (suite/unit number)
       city: addressDetails.city || '',
       state: addressDetails.state || '',
       postal_code: addressDetails.postal_code || '',
+      county: addressDetails.county || '',
+      latitude: addressDetails.latitude || null,
+      longitude: addressDetails.longitude || null
     }));
   };
 

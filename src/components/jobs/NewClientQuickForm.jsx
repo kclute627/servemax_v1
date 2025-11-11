@@ -86,9 +86,13 @@ export default function NewClientQuickForm({ onClientCreated, onCancel, initialC
       addresses: [{
         ...prev.addresses[0],
         address1: addressDetails.address1 || '',
+        // Preserve address2 (suite/unit) from existing data
         city: addressDetails.city || '',
         state: addressDetails.state || '',
-        postal_code: addressDetails.postal_code || ''
+        postal_code: addressDetails.postal_code || '',
+        county: addressDetails.county || '',
+        latitude: addressDetails.latitude || null,
+        longitude: addressDetails.longitude || null
       }]
     }));
   };
@@ -171,7 +175,7 @@ export default function NewClientQuickForm({ onClientCreated, onCancel, initialC
               >
                 <SelectItem value="law_firm">Law Firm</SelectItem>
                 <SelectItem value="process_serving">Process Serving Company</SelectItem>
-                <SelectItem value="independent_contractor">Independent Process Server</SelectItem>
+                <SelectItem value="independent_process_server">Independent Process Server</SelectItem>
               </Select>
             </div>
           </div>

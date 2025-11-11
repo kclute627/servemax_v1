@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign } from "lucide-react";
+import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign, Users } from "lucide-react";
 import { User } from "@/api/entities";
 import { isSuperAdmin } from "@/utils/permissions";
 import CompanySettingsPanel from "../components/settings/CompanySettingsPanel";
@@ -11,6 +11,7 @@ import ServiceSettingsPanel from "../components/settings/ServiceSettingsPanel";
 import InvoiceSettingsPanel from "../components/settings/InvoiceSettingsPanel";
 import AgentsSettingsPanel from "../components/settings/AgentsSettingsPanel";
 import PricingConfigPanel from "../components/settings/PricingConfigPanel";
+import { PartnerManagement, PartnershipDirectory, PartnershipRequests } from "@/components/JobSharing";
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('company');
@@ -77,6 +78,7 @@ export default function SettingsPage() {
                     <TabButton tabName="invoice" label="Invoice" icon={Receipt} />
                     <TabButton tabName="user" label="My Settings" icon={UserIcon} />
                     <TabButton tabName="service" label="Service" icon={ListChecks} />
+                    <TabButton tabName="partners" label="Job Sharing" icon={Users} />
                   </>
                 )}
                 {isAdmin && !isSuperAdminUser && (
@@ -97,6 +99,30 @@ export default function SettingsPage() {
             {activeTab === 'invoice' && !isSuperAdminUser && <InvoiceSettingsPanel />}
             {activeTab === 'user' && !isSuperAdminUser && <UserSettingsPanel />}
             {activeTab === 'service' && !isSuperAdminUser && <ServiceSettingsPanel />}
+            {activeTab === 'partners' && !isSuperAdminUser && user?.company_id && (
+              <div className="space-y-8">
+                {/* Pending Partnership Requests Section */}
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-900 mb-2">Partnership Requests</h2>
+                  <p className="text-slate-600 mb-6">Review and respond to partnership requests from other companies</p>
+                  <PartnershipRequests companyId={user.company_id} />
+                </div>
+
+                {/* Existing Partners Management */}
+                <div className="border-t pt-8">
+                  <h2 className="text-2xl font-bold text-slate-900 mb-2">Your Partners</h2>
+                  <p className="text-slate-600 mb-6">Manage your existing job sharing partnerships</p>
+                  <PartnerManagement companyId={user.company_id} />
+                </div>
+
+                {/* Find New Partners */}
+                <div className="border-t pt-8">
+                  <h2 className="text-2xl font-bold text-slate-900 mb-2">Find New Partners</h2>
+                  <p className="text-slate-600 mb-6">Search the directory to establish new partnerships</p>
+                  <PartnershipDirectory onPartnerAdded={() => window.location.reload()} />
+                </div>
+              </div>
+            )}
             {activeTab === 'agents' && isAdmin && !isSuperAdminUser && <AgentsSettingsPanel />}
             {activeTab === 'billing' && isAdmin && !isSuperAdminUser && <BillingPanel />}
             {activeTab === 'pricing' && isSuperAdminUser && <PricingConfigPanel />}

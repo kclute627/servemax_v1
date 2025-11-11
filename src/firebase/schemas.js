@@ -596,23 +596,10 @@ export class DirectoryManager {
           if (company.lat && company.lng && !isNaN(company.lat) && !isNaN(company.lng)) {
             companyCoords = { lat: company.lat, lng: company.lng };
           } else {
-            // Try to geocode the company's location
-            try {
-              companyCoords = await geocodeCompanyAddress(company);
-
-              // Update the company with the new coordinates
-              await this.updateDirectoryListing(company.id, {
-                lat: companyCoords.lat,
-                lng: companyCoords.lng,
-                last_geocoded_at: new Date()
-              });
-
-              console.log(`Geocoded ${company.name}: ${companyCoords.lat}, ${companyCoords.lng}`);
-            } catch (geocodeError) {
-              console.warn(`Failed to geocode ${company.name}:`, geocodeError.message);
-              // Skip this company if we can't geocode it
-              continue;
-            }
+            // Skip companies without coordinates - they need to update their own listing
+            // Cannot update other companies' directory listings due to security rules
+            console.warn(`Skipping ${company.name} - missing coordinates. Company should update their own listing.`);
+            continue;
           }
 
           // Calculate distance

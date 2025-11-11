@@ -19,6 +19,7 @@ import {
 // FIREBASE TRANSITION: Replace these with your Firebase service imports
 import { Client, User } from "@/api/entities";
 import { Plus, Loader2, Trash2 } from "lucide-react";
+import AddressAutocomplete from "@/components/jobs/AddressAutocomplete";
 
 const getInitialState = (defaultEmail = "") => ({
   company_name: "",
@@ -30,7 +31,7 @@ const getInitialState = (defaultEmail = "") => ({
   job_sharing_opt_in: false,
   job_sharing_email: defaultEmail,
   contacts: [{ first_name: "", last_name: "", email: "", phone: "", title: "", primary: true }],
-  addresses: [{ label: "Main Office", address1: "", city: "", state: "", postal_code: "", primary: true }],
+  addresses: [{ label: "Main Office", address1: "", city: "", state: "", postal_code: "", county: "", latitude: null, longitude: null, primary: true }],
   phone_numbers: [],
   email_addresses: []
 });
@@ -39,6 +40,7 @@ export default function NewClientDialog({ open, onOpenChange, onClientCreated })
   const [formData, setFormData] = useState(getInitialState());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState("");
+  const [isAddressLoading, setIsAddressLoading] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -110,7 +112,25 @@ export default function NewClientDialog({ open, onOpenChange, onClientCreated })
   const addAddress = () => {
     setFormData(prev => ({
       ...prev,
-      addresses: [...prev.addresses, { label: "", address1: "", city: "", state: "", postal_code: "", primary: false }]
+      addresses: [...prev.addresses, { label: "", address1: "", city: "", state: "", postal_code: "", county: "", latitude: null, longitude: null, primary: false }]
+    }));
+  };
+
+  const handleAddressAutocompleteSelect = (index, addressDetails) => {
+    setFormData(prev => ({
+      ...prev,
+      addresses: prev.addresses.map((address, i) =>
+        i === index ? {
+          ...address,
+          address1: addressDetails.address1 || '',
+          city: addressDetails.city || '',
+          state: addressDetails.state || '',
+          postal_code: addressDetails.postal_code || '',
+          county: addressDetails.county || '',
+          latitude: addressDetails.latitude || null,
+          longitude: addressDetails.longitude || null
+        } : address
+      )
     }));
   };
 
@@ -175,7 +195,8 @@ export default function NewClientDialog({ open, onOpenChange, onClientCreated })
                     <SelectItem value="corporate">Corporate</SelectItem>
                     <SelectItem value="government">Government</SelectItem>
                     <SelectItem value="individual">Individual</SelectItem>
-                    <SelectItem value="process_server">Process Server</SelectItem>
+                    <SelectItem value="process_serving">Process Serving Company</SelectItem>
+                    <SelectItem value="independent_process_server">Independent Process Server</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -258,26 +279,34 @@ export default function NewClientDialog({ open, onOpenChange, onClientCreated })
                     <Button type="button" variant="ghost" size="sm" onClick={() => removeAddress(index)}><Trash2 className="w-4 h-4" /></Button>
                   )}
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-4">
                   <div>
                     <Label>Label</Label>
                     <Input value={address.label} onChange={(e) => handleAddressChange(index, 'label', e.target.value)} placeholder="e.g., Main Office, Billing" />
                   </div>
                   <div>
                     <Label>Address</Label>
-                    <Input value={address.address1} onChange={(e) => handleAddressChange(index, 'address1', e.target.value)} />
+                    <AddressAutocomplete
+                      value={address.address1}
+                      onChange={(value) => handleAddressChange(index, 'address1', value)}
+                      onAddressSelect={(addressDetails) => handleAddressAutocompleteSelect(index, addressDetails)}
+                      onLoadingChange={setIsAddressLoading}
+                      placeholder="Start typing address..."
+                    />
                   </div>
-                  <div>
-                    <Label>City</Label>
-                    <Input value={address.city} onChange={(e) => handleAddressChange(index, 'city', e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>State</Label>
-                    <Input value={address.state} onChange={(e) => handleAddressChange(index, 'state', e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Postal Code</Label>
-                    <Input value={address.postal_code} onChange={(e) => handleAddressChange(index, 'postal_code', e.target.value)} />
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <Label>City</Label>
+                      <Input value={address.city} onChange={(e) => handleAddressChange(index, 'city', e.target.value)} disabled={isAddressLoading} />
+                    </div>
+                    <div>
+                      <Label>State</Label>
+                      <Input value={address.state} onChange={(e) => handleAddressChange(index, 'state', e.target.value)} disabled={isAddressLoading} />
+                    </div>
+                    <div>
+                      <Label>Postal Code</Label>
+                      <Input value={address.postal_code} onChange={(e) => handleAddressChange(index, 'postal_code', e.target.value)} disabled={isAddressLoading} />
+                    </div>
                   </div>
                 </div>
               </div>

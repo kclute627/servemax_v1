@@ -5,6 +5,7 @@ import { Job, Client, Employee, CourtCase, Document, Attempt, Invoice, CompanySe
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useGlobalData } from '@/components/GlobalDataContext';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { calculateDistance } from '@/utils/geolocation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +85,7 @@ import { generateFieldSheet, mergePDFs } from "@/api/functions";
 import { UploadFile } from "@/api/integrations";
 import { motion, AnimatePresence } from 'framer-motion';
 import AttemptTimeIndicator from '../components/jobs/AttemptTimeIndicator';
+import { JobShareChain, ShareWithPartner } from '@/components/JobSharing';
 
 // --- Configuration Objects ---
 // These are UI-specific and will likely remain unchanged during migration.
@@ -446,6 +449,9 @@ export default function JobDetailsPage() {
   // FIREBASE TRANSITION: The structure of these state variables (job, client, etc.) will likely remain the same.
   // They will be populated by your Firebase data fetching logic instead of the Base44 SDK.
 
+  // Get authenticated user
+  const { user } = useAuth();
+
   // Core data for the page
   const [job, setJob] = useState(null); // Holds the main job object.
   const [client, setClient] = useState(null); // Holds the associated client object.
@@ -468,6 +474,7 @@ export default function JobDetailsPage() {
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [isEditingServiceDocuments, setIsEditingServiceDocuments] = useState(false);
   const [isNewContactDialogOpen, setIsNewContactDialogOpen] = useState(false);
+  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 
   // Form-specific state
   const [editFormData, setEditFormData] = useState({}); // A temporary object to hold changes during an edit session.
@@ -673,9 +680,9 @@ export default function JobDetailsPage() {
         invoiceSettingsData,
       ] = await Promise.all([
         jobData.client_id ? Client.findById(jobData.client_id) : Promise.resolve(null),
-        jobData.court_case_id ? CourtCase.findById(jobData.court_case_id) : Promise.resolve(null),
-        Document.filter({ job_id: jobId }).catch(e => { console.error("Error loading documents:", e); return []; }),
-        Attempt.filter({ job_id: jobId }).catch(e => { console.error("Error loading attempts:", e); return []; }),
+        jobData.court_case_id ? CourtCase.filter({ id: jobData.court_case_id, company_id: user?.company_id }).then(cases => cases[0] || null).catch(e => { console.error("Error finding court_cases by ID:", e); return null; }) : Promise.resolve(null),
+        Document.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { console.error("Error loading documents:", e); return []; }),
+        Attempt.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { console.error("Error loading attempts:", e); return []; }),
         // Use direct lookup if job has invoice_id, otherwise fallback to filter
         jobData.job_invoice_id
           ? Invoice.findById(jobData.job_invoice_id).catch(e => { console.error("Error loading invoice:", e); return null; })
@@ -854,12 +861,18 @@ export default function JobDetailsPage() {
     }
 
     if (jobId) {
-      loadJobDetails(jobId);
+      // Only load job details if user is available (for company_id filtering)
+      if (user?.company_id) {
+        loadJobDetails(jobId);
+      } else {
+        // Wait for user to be loaded
+        setIsLoading(true);
+      }
     } else {
       setError("No Job ID provided");
       setIsLoading(false);
     }
-  }, [location.search, loadJobDetails]);
+  }, [location.search, loadJobDetails, user]);
 
   /**
    * Toggles the 'is_closed' status of the job.
@@ -1220,9 +1233,11 @@ export default function JobDetailsPage() {
         newAddresses[index] = {
             ...newAddresses[index],
             address1: addressDetails.address1 || '',
+            // Preserve address2 (suite/unit) from existing data
             city: addressDetails.city || '',
             state: addressDetails.state || '',
             postal_code: addressDetails.postal_code || '',
+            county: addressDetails.county || '',
             latitude: addressDetails.latitude || null,
             longitude: addressDetails.longitude || null,
         };
@@ -1844,8 +1859,25 @@ export default function JobDetailsPage() {
                 </>
               )}
             </Button>
+            {!job.is_closed && (
+              <Button
+                onClick={() => setIsShareDialogOpen(true)}
+                variant="outline"
+                className="gap-2"
+              >
+                <Share2 className="w-4 h-4" />
+                Share Job
+              </Button>
+            )}
           </div>
         </div>
+
+        {/* Job Share Chain */}
+        {job?.job_share_chain?.is_shared && currentUser?.company_id && (
+          <div className="mb-6">
+            <JobShareChain job={job} currentCompanyId={currentUser.company_id} />
+          </div>
+        )}
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -3138,6 +3170,25 @@ export default function JobDetailsPage() {
         client={client}
         onContactCreated={handleContactCreated}
       />
+
+      {/* Dialog for sharing job */}
+      <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Share Job #{job?.job_number}</DialogTitle>
+            <DialogDescription>
+              Share this job with one of your approved partners
+            </DialogDescription>
+          </DialogHeader>
+          <ShareWithPartner
+            jobId={job.id}
+            onShareRequest={() => {
+              setIsShareDialogOpen(false);
+              // Optionally refresh job data here
+            }}
+          />
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
