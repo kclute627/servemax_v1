@@ -43,6 +43,8 @@ import {
   Handshake
 } from 'lucide-react';
 import { format } from 'date-fns';
+import AddressAutocomplete from '@/components/jobs/AddressAutocomplete';
+import { useToast } from '@/components/ui/use-toast';
 
 const statusConfig = {
   active: { color: "bg-green-100 text-green-700", label: "Active" },
@@ -80,6 +82,7 @@ const clientTypeConfig = {
 
 export default function ClientDetails() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const clientId = searchParams.get('id');
@@ -93,6 +96,7 @@ export default function ClientDetails() {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAddressLoading, setIsAddressLoading] = useState(false);
 
   // State for delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState({ open: false, type: null, index: -1 });
@@ -233,15 +237,42 @@ export default function ClientDetails() {
     }));
   };
 
+  const handleAddressAutocompleteSelect = (index, addressDetails) => {
+    setFormData(prev => ({
+      ...prev,
+      addresses: (prev.addresses || []).map((address, i) =>
+        i === index ? {
+          ...address,
+          address1: addressDetails.address1 || '',
+          city: addressDetails.city || '',
+          state: addressDetails.state || '',
+          postal_code: addressDetails.postal_code || '',
+          county: addressDetails.county || '',
+          latitude: addressDetails.latitude || null,
+          longitude: addressDetails.longitude || null
+        } : address
+      )
+    }));
+  };
+
   const handleSave = async () => {
     setIsSubmitting(true);
     try {
       await Client.update(clientId, formData);
       await loadClientData(); // Reload fresh data from DB
       setIsEditing(false);
+      toast({
+        title: "Client updated successfully",
+        description: "All changes have been saved.",
+        variant: "success",
+      });
     } catch (error) {
       console.error("Error updating client:", error);
-      // Potentially show an error message to the user
+      toast({
+        title: "Error updating client",
+        description: error.message || "Failed to save changes. Please try again.",
+        variant: "destructive",
+      });
     }
     setIsSubmitting(false);
   };
@@ -429,8 +460,8 @@ export default function ClientDetails() {
 
           {/* Quick Stats */}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <Link to={`${createPageUrl("Jobs")}?client_id=${client.id}`} className="hover:scale-105 transition-transform">
-              <Card>
+            <Link to={`${createPageUrl("Jobs")}?client_id=${client.id}`}>
+              <Card className="border-slate-200 hover:border-slate-300 hover:shadow-md transition-all">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -445,15 +476,15 @@ export default function ClientDetails() {
               </Card>
             </Link>
 
-            <Link to={`${createPageUrl("Jobs")}?client_id=${client.id}&status=served`} className="hover:scale-105 transition-transform">
-              <Card>
+            <Link to={`${createPageUrl("Jobs")}?client_id=${client.id}&status=served`}>
+              <Card className="border-slate-200 hover:border-slate-300 hover:shadow-md transition-all">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
                       <CheckCircle className="w-5 h-5 text-green-600" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-slate-600">Completed Jobs</p>
+                      <p className="text-sm font-medium text-slate-600">Completed</p>
                       <p className="text-2xl font-bold text-slate-900">{jobStats.completed}</p>
                     </div>
                   </div>
@@ -461,7 +492,7 @@ export default function ClientDetails() {
               </Card>
             </Link>
 
-            <Card>
+            <Card className="border-slate-200 hover:border-slate-300 hover:shadow-md transition-all">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
@@ -475,15 +506,15 @@ export default function ClientDetails() {
               </CardContent>
             </Card>
 
-            <Link to={`${createPageUrl("Accounting")}?client_id=${client.id}`} className="hover:scale-105 transition-transform">
-              <Card>
+            <Link to={`${createPageUrl("Accounting")}?client_id=${client.id}`}>
+              <Card className="border-slate-200 hover:border-slate-300 hover:shadow-md transition-all">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
                       <Receipt className="w-5 h-5 text-emerald-600" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-slate-600">Total Revenue</p>
+                      <p className="text-sm font-medium text-slate-600">Revenue</p>
                       <p className="text-2xl font-bold text-slate-900">${invoiceStats.totalRevenue.toFixed(2)}</p>
                     </div>
                   </div>
@@ -491,7 +522,7 @@ export default function ClientDetails() {
               </Card>
             </Link>
 
-            <Card>
+            <Card className={`border-slate-200 hover:border-slate-300 hover:shadow-md transition-all ${invoiceStats.outstandingBalance > 0 ? 'border-red-200' : ''}`}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 ${invoiceStats.outstandingBalance > 0 ? 'bg-red-100' : 'bg-slate-100'} rounded-lg flex items-center justify-center`}>
@@ -513,30 +544,32 @@ export default function ClientDetails() {
             {/* Left Column - Client Details */}
             <div className="lg:col-span-2 space-y-6">
               {/* Basic Information */}
-              <Card>
-                <CardHeader>
+              <Card className="border-slate-200">
+                <CardHeader className="border-b">
                   <CardTitle className="flex items-center gap-2">
-                    <Building2 className="w-5 h-5" />
+                    <Building2 className="w-5 h-5 text-slate-600" />
                     Company Information
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-6 pt-6">
                   {isEditing && formData ? (
                     <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="company_name">Company Name</Label>
-                          <Input id="company_name" value={formData.company_name || ''} onChange={(e) => handleInputChange('company_name', e.target.value)} />
-                        </div>
-                        <div>
-                          <Label htmlFor="website">Website</Label>
-                          <Input id="website" value={formData.website || ''} onChange={(e) => handleInputChange('website', e.target.value)} />
-                        </div>
-                        <div>
-                          <Label htmlFor="company_type">Company Type</Label>
-                          <Select value={formData.company_type} onValueChange={(v) => handleInputChange('company_type', v)}>
-                            <SelectTrigger id="company_type"><SelectValue placeholder="Select type"/></SelectTrigger>
-                            <SelectContent>
+                      {/* Basic Company Details */}
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-700 mb-3 uppercase tracking-wide">Basic Details</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label htmlFor="company_name" className="text-slate-700">Company Name</Label>
+                            <Input id="company_name" value={formData.company_name || ''} onChange={(e) => handleInputChange('company_name', e.target.value)} className="mt-1" />
+                          </div>
+                          <div>
+                            <Label htmlFor="website" className="text-slate-700">Website</Label>
+                            <Input id="website" value={formData.website || ''} onChange={(e) => handleInputChange('website', e.target.value)} className="mt-1" placeholder="https://..." />
+                          </div>
+                          <div>
+                            <Label htmlFor="company_type" className="text-slate-700">Company Type</Label>
+                            <Select id="company_type" className="mt-1" value={formData.company_type} onChange={(e) => handleInputChange('company_type', e.target.value)}>
+                              <SelectItem value="">Select type</SelectItem>
                               <SelectItem value="law_firm">Law Firm</SelectItem>
                               <SelectItem value="insurance">Insurance</SelectItem>
                               <SelectItem value="corporate">Corporate</SelectItem>
@@ -544,65 +577,212 @@ export default function ClientDetails() {
                               <SelectItem value="individual">Individual</SelectItem>
                               <SelectItem value="process_serving">Process Serving Company</SelectItem>
                               <SelectItem value="independent_process_server">Independent Process Server</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label htmlFor="status">Status</Label>
-                          <Select value={formData.status} onValueChange={(v) => handleInputChange('status', v)}>
-                            <SelectTrigger id="status"><SelectValue placeholder="Select status"/></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="active">Active</SelectItem>
-                              <SelectItem value="inactive">Inactive</SelectItem>
-                              <SelectItem value="pending">Pending</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <div>
-                        <Label htmlFor="private_note">Private Notes</Label>
-                        <Textarea id="private_note" value={formData.private_note || ''} onChange={(e) => handleInputChange('private_note', e.target.value)} />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-sm font-medium text-slate-600">Company Name</label>
-                          <p className="text-slate-900">{client.company_name}</p>
-                        </div>
-                        <div>
-                          <label className="text-sm font-medium text-slate-600">Company Type</label>
-                          <p className="text-slate-900">{clientTypeConfig[client.company_type]?.label || client.company_type}</p>
-                        </div>
-                        {client.website && (
-                          <div>
-                            <label className="text-sm font-medium text-slate-600">Website</label>
-                            <a href={client.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                              <Globe className="w-4 h-4" />
-                              {client.website}
-                            </a>
+                            </Select>
                           </div>
-                        )}
-                        <div>
-                          <label className="text-sm font-medium text-slate-600">Status</label>
-                          <Badge className={statusConfig[client.status]?.color}>
-                            {statusConfig[client.status]?.label || client.status}
-                          </Badge>
-                        </div>
-                        {toDate(client.created_at) && (
                           <div>
-                            <label className="text-sm font-medium text-slate-600">Client Since</label>
-                            <p className="text-slate-900">{formatDate(client.created_at, "MMM d, yyyy")}</p>
+                            <Label htmlFor="status" className="text-slate-700">Status</Label>
+                            <Select id="status" className="mt-1" value={formData.status} onChange={(e) => handleInputChange('status', e.target.value)}>
+                              <SelectItem value="">Select status</SelectItem>
+                              <SelectItem value="active">Active</SelectItem>
+                              <SelectItem value="archive">Archive</SelectItem>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+
+                      <Separator />
+
+                      {/* Addresses Section */}
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide flex items-center gap-2">
+                            <MapPin className="w-4 h-4" />
+                            Addresses
+                          </h3>
+                          <Button type="button" variant="outline" size="sm" onClick={addAddress} className="h-8">
+                            <Plus className="w-3 h-3 mr-1" />Add Address
+                          </Button>
+                        </div>
+                        {formData.addresses && formData.addresses.length > 0 ? (
+                          <div className="space-y-3">
+                            {formData.addresses.map((address, index) => (
+                              <div key={index} className="p-4 bg-slate-50 rounded-lg space-y-3 border border-slate-200">
+                                <div className="grid grid-cols-1 gap-3">
+                                  <div><Label htmlFor={`address-label-${index}`} className="text-xs">Label</Label><Input id={`address-label-${index}`} value={address.label || ''} onChange={(e) => handleAddressChange(index, 'label', e.target.value)} placeholder="e.g., Main Office, Billing" className="h-9" /></div>
+                                  <div>
+                                    <Label htmlFor={`address-address1-${index}`} className="text-xs">Street Address</Label>
+                                    <AddressAutocomplete
+                                      value={address.address1 || ''}
+                                      onChange={(value) => handleAddressChange(index, 'address1', value)}
+                                      onAddressSelect={(addressDetails) => handleAddressAutocompleteSelect(index, addressDetails)}
+                                      onLoadingChange={setIsAddressLoading}
+                                      placeholder="Start typing address..."
+                                    />
+                                  </div>
+                                  <div><Label htmlFor={`address-address2-${index}`} className="text-xs">Address Line 2 (Optional)</Label><Input id={`address-address2-${index}`} value={address.address2 || ''} onChange={(e) => handleAddressChange(index, 'address2', e.target.value)} placeholder="Suite, Unit, etc." className="h-9" /></div>
+                                  <div className="grid grid-cols-6 gap-2">
+                                    <div className="col-span-3"><Label htmlFor={`address-city-${index}`} className="text-xs">City</Label><Input id={`address-city-${index}`} value={address.city || ''} onChange={(e) => handleAddressChange(index, 'city', e.target.value)} className="h-9" disabled={isAddressLoading} /></div>
+                                    <div className="col-span-1"><Label htmlFor={`address-state-${index}`} className="text-xs">State</Label><Input id={`address-state-${index}`} value={address.state || ''} onChange={(e) => handleAddressChange(index, 'state', e.target.value)} maxLength="2" className="h-9 uppercase" disabled={isAddressLoading} /></div>
+                                    <div className="col-span-2"><Label htmlFor={`address-postal_code-${index}`} className="text-xs">ZIP Code</Label><Input id={`address-postal_code-${index}`} value={address.postal_code || ''} onChange={(e) => handleAddressChange(index, 'postal_code', e.target.value)} className="h-9" disabled={isAddressLoading} /></div>
+                                  </div>
+                                </div>
+                                <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                                  <Button
+                                    type="button"
+                                    variant={address.primary ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => setPrimaryAddress(index)}
+                                    disabled={address.primary}
+                                    className="h-8 text-xs gap-1"
+                                  >
+                                    <Star className={`w-3 h-3 ${address.primary ? 'fill-current' : ''}`} />
+                                    {address.primary ? 'Primary' : 'Set Primary'}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-red-600 hover:bg-red-50 hover:text-red-700 h-8 text-xs"
+                                    onClick={() => setShowDeleteConfirm({ open: true, type: 'address', index })}
+                                  >
+                                    <Trash2 className="w-3 h-3 mr-1" />
+                                    Remove
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
+                            <MapPin className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                            <p className="text-slate-500 text-sm">No addresses added yet</p>
+                            <p className="text-slate-400 text-xs mt-1">Click "Add Address" to get started</p>
                           </div>
                         )}
                       </div>
 
-                      {client.private_note && (
-                        <div>
-                          <label className="text-sm font-medium text-slate-600">Private Notes</label>
-                          <p className="text-slate-700 bg-slate-50 p-3 rounded-lg">{client.private_note}</p>
+                      <Separator />
+
+                      {/* Private Notes */}
+                      <div>
+                        <Label htmlFor="private_note" className="text-slate-700">Private Notes</Label>
+                        <Textarea
+                          id="private_note"
+                          value={formData.private_note || ''}
+                          onChange={(e) => handleInputChange('private_note', e.target.value)}
+                          className="mt-1 min-h-[100px]"
+                          placeholder="Add any private notes about this client..."
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Basic Company Details - View Mode */}
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-700 mb-4 uppercase tracking-wide">Basic Details</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                          <div className="flex items-start gap-3">
+                            <Building2 className="w-5 h-5 text-slate-400 mt-0.5" />
+                            <div className="min-w-0">
+                              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Company Name</label>
+                              <p className="text-slate-900 font-medium mt-0.5">{client.company_name}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3">
+                            <Briefcase className="w-5 h-5 text-slate-400 mt-0.5" />
+                            <div className="min-w-0">
+                              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Company Type</label>
+                              <p className="text-slate-900 font-medium mt-0.5">{clientTypeConfig[client.company_type]?.label || client.company_type}</p>
+                            </div>
+                          </div>
+                          {client.website && (
+                            <div className="flex items-start gap-3">
+                              <Globe className="w-5 h-5 text-slate-400 mt-0.5" />
+                              <div className="min-w-0">
+                                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Website</label>
+                                <a href={client.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 mt-0.5 transition-colors">
+                                  {client.website.replace(/^https?:\/\/(www\.)?/, '')}
+                                </a>
+                              </div>
+                            </div>
+                          )}
+                          <div className="flex items-start gap-3">
+                            <CheckCircle className={`w-5 h-5 mt-0.5 ${client.status === 'active' ? 'text-green-600' : 'text-slate-400'}`} />
+                            <div className="min-w-0">
+                              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</label>
+                              <div className="mt-1">
+                                <Badge className={statusConfig[client.status]?.color}>
+                                  {statusConfig[client.status]?.label || client.status}
+                                </Badge>
+                              </div>
+                            </div>
+                          </div>
+                          {toDate(client.created_at) && (
+                            <div className="flex items-start gap-3">
+                              <Clock className="w-5 h-5 text-slate-400 mt-0.5" />
+                              <div className="min-w-0">
+                                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Client Since</label>
+                                <p className="text-slate-900 font-medium mt-0.5">{formatDate(client.created_at, "MMM d, yyyy")}</p>
+                              </div>
+                            </div>
+                          )}
                         </div>
+                      </div>
+
+                      {/* Addresses Section - View Mode */}
+                      {client.addresses && client.addresses.length > 0 && (
+                        <>
+                          <Separator />
+                          <div className="p-4 bg-slate-50 border border-slate-300 rounded-lg">
+                            <h3 className="text-sm font-semibold text-slate-700 mb-4 uppercase tracking-wide flex items-center gap-2">
+                              <MapPin className="w-4 h-4 text-slate-600" />
+                              Addresses
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {client.addresses.map((address, index) => (
+                                <div key={index} className="relative group">
+                                  <div className="p-4 bg-white rounded-lg border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all">
+                                    <div className="flex items-start justify-between mb-2">
+                                      <div className="flex items-center gap-2">
+                                        {address.label && (
+                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                                            {address.label}
+                                          </span>
+                                        )}
+                                        {address.primary && (
+                                          <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200 h-5">
+                                            <Star className="w-3 h-3 mr-1 fill-current" />
+                                            Primary
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="text-sm text-slate-700 space-y-0.5 leading-relaxed">
+                                      <p className="font-medium">{address.address1}</p>
+                                      {address.address2 && <p className="text-slate-600">{address.address2}</p>}
+                                      <p className="text-slate-600">
+                                        {address.city}, {address.state} {address.postal_code}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Private Notes - View Mode */}
+                      {client.private_note && (
+                        <>
+                          <Separator />
+                          <div>
+                            <h3 className="text-sm font-semibold text-slate-700 mb-3 uppercase tracking-wide">Private Notes</h3>
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                              <p className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap">{client.private_note}</p>
+                            </div>
+                          </div>
+                        </>
                       )}
                     </>
                   )}
@@ -610,50 +790,64 @@ export default function ClientDetails() {
               </Card>
 
               {/* Jobs and Invoices Tabs */}
-              <Card>
+              <Card className="border-slate-200">
                 <Tabs defaultValue="jobs">
-                  <CardHeader>
+                  <CardHeader className="border-b">
                     <TabsList className={`grid w-full ${client.is_job_share_partner ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                      <TabsTrigger value="jobs">Recent Jobs ({jobs.length})</TabsTrigger>
-                      <TabsTrigger value="invoices">Invoices ({invoices.length})</TabsTrigger>
+                      <TabsTrigger value="jobs">
+                        Recent Jobs ({jobs.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="invoices">
+                        Invoices ({invoices.length})
+                      </TabsTrigger>
                       {client.is_job_share_partner && (
-                        <TabsTrigger value="partnership">Partnership</TabsTrigger>
+                        <TabsTrigger value="partnership">
+                          Partnership
+                        </TabsTrigger>
                       )}
                     </TabsList>
                   </CardHeader>
                   <CardContent>
                     <TabsContent value="jobs" className="space-y-4">
                       {jobs.length === 0 ? (
-                        <p className="text-center text-slate-500 py-8">No jobs found for this client.</p>
+                        <div className="text-center py-12 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
+                          <Briefcase className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                          <p className="text-slate-500 font-medium">No jobs found for this client</p>
+                          <p className="text-slate-400 text-sm mt-1">Jobs will appear here once created</p>
+                        </div>
                       ) : (
                         <div className="space-y-3">
                           {jobs.slice(0, 10).map((job) => (
-                            <div key={job.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`} className="font-medium text-slate-900 hover:text-blue-600">
-                                    {job.job_number}
-                                  </Link>
-                                  <Badge className={jobStatusConfig[job.status]?.color}>
-                                    {jobStatusConfig[job.status]?.label || job.status}
-                                  </Badge>
+                            <Link key={job.id} to={`${createPageUrl("JobDetails")}?id=${job.id}`} className="block group">
+                              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                    <span className="font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
+                                      {job.job_number}
+                                    </span>
+                                    <Badge className={`${jobStatusConfig[job.status]?.color} text-xs`}>
+                                      {jobStatusConfig[job.status]?.label || job.status}
+                                    </Badge>
+                                  </div>
+                                  {job.recipient?.name && (
+                                    <p className="text-sm text-slate-600 mb-1 truncate">{job.recipient.name}</p>
+                                  )}
+                                  {toDate(job.due_date) && (
+                                    <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                      <Clock className="w-3 h-3" />
+                                      <span>Due: {formatDate(job.due_date, "MMM d, yyyy")}</span>
+                                    </div>
+                                  )}
                                 </div>
-                                <p className="text-sm text-slate-600">{job.recipient?.name}</p>
-                                {toDate(job.due_date) && (
-                                  <p className="text-xs text-slate-500">Due: {formatDate(job.due_date, "MMM d, yyyy")}</p>
-                                )}
                               </div>
-                              {job.service_fee && (
-                                <div className="text-right">
-                                  <p className="text-sm font-medium text-slate-900">${job.service_fee}</p>
-                                </div>
-                              )}
-                            </div>
+                            </Link>
                           ))}
                           {jobs.length > 10 && (
                             <div className="text-center pt-4">
                               <Link to={`${createPageUrl("Jobs")}?client_id=${client.id}`}>
-                                <Button variant="outline">View All Jobs ({jobs.length})</Button>
+                                <Button variant="outline" className="hover:bg-slate-50 hover:border-slate-300">
+                                  View All Jobs ({jobs.length})
+                                </Button>
                               </Link>
                             </div>
                           )}
@@ -663,22 +857,26 @@ export default function ClientDetails() {
 
                     <TabsContent value="invoices" className="space-y-4">
                       {invoices.length === 0 ? (
-                        <p className="text-center text-slate-500 py-8">No invoices found for this client.</p>
+                        <div className="text-center py-12 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
+                          <Receipt className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                          <p className="text-slate-500 font-medium">No invoices found for this client</p>
+                          <p className="text-slate-400 text-sm mt-1">Invoices will appear here once created</p>
+                        </div>
                       ) : (
                         <>
                           {/* Invoice Summary */}
-                          <div className="grid grid-cols-3 gap-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                            <div>
-                              <p className="text-xs font-medium text-blue-600">Total Billed</p>
-                              <p className="text-lg font-bold text-blue-900">${invoiceStats.totalBilled.toFixed(2)}</p>
+                          <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                            <div className="text-center">
+                              <p className="text-xs font-medium text-slate-600 uppercase tracking-wide mb-1">Total Billed</p>
+                              <p className="text-lg font-bold text-slate-900">${invoiceStats.totalBilled.toFixed(2)}</p>
                             </div>
-                            <div>
-                              <p className="text-xs font-medium text-green-600">Paid</p>
-                              <p className="text-lg font-bold text-green-900">${invoiceStats.totalPaid.toFixed(2)}</p>
+                            <div className="text-center">
+                              <p className="text-xs font-medium text-slate-600 uppercase tracking-wide mb-1">Paid</p>
+                              <p className="text-lg font-bold text-green-700">${invoiceStats.totalPaid.toFixed(2)}</p>
                             </div>
-                            <div>
-                              <p className="text-xs font-medium text-red-600">Outstanding</p>
-                              <p className="text-lg font-bold text-red-900">${invoiceStats.outstandingBalance.toFixed(2)}</p>
+                            <div className="text-center">
+                              <p className="text-xs font-medium text-slate-600 uppercase tracking-wide mb-1">Outstanding</p>
+                              <p className="text-lg font-bold text-red-700">${invoiceStats.outstandingBalance.toFixed(2)}</p>
                             </div>
                           </div>
 
@@ -693,45 +891,53 @@ export default function ClientDetails() {
                                 <Link
                                   key={invoice.id}
                                   to={`${createPageUrl("Invoices")}?id=${invoice.id}`}
-                                  className="block"
+                                  className="block group"
                                 >
-                                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors border hover:border-blue-200">
-                                    <div className="flex-1">
-                                      <div className="flex items-center gap-2 mb-1">
-                                        <p className="font-medium text-slate-900">{invoice.invoice_number}</p>
-                                        <Badge className={invoiceStatusConfig[invoice.status?.toLowerCase()]?.color || invoiceStatusConfig[invoice.status]?.color}>
+                                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                        <span className="font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
+                                          {invoice.invoice_number}
+                                        </span>
+                                        <Badge className={`${invoiceStatusConfig[invoice.status?.toLowerCase()]?.color || invoiceStatusConfig[invoice.status]?.color} text-xs`}>
                                           {invoiceStatusConfig[invoice.status?.toLowerCase()]?.label || invoiceStatusConfig[invoice.status]?.label || invoice.status}
                                         </Badge>
                                         {invoice.locked && (
-                                          <Badge variant="outline" className="text-xs">
+                                          <Badge variant="outline" className="text-xs bg-slate-100">
                                             Locked
                                           </Badge>
                                         )}
                                       </div>
-                                      <p className="text-sm text-slate-600">
-                                        {formatDate(invoice.invoice_date, "MMM d, yyyy")} - Due: {formatDate(invoice.due_date, "MMM d, yyyy")}
-                                      </p>
+                                      <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-2">
+                                        <Clock className="w-3 h-3" />
+                                        <span>{formatDate(invoice.invoice_date, "MMM d, yyyy")} - Due: {formatDate(invoice.due_date, "MMM d, yyyy")}</span>
+                                      </div>
                                       {!isPaid && paid > 0 && (
                                         <div className="mt-2">
                                           <div className="w-full bg-slate-200 rounded-full h-1.5">
                                             <div
-                                              className="bg-green-600 h-1.5 rounded-full"
+                                              className="bg-green-600 h-1.5 rounded-full transition-all"
                                               style={{ width: `${(paid / total) * 100}%` }}
                                             ></div>
                                           </div>
-                                          <p className="text-xs text-slate-500 mt-1">
+                                          <p className="text-xs text-slate-600 mt-1.5 font-medium">
                                             ${paid.toFixed(2)} of ${total.toFixed(2)} paid
                                           </p>
                                         </div>
                                       )}
                                     </div>
-                                    <div className="text-right ml-4">
-                                      <p className="text-sm font-medium text-slate-900">${total.toFixed(2)}</p>
+                                    <div className="text-right ml-4 flex-shrink-0">
+                                      <p className="text-lg font-bold text-slate-900">${total.toFixed(2)}</p>
                                       {!isPaid && balance > 0 && (
-                                        <p className="text-xs text-red-600 font-medium">Due: ${balance.toFixed(2)}</p>
+                                        <div className="flex items-center justify-end gap-1 mt-1">
+                                          <span className="text-xs text-red-600 font-semibold">Due: ${balance.toFixed(2)}</span>
+                                        </div>
                                       )}
                                       {isPaid && (
-                                        <p className="text-xs text-green-600 font-medium">✓ Paid</p>
+                                        <div className="flex items-center justify-end gap-1 mt-1">
+                                          <CheckCircle className="w-3 h-3 text-green-600" />
+                                          <span className="text-xs text-green-600 font-semibold">Paid</span>
+                                        </div>
                                       )}
                                     </div>
                                   </div>
@@ -741,7 +947,9 @@ export default function ClientDetails() {
                             {invoices.length > 10 && (
                               <div className="text-center pt-4">
                                 <Link to={`${createPageUrl("Accounting")}?client_id=${client.id}`}>
-                                  <Button variant="outline">View All Invoices ({invoices.length})</Button>
+                                  <Button variant="outline" className="hover:bg-slate-50 hover:border-slate-300">
+                                    View All Invoices ({invoices.length})
+                                  </Button>
                                 </Link>
                               </div>
                             )}
@@ -825,170 +1033,129 @@ export default function ClientDetails() {
               </Card>
             </div>
 
-            {/* Right Column - Contact & Address Info */}
+            {/* Right Column - Contact Info */}
             <div className="space-y-6">
               {/* Contacts */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Contacts ({formData?.contacts?.length || client?.contacts?.length || 0})</CardTitle>
-                  {isEditing && <Button type="button" variant="outline" size="sm" onClick={addContact}><Plus className="w-4 h-4 mr-2" />Add</Button>}
+              <Card className="border-slate-200">
+                <CardHeader className="border-b">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <User className="w-5 h-5 text-slate-600" />
+                      Contacts ({formData?.contacts?.length || client?.contacts?.length || 0})
+                    </CardTitle>
+                    {isEditing && (
+                      <Button type="button" variant="outline" size="sm" onClick={addContact} className="h-8">
+                        <Plus className="w-3 h-3 mr-1" />
+                        Add
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="pt-6">
                   {isEditing && formData ? (
                     formData.contacts && formData.contacts.length > 0 ? (
-                      formData.contacts.map((contact, index) => (
-                        <div key={index} className="p-4 bg-slate-50 rounded-lg space-y-4 relative border">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><Label htmlFor={`contact-first_name-${index}`}>First Name</Label><Input id={`contact-first_name-${index}`} value={contact.first_name || ''} onChange={(e) => handleContactChange(index, 'first_name', e.target.value)} /></div>
-                            <div><Label htmlFor={`contact-last_name-${index}`}>Last Name</Label><Input id={`contact-last_name-${index}`} value={contact.last_name || ''} onChange={(e) => handleContactChange(index, 'last_name', e.target.value)} /></div>
-                            <div><Label htmlFor={`contact-email-${index}`}>Email</Label><Input id={`contact-email-${index}`} type="email" value={contact.email || ''} onChange={(e) => handleContactChange(index, 'email', e.target.value)} /></div>
-                            <div><Label htmlFor={`contact-phone-${index}`}>Phone</Label><Input id={`contact-phone-${index}`} type="tel" value={contact.phone || ''} onChange={(e) => handleContactChange(index, 'phone', e.target.value)} /></div>
-                            <div className="col-span-2"><Label htmlFor={`contact-title-${index}`}>Title</Label><Input id={`contact-title-${index}`} value={contact.title || ''} onChange={(e) => handleContactChange(index, 'title', e.target.value)} /></div>
+                      <div className="space-y-4">
+                        {formData.contacts.map((contact, index) => (
+                          <div key={index} className="p-4 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-lg space-y-3 border border-slate-200">
+                            <div className="grid grid-cols-1 gap-3">
+                              <div className="grid grid-cols-2 gap-2">
+                                <div><Label htmlFor={`contact-first_name-${index}`} className="text-xs">First Name</Label><Input id={`contact-first_name-${index}`} value={contact.first_name || ''} onChange={(e) => handleContactChange(index, 'first_name', e.target.value)} className="h-9" /></div>
+                                <div><Label htmlFor={`contact-last_name-${index}`} className="text-xs">Last Name</Label><Input id={`contact-last_name-${index}`} value={contact.last_name || ''} onChange={(e) => handleContactChange(index, 'last_name', e.target.value)} className="h-9" /></div>
+                              </div>
+                              <div><Label htmlFor={`contact-email-${index}`} className="text-xs">Email</Label><Input id={`contact-email-${index}`} type="email" value={contact.email || ''} onChange={(e) => handleContactChange(index, 'email', e.target.value)} className="h-9" placeholder="email@example.com" /></div>
+                              <div><Label htmlFor={`contact-phone-${index}`} className="text-xs">Phone</Label><Input id={`contact-phone-${index}`} type="tel" value={contact.phone || ''} onChange={(e) => handleContactChange(index, 'phone', e.target.value)} className="h-9" placeholder="(555) 123-4567" /></div>
+                              <div><Label htmlFor={`contact-title-${index}`} className="text-xs">Title / Position</Label><Input id={`contact-title-${index}`} value={contact.title || ''} onChange={(e) => handleContactChange(index, 'title', e.target.value)} className="h-9" placeholder="e.g., Attorney, Manager" /></div>
+                            </div>
+                            <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                              <Button
+                                type="button"
+                                variant={contact.primary ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setPrimaryContact(index)}
+                                disabled={contact.primary}
+                                className="h-8 text-xs gap-1"
+                              >
+                                <Star className={`w-3 h-3 ${contact.primary ? 'fill-current' : ''}`} />
+                                {contact.primary ? 'Primary' : 'Set Primary'}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:bg-red-50 hover:text-red-700 h-8 text-xs"
+                                onClick={() => setShowDeleteConfirm({ open: true, type: 'contact', index })}
+                              >
+                                <Trash2 className="w-3 h-3 mr-1" />
+                                Remove
+                              </Button>
+                            </div>
                           </div>
-                          <div className="flex justify-between items-center pt-3 border-t">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setPrimaryContact(index)}
-                              disabled={contact.primary}
-                              className="gap-2"
-                            >
-                              <Star className={`w-3 h-3 ${contact.primary ? 'text-yellow-400 fill-current' : 'text-slate-400'}`} />
-                              {contact.primary ? 'Primary Contact' : 'Set as Primary'}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-600 hover:bg-red-50 hover:text-red-700 gap-2"
-                              onClick={() => setShowDeleteConfirm({ open: true, type: 'contact', index })}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                              Delete
-                            </Button>
-                          </div>
-                        </div>
-                      ))
+                        ))}
+                      </div>
                     ) : (
-                      <p className="text-slate-500 text-sm text-center py-4">No contacts defined. Add one to start.</p>
+                      <div className="text-center py-8 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
+                        <User className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <p className="text-slate-500 text-sm">No contacts added yet</p>
+                        <p className="text-slate-400 text-xs mt-1">Click "Add" to create a contact</p>
+                      </div>
                     )
                   ) : (
                     client.contacts && client.contacts.length > 0 ? (
-                      client.contacts.map((contact, index) => (
-                        <div key={index} className="pb-3 border-b border-slate-200 last:border-b-0 last:pb-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <p className="font-medium text-slate-900">
-                              {contact.first_name} {contact.last_name}
-                            </p>
-                            {contact.primary && (
-                              <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">
-                                <Star className="w-3 h-3 mr-1" />
-                                Primary
-                              </Badge>
-                            )}
-                          </div>
-                          {contact.title && (
-                            <p className="text-sm text-slate-600 mb-1">{contact.title}</p>
-                          )}
-                          <div className="space-y-1">
-                            {contact.email && (
-                              <div className="flex items-center gap-2">
-                                <Mail className="w-4 h-4 text-slate-400" />
-                                <a href={`mailto:${contact.email}`} className="text-sm text-blue-600 hover:text-blue-800">
-                                  {contact.email}
-                                </a>
-                              </div>
-                            )}
-                            {contact.phone && (
-                              <div className="flex items-center gap-2">
-                                <Phone className="w-4 h-4 text-slate-400" />
-                                <a href={`tel:${contact.phone}`} className="text-sm text-blue-600 hover:text-blue-800">
-                                  {contact.phone}
-                                </a>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-slate-500 text-sm text-center py-4">No contacts found.</p>
-                    )
-                  )}
-                </CardContent>
-              </Card>
+                      <div className="space-y-4">
+                        {client.contacts.map((contact, index) => {
+                          const initials = `${contact.first_name?.[0] || ''}${contact.last_name?.[0] || ''}`.toUpperCase();
+                          return (
+                            <div key={index} className="group relative">
+                              <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all">
+                                <div className="flex items-start gap-3">
+                                  {/* Avatar */}
+                                  <div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center flex-shrink-0 text-slate-600 font-semibold text-sm">
+                                    {initials || <User className="w-5 h-5" />}
+                                  </div>
 
-              {/* Addresses */}
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Addresses ({formData?.addresses?.length || client?.addresses?.length || 0})</CardTitle>
-                  {isEditing && <Button type="button" variant="outline" size="sm" onClick={addAddress}><Plus className="w-4 h-4 mr-2" />Add</Button>}
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {isEditing && formData ? (
-                    formData.addresses && formData.addresses.length > 0 ? (
-                      formData.addresses.map((address, index) => (
-                        <div key={index} className="p-4 bg-slate-50 rounded-lg space-y-4 relative border">
-                          <div><Label htmlFor={`address-label-${index}`}>Label</Label><Input id={`address-label-${index}`} value={address.label || ''} onChange={(e) => handleAddressChange(index, 'label', e.target.value)} /></div>
-                          <div><Label htmlFor={`address-address1-${index}`}>Address 1</Label><Input id={`address-address1-${index}`} value={address.address1 || ''} onChange={(e) => handleAddressChange(index, 'address1', e.target.value)} /></div>
-                          <div><Label htmlFor={`address-address2-${index}`}>Address 2 (Optional)</Label><Input id={`address-address2-${index}`} value={address.address2 || ''} onChange={(e) => handleAddressChange(index, 'address2', e.target.value)} /></div>
-                          <div className="grid grid-cols-3 gap-2">
-                            <div><Label htmlFor={`address-city-${index}`}>City</Label><Input id={`address-city-${index}`} value={address.city || ''} onChange={(e) => handleAddressChange(index, 'city', e.target.value)} /></div>
-                            <div><Label htmlFor={`address-state-${index}`}>State</Label><Input id={`address-state-${index}`} value={address.state || ''} onChange={(e) => handleAddressChange(index, 'state', e.target.value)} /></div>
-                            <div><Label htmlFor={`address-postal_code-${index}`}>ZIP</Label><Input id={`address-postal_code-${index}`} value={address.postal_code || ''} onChange={(e) => handleAddressChange(index, 'postal_code', e.target.value)} /></div>
-                          </div>
-                          <div className="flex justify-between items-center pt-3 border-t">
-                             <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setPrimaryAddress(index)}
-                              disabled={address.primary}
-                              className="gap-2"
-                            >
-                              <Star className={`w-3 h-3 ${address.primary ? 'text-yellow-400 fill-current' : 'text-slate-400'}`} />
-                              {address.primary ? 'Primary Address' : 'Set as Primary'}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-600 hover:bg-red-50 hover:text-red-700 gap-2"
-                              onClick={() => setShowDeleteConfirm({ open: true, type: 'address', index })}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                              Delete
-                            </Button>
-                          </div>
-                        </div>
-                      ))
+                                  {/* Contact Details */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                      <h4 className="font-semibold text-slate-900">
+                                        {contact.first_name} {contact.last_name}
+                                      </h4>
+                                      {contact.primary && (
+                                        <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200 h-5">
+                                          <Star className="w-3 h-3 mr-1 fill-current" />
+                                          Primary
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    {contact.title && (
+                                      <p className="text-sm text-slate-600 mb-2">{contact.title}</p>
+                                    )}
+                                    <div className="space-y-1.5">
+                                      {contact.email && (
+                                        <a href={`mailto:${contact.email}`} className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 transition-colors">
+                                          <Mail className="w-4 h-4 text-slate-400" />
+                                          <span className="truncate">{contact.email}</span>
+                                        </a>
+                                      )}
+                                      {contact.phone && (
+                                        <a href={`tel:${contact.phone}`} className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 transition-colors">
+                                          <Phone className="w-4 h-4 text-slate-400" />
+                                          <span>{contact.phone}</span>
+                                        </a>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     ) : (
-                      <p className="text-slate-500 text-sm text-center py-4">No addresses defined. Add one to start.</p>
-                    )
-                  ) : (
-                    client.addresses && client.addresses.length > 0 ? (
-                      client.addresses.map((address, index) => (
-                        <div key={index} className="pb-3 border-b border-slate-200 last:border-b-0 last:pb-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            {address.label && (
-                              <p className="text-sm font-medium text-slate-700">{address.label}</p>
-                            )}
-                            {address.primary && (
-                              <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">
-                                <Star className="w-3 h-3 mr-1" />
-                                Primary
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="text-sm text-slate-600">
-                            <p>{address.address1}</p>
-                            {address.address2 && <p>{address.address2}</p>}
-                            <p>{address.city}, {address.state} {address.postal_code}</p>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-slate-500 text-sm text-center py-4">No addresses found.</p>
+                      <div className="text-center py-8 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
+                        <User className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <p className="text-slate-500 text-sm">No contacts found</p>
+                        <p className="text-slate-400 text-xs mt-1">Edit this client to add contacts</p>
+                      </div>
                     )
                   )}
                 </CardContent>
@@ -1000,14 +1167,14 @@ export default function ClientDetails() {
       
       {/* Delete Confirmation Dialog */}
       {showDeleteConfirm.open && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
             <div className="flex items-start gap-3 mb-4">
               <AlertCircle className="w-12 h-12 text-red-500 flex-shrink-0" />
               <div>
-                <h3 className="font-semibold text-lg text-slate-900 mb-1">Are you sure?</h3>
+                <h3 className="font-semibold text-lg text-slate-900 mb-1">Delete {showDeleteConfirm.type}?</h3>
                 <p className="text-sm text-slate-600">
-                  This will permanently delete this {showDeleteConfirm.type}. This action cannot be undone.
+                  This will permanently remove this {showDeleteConfirm.type} from the client record. This action cannot be undone.
                 </p>
               </div>
             </div>

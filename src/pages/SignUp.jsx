@@ -164,8 +164,8 @@ export default function SignUpPage() {
         state: formData.state,
         zip: formData.zip,
         county: formData.county,
-        latitude: formData.latitude, // From address autocomplete
-        longitude: formData.longitude // From address autocomplete
+        lat: formData.latitude, // From address autocomplete (rename to match schema)
+        lng: formData.longitude // From address autocomplete (rename to match schema)
       };
 
       await FirebaseAuth.registerCompanyOwner(userData, companyData);

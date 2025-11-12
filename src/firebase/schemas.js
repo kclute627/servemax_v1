@@ -703,6 +703,11 @@ export class DirectoryManager {
       const existingListing = await this.getDirectoryListing(company.id);
 
       if (isEnabled) {
+        // Extract lat/lng from primary address if available
+        const primaryAddress = company.addresses?.find(addr => addr.primary) || company.addresses?.[0];
+        const lat = primaryAddress?.lat || null;
+        const lng = primaryAddress?.lng || null;
+
         // Create or update directory listing
         const directoryData = {
           company_type: company.company_type,
@@ -713,6 +718,8 @@ export class DirectoryManager {
           city: company.city,
           state: company.state,
           zip: company.zip,
+          lat: lat,
+          lng: lng,
           // Preserve existing directory-specific data
           ...(existingListing ? {
             blurb: existingListing.blurb,

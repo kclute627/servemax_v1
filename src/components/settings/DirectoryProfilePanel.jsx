@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2, Save, BookUser, DollarSign, MapPin, Star } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import AddressAutocomplete from "../jobs/AddressAutocomplete";
+import { geocodeAddress } from "@/utils/googlePlaces";
 
 export default function DirectoryProfilePanel() {
   const { user } = useAuth();
@@ -27,6 +28,8 @@ export default function DirectoryProfilePanel() {
     city: '',
     state: '',
     zip: '',
+    lat: null,
+    lng: null,
     blurb: '',
     services_offered: ['standard_service'],
     coverage_areas: [],
@@ -96,6 +99,8 @@ export default function DirectoryProfilePanel() {
           city: listing.city || '',
           state: listing.state || '',
           zip: listing.zip || '',
+          lat: listing.lat || null,
+          lng: listing.lng || null,
           blurb: listing.blurb || '',
           services_offered: listing.services_offered || ['standard_service'],
           coverage_areas: listing.coverage_areas || [],
@@ -128,7 +133,9 @@ export default function DirectoryProfilePanel() {
             address: user.company.address || '',
             city: user.company.city || '',
             state: user.company.state || '',
-            zip: user.company.zip || ''
+            zip: user.company.zip || '',
+            lat: user.company.lat || null,
+            lng: user.company.lng || null
           }));
         }
       }
@@ -150,13 +157,30 @@ export default function DirectoryProfilePanel() {
         ? COMPANY_TYPES.INDEPENDENT_CONTRACTOR
         : user.company?.company_type;
 
+      // Geocode address if lat/lng are missing
+      let dataToSave = { ...profileData };
+      if ((!dataToSave.lat || !dataToSave.lng) && dataToSave.address && dataToSave.city && dataToSave.state) {
+        try {
+          const fullAddress = `${dataToSave.address}, ${dataToSave.city}, ${dataToSave.state} ${dataToSave.zip || ''}`.trim();
+          console.log('Geocoding address:', fullAddress);
+          const geocoded = await geocodeAddress(fullAddress);
+          dataToSave.lat = geocoded.latitude;
+          dataToSave.lng = geocoded.longitude;
+          dataToSave.last_geocoded_at = new Date();
+          console.log('Geocoding successful:', geocoded);
+        } catch (geocodeError) {
+          console.warn('Failed to geocode address:', geocodeError);
+          // Continue saving even if geocoding fails
+        }
+      }
+
       if (directoryListing) {
         // Update existing listing
-        await DirectoryManager.updateDirectoryListing(user.company_id, profileData);
+        await DirectoryManager.updateDirectoryListing(user.company_id, dataToSave);
       } else {
         // Create new listing
         await DirectoryManager.addToDirectory(user.company_id, {
-          ...profileData,
+          ...dataToSave,
           company_type: companyType
         });
       }
@@ -215,7 +239,9 @@ export default function DirectoryProfilePanel() {
       city: addressDetails.city || '',
       state: addressDetails.state || '',
       zip: addressDetails.postal_code || '',
-      county: addressDetails.county || ''
+      county: addressDetails.county || '',
+      lat: addressDetails.latitude || null,
+      lng: addressDetails.longitude || null
     }));
   };
 

@@ -29,7 +29,11 @@ service cloud.firestore {
     match /companies/{companyId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated(); // Allow company creation during registration
-      allow update, delete: if isAuthenticated() && getUserCompanyId() == companyId;
+      // Allow update if: 1) updating your own company, OR 2) updating a client you created
+      allow update, delete: if isAuthenticated() && (
+        getUserCompanyId() == companyId ||
+        resource.data.created_by == getUserCompanyId()
+      );
     }
 
     // Stats collections - company members can read their company's stats
@@ -113,8 +117,11 @@ service cloud.firestore {
         isInShareChain()
       );
 
-      allow write: if isAuthenticated() &&
-                     hasCompanyAccess(resource.data.company_id);
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+
+      allow update, delete: if isAuthenticated() &&
+                              hasCompanyAccess(resource.data.company_id);
     }
 
     // Attempts - visible to all companies in the chain
@@ -130,8 +137,11 @@ service cloud.firestore {
         isVisibleToCompany()
       );
 
-      allow write: if isAuthenticated() &&
-                     hasCompanyAccess(resource.data.company_id);
+      allow create: if isAuthenticated() &&
+                      request.resource.data.company_id == getUserCompanyId();
+
+      allow update, delete: if isAuthenticated() &&
+                              hasCompanyAccess(resource.data.company_id);
     }
 
     // Company Settings - users can read/write any settings (structure varies)
@@ -198,11 +208,21 @@ service cloud.firestore {
     // Court Cases - users can read/write their company's court cases
     match /court_cases/{caseId} {
       allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+                    resource.data.created_by == getUserCompanyId();
       allow create: if isAuthenticated() &&
-                      request.resource.data.company_id == getUserCompanyId();
+                      request.resource.data.created_by == getUserCompanyId();
       allow update, delete: if isAuthenticated() &&
-                              resource.data.company_id == getUserCompanyId();
+                              resource.data.created_by == getUserCompanyId();
+    }
+
+    // Courts - users can read/write courts they created
+    match /courts/{courtId} {
+      allow read: if isAuthenticated() &&
+                    resource.data.created_by == getUserCompanyId();
+      allow create: if isAuthenticated() &&
+                      request.resource.data.created_by == getUserCompanyId();
+      allow update, delete: if isAuthenticated() &&
+                              resource.data.created_by == getUserCompanyId();
     }
 
     // Invoices - users can read/write their company's invoices
@@ -243,6 +263,12 @@ service cloud.firestore {
                       request.resource.data.company_id == getUserCompanyId();
       allow update, delete: if isAuthenticated() &&
                               resource.data.company_id == getUserCompanyId();
+    }
+
+    // Counters - global counters for sequential numbering (e.g., job numbers)
+    match /counters/{counterId} {
+      allow read: if isAuthenticated();
+      allow update: if isAuthenticated(); // Allow incrementing counters when creating jobs
     }
   }
 }

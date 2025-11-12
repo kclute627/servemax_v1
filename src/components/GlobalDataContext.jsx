@@ -98,9 +98,9 @@ export const GlobalDataProvider = ({ children }) => {
       setMyCompanyClientId(user.company_id);
 
       // Load data using secure multi-tenant access
+      // Note: Clients are loaded via real-time listener (see separate useEffect below)
       const [
         companyDataFromDb,
-        clientsData,
         employeesData,
         courtCasesData,
         jobsData,
@@ -113,7 +113,6 @@ export const GlobalDataProvider = ({ children }) => {
         directoryListing
       ] = await Promise.all([
         entities.Company.findById(user.company_id).catch(() => null),
-        SecureClientAccess.list().catch(() => []), // Graceful fallback for permission errors
         SecureEmployeeAccess.list().catch(() => []),
         MultiTenantAccess.getCourtCases().catch(() => []),
         SecureJobAccess.list().catch(() => []),
@@ -127,7 +126,6 @@ export const GlobalDataProvider = ({ children }) => {
       ]);
 
       setCompanyData(companyDataFromDb);
-      setClients(clientsData);
       setEmployees(employeesData);
       setCourtCases(courtCasesData);
       setJobs(jobsData.sort((a, b) => new Date(b.created_date || b.created_at) - new Date(a.created_date || a.created_at)));
@@ -202,6 +200,45 @@ export const GlobalDataProvider = ({ children }) => {
       loadAllData();
     }
   }, [loadAllData, authLoading]);
+
+  // Real-time listener for clients - updates automatically when clients are added/modified
+  useEffect(() => {
+    // Check for dummy data override first
+    const dummyDataOverride = getDummyDataState();
+    if (dummyDataOverride) {
+      // Dummy data is already set in loadAllData
+      return;
+    }
+
+    // Don't set up listener if auth is still loading or user is not authenticated
+    if (authLoading || !isAuthenticated || !user) {
+      setClients([]);
+      return;
+    }
+
+    let unsubscribe;
+
+    // Set up real-time listener
+    const setupListener = async () => {
+      try {
+        unsubscribe = await SecureClientAccess.subscribe((clientsData) => {
+          setClients(clientsData);
+        });
+      } catch (error) {
+        console.error('Error setting up clients listener:', error);
+        setClients([]);
+      }
+    };
+
+    setupListener();
+
+    // Cleanup function
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [isAuthenticated, user, authLoading]);
 
   const allAssignableServers = React.useMemo(() => {
     const servers = [...employees];

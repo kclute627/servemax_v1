@@ -90,8 +90,8 @@ export default function SelectedClientBox({
                   required
                 >
                   <option value="">Choose a contact...</option>
-                  {contacts.map((contact) => (
-                    <option key={contact.id} value={contact.id}>
+                  {contacts.map((contact, index) => (
+                    <option key={contact.id || `contact-${index}`} value={contact.id || index}>
                       {contact.first_name} {contact.last_name}
                       {contact.primary && " (Primary)"}
                       {contact.email && ` - ${contact.email}`}

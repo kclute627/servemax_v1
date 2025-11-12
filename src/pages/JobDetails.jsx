@@ -85,7 +85,7 @@ import { generateFieldSheet, mergePDFs } from "@/api/functions";
 import { UploadFile } from "@/api/integrations";
 import { motion, AnimatePresence } from 'framer-motion';
 import AttemptTimeIndicator from '../components/jobs/AttemptTimeIndicator';
-import { JobShareChain, ShareWithPartner } from '@/components/JobSharing';
+import { JobShareChain } from '@/components/JobSharing';
 
 // --- Configuration Objects ---
 // These are UI-specific and will likely remain unchanged during migration.
@@ -474,7 +474,6 @@ export default function JobDetailsPage() {
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [isEditingServiceDocuments, setIsEditingServiceDocuments] = useState(false);
   const [isNewContactDialogOpen, setIsNewContactDialogOpen] = useState(false);
-  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 
   // Form-specific state
   const [editFormData, setEditFormData] = useState({}); // A temporary object to hold changes during an edit session.
@@ -680,7 +679,7 @@ export default function JobDetailsPage() {
         invoiceSettingsData,
       ] = await Promise.all([
         jobData.client_id ? Client.findById(jobData.client_id) : Promise.resolve(null),
-        jobData.court_case_id ? CourtCase.filter({ id: jobData.court_case_id, company_id: user?.company_id }).then(cases => cases[0] || null).catch(e => { console.error("Error finding court_cases by ID:", e); return null; }) : Promise.resolve(null),
+        jobData.court_case_id ? CourtCase.findById(jobData.court_case_id).catch(e => { console.error("Error finding court_cases by ID:", e); return null; }) : Promise.resolve(null),
         Document.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { console.error("Error loading documents:", e); return []; }),
         Attempt.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { console.error("Error loading attempts:", e); return []; }),
         // Use direct lookup if job has invoice_id, otherwise fallback to filter
@@ -1859,16 +1858,6 @@ export default function JobDetailsPage() {
                 </>
               )}
             </Button>
-            {!job.is_closed && (
-              <Button
-                onClick={() => setIsShareDialogOpen(true)}
-                variant="outline"
-                className="gap-2"
-              >
-                <Share2 className="w-4 h-4" />
-                Share Job
-              </Button>
-            )}
           </div>
         </div>
 
@@ -3170,25 +3159,6 @@ export default function JobDetailsPage() {
         client={client}
         onContactCreated={handleContactCreated}
       />
-
-      {/* Dialog for sharing job */}
-      <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Share Job #{job?.job_number}</DialogTitle>
-            <DialogDescription>
-              Share this job with one of your approved partners
-            </DialogDescription>
-          </DialogHeader>
-          <ShareWithPartner
-            jobId={job.id}
-            onShareRequest={() => {
-              setIsShareDialogOpen(false);
-              // Optionally refresh job data here
-            }}
-          />
-        </DialogContent>
-      </Dialog>
 
     </div>
   );
