@@ -218,6 +218,38 @@ export class MultiTenantAccess {
     return await entities.Company.find(modifiedQuery);
   }
 
+  // Subscribe to real-time client updates with access control
+  static async subscribeToClients(callback, queryOptions = {}) {
+    const user = await this.getCurrentUser();
+
+    // Super admin can see ALL companies
+    if (isSuperAdmin(user)) {
+      return entities.Company.onSnapshot(callback, queryOptions);
+    }
+
+    if (!canViewAllClients(user)) {
+      throw new Error('Access denied to client data');
+    }
+
+    if (!user.company_id) {
+      // Return empty data and a no-op unsubscribe function
+      callback([]);
+      return () => {};
+    }
+
+    // Query companies collection where created_by equals the user's company
+    // Clients are identified by being created_by this company (not by company_type)
+    const modifiedQuery = {
+      ...queryOptions,
+      where: [
+        ...(queryOptions.where || []),
+        ['created_by', '==', user.company_id]
+      ]
+    };
+
+    return entities.Company.onSnapshot(callback, modifiedQuery);
+  }
+
   // Get single client with access control
   static async getClient(clientId) {
     const user = await this.getCurrentUser();
@@ -517,7 +549,7 @@ export class MultiTenantAccess {
       ...queryOptions,
       where: [
         ...(queryOptions.where || []),
-        ['company_id', '==', user.company_id]
+        ['created_by', '==', user.company_id]
       ]
     };
 
@@ -635,6 +667,7 @@ export const SecureCompanyAccess = {
 
 export const SecureClientAccess = {
   list: (queryOptions) => MultiTenantAccess.getClients(queryOptions),
+  subscribe: (callback, queryOptions) => MultiTenantAccess.subscribeToClients(callback, queryOptions),
   findById: (id) => MultiTenantAccess.getClient(id),
   create: (data) => MultiTenantAccess.createClient(data),
   update: (id, data) => MultiTenantAccess.updateClient(id, data),

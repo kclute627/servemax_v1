@@ -15,6 +15,8 @@ import { useGlobalData } from "@/components/GlobalDataContext";
 import { Job, Client, Employee, CourtCase, Document, Court, CompanySettings, User, ServerPayRecord, Invoice } from "@/api/entities"; // Added User import, Added ServerPayRecord, Added Invoice
 import { SecureJobAccess, SecureCourtAccess, SecureCaseAccess } from "@/firebase/multiTenantAccess";
 import { StatsManager } from "@/firebase/stats";
+import { db } from "@/firebase/config";
+import { doc, runTransaction, increment } from "firebase/firestore";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -402,9 +404,32 @@ export default function CreateJobPage() {
 
   const generateJobNumber = async () => {
     try {
-      const existingJobs = await Job.list();
-      return (existingJobs.length + 1).toString().padStart(6, '0');
+      // Use atomic counter for global sequential job numbers across all companies
+      const counterRef = doc(db, 'counters', 'job_number');
+
+      const nextNumber = await runTransaction(db, async (transaction) => {
+        const counterDoc = await transaction.get(counterRef);
+
+        if (!counterDoc.exists()) {
+          // Initialize counter if it doesn't exist (first job ever)
+          transaction.set(counterRef, { current_value: 1 });
+          return 1;
+        }
+
+        const currentValue = counterDoc.data().current_value || 0;
+        const newValue = currentValue + 1;
+
+        // Atomically increment the counter
+        transaction.update(counterRef, { current_value: newValue });
+
+        return newValue;
+      });
+
+      // Format as 6-digit padded string (e.g., "000001", "000100", "123456")
+      return nextNumber.toString().padStart(6, '0');
     } catch (error) {
+      console.error('Error generating job number:', error);
+      // Fallback to timestamp if transaction fails
       return Date.now().toString();
     }
   };
@@ -549,12 +574,11 @@ export default function CreateJobPage() {
     try {
 
       // Parallelize all independent operations for faster job creation
-      const [jobNumber, currentUser, myCompanyClientId] = await Promise.all([
+      const [jobNumber, myCompanyClientId] = await Promise.all([
         generateJobNumber(),
-        User.me(),
         (async () => {
           try {
-            const user = await User.me();
+            // Use auth context user instead of duplicate API call
             if (user && user.email) {
               const myCompanyClients = await Client.filter({ job_sharing_email: user.email });
               return myCompanyClients.length > 0 ? myCompanyClients[0].id : null;
@@ -563,7 +587,6 @@ export default function CreateJobPage() {
           } catch (error) {
             console.error("Error fetching current user's company:", error);
             return null;
-
           }
         })()
       ]);
@@ -680,9 +703,9 @@ export default function CreateJobPage() {
 
       const initialLogEntry = {
         timestamp: new Date().toISOString(),
-        user_name: currentUser?.full_name || "System",
+        user_name: user?.full_name || "System",
         event_type: "job_created",
-        description: `Job created by ${currentUser?.full_name || "System"}.`
+        description: `Job created by ${user?.full_name || "System"}.`
       };
 
       // Determine server name based on server type for field sheet
@@ -820,74 +843,86 @@ export default function CreateJobPage() {
 
       const newJob = await SecureJobAccess.create(newJobData);
 
-      // Track job creation in stats
-      try {
-        await StatsManager.recordJobCreated(
+      // ⚡ PERFORMANCE OPTIMIZATION: Run all post-job operations in background (fire-and-forget)
+      // This allows immediate navigation without waiting for stats, documents, etc.
+      Promise.all([
+        // Track job creation in stats
+        StatsManager.recordJobCreated(
           user.company_id,
           newJob.client_id,
           serverIdForSubmission !== "unassigned" ? serverIdForSubmission : null
-        );
-      } catch (statsError) {
-        console.error('Failed to record job creation stats:', statsError);
-        // Don't block job creation if stats fail
-      }
+        ).catch(statsError => {
+          console.error('Failed to record job creation stats:', statsError);
+        }),
 
-      // Create ServerPayRecord if there's server pay
-      if (totalServerPay > 0 && serverIdForSubmission !== "unassigned") {
-        let serverName = "";
-        if (formData.server_type === 'employee') {
-          const server = employees.find(e => String(e.id) === serverIdForSubmission);
-          serverName = server ? `${server.first_name} ${server.last_name}` : "Unknown Employee";
-        } else if (formData.server_type === 'contractor' && selectedContractor) {
-          serverName = selectedContractor.company_name || "Unknown Contractor";
-        }
+        // Create ServerPayRecord if there's server pay
+        (async () => {
+          if (totalServerPay > 0 && serverIdForSubmission !== "unassigned") {
+            let serverName = "";
+            if (formData.server_type === 'employee') {
+              const server = employees.find(e => String(e.id) === serverIdForSubmission);
+              serverName = server ? `${server.first_name} ${server.last_name}` : "Unknown Employee";
+            } else if (formData.server_type === 'contractor' && selectedContractor) {
+              serverName = selectedContractor.company_name || "Unknown Contractor";
+            }
 
-        await ServerPayRecord.create({
-          job_id: newJob.id,
-          server_id: serverIdForSubmission,
-          server_type: formData.server_type,
-          server_name: serverName,
-          job_number: jobNumber,
-          client_id: formData.client_id,
-          pay_items: formData.server_pay_items,
-          total_amount: totalServerPay,
-          payment_status: "unpaid",
-          due_date: formData.due_date
-        });
-      }
+            await ServerPayRecord.create({
+              job_id: newJob.id,
+              server_id: serverIdForSubmission,
+              server_type: formData.server_type,
+              server_name: serverName,
+              job_number: jobNumber,
+              client_id: formData.client_id,
+              pay_items: formData.server_pay_items,
+              total_amount: totalServerPay,
+              payment_status: "unpaid",
+              due_date: formData.due_date
+            });
+          }
+        })().catch(error => {
+          console.error('Failed to create ServerPayRecord:', error);
+        }),
 
-      // Update invoice with job_id if invoice was created
-      if (newInvoice && newInvoice.id) {
-        try {
-          await Invoice.update(newInvoice.id, {
-            job_ids: [newJob.id]
-          });
-        } catch (error) {
+        // Update invoice with job_id if invoice was created
+        (async () => {
+          if (newInvoice && newInvoice.id) {
+            await Invoice.update(newInvoice.id, {
+              job_ids: [newJob.id]
+            });
+          }
+        })().catch(error => {
           console.error("Failed to update invoice with job_id:", error);
-        }
-      }
+        }),
 
-      if (uploadedDocuments.length > 0) {
-        const documentsToCreate = uploadedDocuments.map(doc => ({
-          job_id: newJob.id,
-          title: doc.title || '',
-          affidavit_text: doc.affidavit_text || '',
-          file_url: doc.file_url || '',
-          document_category: doc.document_category || 'other',
-          page_count: doc.page_count || 0, // Default to 0 if undefined (Firebase doesn't allow undefined)
-          received_at: new Date().toISOString()
-        }));
-        await Document.bulkCreate(documentsToCreate);
-      }
+        // Create documents if uploaded
+        (async () => {
+          if (uploadedDocuments.length > 0) {
+            const documentsToCreate = uploadedDocuments.map(doc => ({
+              job_id: newJob.id,
+              company_id: user.company_id,
+              title: doc.title || '',
+              affidavit_text: doc.affidavit_text || '',
+              file_url: doc.file_url || '',
+              document_category: doc.document_category || 'other',
+              page_count: doc.page_count || 0,
+              received_at: new Date().toISOString()
+            }));
+            await Document.bulkCreate(documentsToCreate);
+          }
+        })().catch(error => {
+          console.error('Failed to create documents:', error);
+        }),
 
-      // Auto-generate field sheet after job creation
-      try {
-        await generateFieldSheet({ job_id: newJob.id });
-        console.log("Field sheet auto-generated for job:", newJob.job_number);
-      } catch (error) {
-        console.error("Failed to auto-generate field sheet:", error);
-        // Don't block job creation if field sheet generation fails
-      }
+        // Auto-generate field sheet
+        generateFieldSheet({ job_id: newJob.id })
+          .then(() => console.log("Field sheet auto-generated for job:", newJob.job_number))
+          .catch(error => {
+            console.error("Failed to auto-generate field sheet:", error);
+          })
+      ]).catch(error => {
+        // Catch-all for any Promise.all errors (shouldn't happen due to individual catches)
+        console.error('Background operations error:', error);
+      });
 
       // Show success toast
       toast({

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import {
   MoreHorizontal,
   Eye,
   CreditCard,
@@ -24,6 +33,8 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
+import { Payment, Invoice, User } from "@/api/entities";
+import { useToast } from "@/components/ui/use-toast";
 
 const statusConfig = {
   draft: { color: "bg-slate-100 text-slate-700", label: "Draft" },
@@ -33,7 +44,18 @@ const statusConfig = {
   cancelled: { color: "bg-slate-100 text-slate-500", label: "Cancelled" }
 };
 
-export default function InvoicesTable({ invoices, clients, isLoading }) {
+export default function InvoicesTable({ invoices, clients, isLoading, onPaymentApplied }) {
+  const { toast } = useToast();
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: '',
+    payment_date: new Date().toISOString().split('T')[0],
+    payment_method: 'check',
+    notes: ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const getClientName = (clientId) => {
     const client = clients.find(c => c.id === clientId);
     return client?.company_name || "Unknown Client";
@@ -44,6 +66,106 @@ export default function InvoicesTable({ invoices, clients, isLoading }) {
     // For now, it will just log a message.
     console.log(`Initiating payment for invoice ID: ${invoiceId}`);
     alert("Stripe integration is not yet active. This is a placeholder.");
+  };
+
+  const handleApplyPayment = (invoice) => {
+    setSelectedInvoice(invoice);
+    setPaymentForm({
+      amount: invoice.balance_due?.toFixed(2) || '0.00',
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_method: 'check',
+      notes: ''
+    });
+    setIsPaymentDialogOpen(true);
+  };
+
+  const handlePaymentSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedInvoice) return;
+
+    setIsSubmitting(true);
+
+    try {
+      const paymentAmount = parseFloat(paymentForm.amount);
+
+      if (isNaN(paymentAmount) || paymentAmount <= 0) {
+        toast({
+          variant: "destructive",
+          title: "Invalid Amount",
+          description: "Please enter a valid payment amount."
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Get current user for company_id
+      const currentUser = await User.me();
+
+      // Create payment record
+      const paymentData = {
+        invoice_id: selectedInvoice.id,
+        client_id: selectedInvoice.client_id,
+        company_id: currentUser.company_id, // Required for Firestore security rules
+        amount: paymentAmount,
+        payment_date: new Date(paymentForm.payment_date).toISOString(),
+        payment_method: paymentForm.payment_method,
+        transaction_id: `PMT-${Date.now()}`,
+        status: 'succeeded',
+        notes: paymentForm.notes,
+        created_at: new Date().toISOString()
+      };
+
+      await Payment.create(paymentData);
+
+      // Update invoice
+      const newTotalPaid = (selectedInvoice.total_paid || 0) + paymentAmount;
+      const newBalanceDue = (selectedInvoice.total || 0) - newTotalPaid;
+
+      let newStatus = selectedInvoice.status;
+      if (newBalanceDue <= 0) {
+        newStatus = 'paid';
+      } else if (newTotalPaid > 0 && newBalanceDue > 0) {
+        newStatus = 'partial';
+      }
+
+      // Build update object - only include payment_date when fully paid
+      const invoiceUpdate = {
+        total_paid: newTotalPaid,
+        balance_due: Math.max(0, newBalanceDue),
+        status: newStatus
+      };
+
+      // Only set payment_date when invoice is fully paid
+      if (newBalanceDue <= 0) {
+        invoiceUpdate.payment_date = new Date().toISOString();
+      }
+
+      await Invoice.update(selectedInvoice.id, invoiceUpdate);
+
+      toast({
+        variant: "success",
+        title: "Payment Applied",
+        description: `$${paymentAmount.toFixed(2)} payment recorded successfully.`
+      });
+
+      setIsPaymentDialogOpen(false);
+      setSelectedInvoice(null);
+
+      // Refresh data to show updated invoices and payments
+      if (onPaymentApplied) {
+        onPaymentApplied();
+      }
+
+    } catch (error) {
+      console.error('Error applying payment:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to apply payment. Please try again."
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (isLoading) {
@@ -100,6 +222,7 @@ export default function InvoicesTable({ invoices, clients, isLoading }) {
   }
 
   return (
+    <>
     <Card className="border-0 shadow-sm bg-white">
       <CardContent className="p-0">
         <div className="overflow-x-auto">
@@ -133,31 +256,28 @@ export default function InvoicesTable({ invoices, clients, isLoading }) {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    {(invoice.status === 'sent' || invoice.status === 'overdue') ? (
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="gap-2"
-                        onClick={() => handlePayNow(invoice.id)}
-                      >
-                        <CreditCard className="w-4 h-4" />
-                        Pay Now
-                      </Button>
-                    ) : (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem className="gap-2">
-                            <Eye className="w-4 h-4" />
-                            View Invoice
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon">
+                          <MoreHorizontal className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem className="gap-2">
+                          <Eye className="w-4 h-4" />
+                          View Invoice
+                        </DropdownMenuItem>
+                        {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
+                          <DropdownMenuItem
+                            className="gap-2"
+                            onClick={() => handleApplyPayment(invoice)}
+                          >
+                            <CreditCard className="w-4 h-4" />
+                            Apply Payment
                           </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
@@ -166,5 +286,111 @@ export default function InvoicesTable({ invoices, clients, isLoading }) {
         </div>
       </CardContent>
     </Card>
+
+    {/* Payment Dialog */}
+    <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle>Apply Payment</DialogTitle>
+          <DialogDescription>
+            Record a payment for invoice {selectedInvoice?.invoice_number}
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Invoice Amount Display */}
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm text-slate-600">Invoice Amount:</span>
+            <span className="text-lg font-semibold text-slate-900">
+              ${selectedInvoice?.total?.toFixed(2) || '0.00'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-slate-600">Balance Due:</span>
+            <span className="text-lg font-semibold text-blue-600">
+              ${selectedInvoice?.balance_due?.toFixed(2) || '0.00'}
+            </span>
+          </div>
+        </div>
+
+        <form onSubmit={handlePaymentSubmit} className="space-y-4">
+          <div className="grid gap-4">
+            {/* Amount */}
+            <div className="space-y-2">
+              <Label htmlFor="amount">Payment Amount *</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                <Input
+                  id="amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  value={paymentForm.amount}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                  className="pl-7"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+
+            {/* Payment Date */}
+            <div className="space-y-2">
+              <Label htmlFor="payment_date">Payment Date *</Label>
+              <Input
+                id="payment_date"
+                type="date"
+                required
+                value={paymentForm.payment_date}
+                onChange={(e) => setPaymentForm({ ...paymentForm, payment_date: e.target.value })}
+              />
+            </div>
+
+            {/* Payment Method */}
+            <div className="space-y-2">
+              <Label htmlFor="payment_method">Payment Method *</Label>
+              <select
+                id="payment_method"
+                required
+                value={paymentForm.payment_method}
+                onChange={(e) => setPaymentForm({ ...paymentForm, payment_method: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="check">Check</option>
+                <option value="cash">Cash</option>
+                <option value="credit_card">Credit Card</option>
+              </select>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-2">
+              <Label htmlFor="notes">Notes</Label>
+              <textarea
+                id="notes"
+                value={paymentForm.notes}
+                onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[80px]"
+                placeholder="Optional payment notes"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsPaymentDialogOpen(false)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Processing..." : "Apply Payment"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

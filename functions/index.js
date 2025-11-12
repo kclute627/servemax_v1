@@ -2513,6 +2513,22 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
       });
 
       // Create client records for both companies so they appear in each other's client lists
+      // Pull full addresses array if it exists, otherwise create from legacy fields
+      const requestingAddresses = requestingCompany.addresses && requestingCompany.addresses.length > 0 ?
+        requestingCompany.addresses :
+        (requestingCompany.address1 || requestingCompany.address) ? [{
+          label: "Main Office",
+          address1: requestingCompany.address1 || requestingCompany.address || "",
+          address2: requestingCompany.address2 || "",
+          city: requestingCompany.city || "",
+          state: requestingCompany.state || "",
+          postal_code: requestingCompany.zip || "",
+          county: requestingCompany.county || "",
+          latitude: requestingCompany.latitude || requestingCompany.lat || null,
+          longitude: requestingCompany.longitude || requestingCompany.lng || null,
+          primary: true,
+        }] : [];
+
       const requestingClientData = {
         company_id: partnershipReq.requesting_company_id,
         company_name: partnershipReq.requesting_company_name,
@@ -2525,34 +2541,41 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
         status: "active",
         email: requestingCompany.email || "",
         phone: requestingCompany.phone || "",
+        website: requestingCompany.website || "",
+        fax: requestingCompany.fax || "",
         address: requestingCompany.address || "",
         city: requestingCompany.city || "",
         state: requestingCompany.state || "",
         zip: requestingCompany.zip || "",
         contacts: (requestingCompany.email || requestingCompany.phone) ? [{
-          first_name: "",
+          first_name: requestingCompany.name || "",
           last_name: "",
           email: requestingCompany.email || "",
           phone: requestingCompany.phone || "",
-          title: "",
+          title: "Main Contact",
           primary: true,
         }] : [],
-        addresses: (requestingCompany.address1 || requestingCompany.address) ? [{
-          label: "Main Office",
-          address1: requestingCompany.address1 || requestingCompany.address || "",
-          address2: requestingCompany.address2 || "",
-          city: requestingCompany.city || "",
-          state: requestingCompany.state || "",
-          postal_code: requestingCompany.zip || "",
-          county: requestingCompany.county || "",
-          latitude: requestingCompany.latitude || null,
-          longitude: requestingCompany.longitude || null,
-          primary: true,
-        }] : [],
+        addresses: requestingAddresses,
         billing_tier: requestingCompany.billing_tier || "trial",
         created_at: now,
         updated_at: now,
       };
+
+      // Pull full addresses array if it exists, otherwise create from legacy fields
+      const targetAddresses = targetCompany.addresses && targetCompany.addresses.length > 0 ?
+        targetCompany.addresses :
+        (targetCompany.address1 || targetCompany.address) ? [{
+          label: "Main Office",
+          address1: targetCompany.address1 || targetCompany.address || "",
+          address2: targetCompany.address2 || "",
+          city: targetCompany.city || "",
+          state: targetCompany.state || "",
+          postal_code: targetCompany.zip || "",
+          county: targetCompany.county || "",
+          latitude: targetCompany.latitude || targetCompany.lat || null,
+          longitude: targetCompany.longitude || targetCompany.lng || null,
+          primary: true,
+        }] : [];
 
       const targetClientData = {
         company_id: partnershipReq.target_company_id,
@@ -2566,30 +2589,21 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
         status: "active",
         email: targetCompany.email || "",
         phone: targetCompany.phone || "",
+        website: targetCompany.website || "",
+        fax: targetCompany.fax || "",
         address: targetCompany.address || "",
         city: targetCompany.city || "",
         state: targetCompany.state || "",
         zip: targetCompany.zip || "",
         contacts: (targetCompany.email || targetCompany.phone) ? [{
-          first_name: "",
+          first_name: targetCompany.name || "",
           last_name: "",
           email: targetCompany.email || "",
           phone: targetCompany.phone || "",
-          title: "",
+          title: "Main Contact",
           primary: true,
         }] : [],
-        addresses: (targetCompany.address1 || targetCompany.address) ? [{
-          label: "Main Office",
-          address1: targetCompany.address1 || targetCompany.address || "",
-          address2: targetCompany.address2 || "",
-          city: targetCompany.city || "",
-          state: targetCompany.state || "",
-          postal_code: targetCompany.zip || "",
-          county: targetCompany.county || "",
-          latitude: targetCompany.latitude || null,
-          longitude: targetCompany.longitude || null,
-          primary: true,
-        }] : [],
+        addresses: targetAddresses,
         billing_tier: targetCompany.billing_tier || "trial",
         created_at: now,
         updated_at: now,
