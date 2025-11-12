@@ -3,9 +3,24 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
 import { format, subMonths } from 'date-fns';
+import { isDateInRange } from '@/utils/dateRangeHelpers';
 
-export default function RevenueChart({ invoices, isLoading }) {
+export default function RevenueChart({ invoices, isLoading, dateRange }) {
   const chartData = React.useMemo(() => {
+    // Apply date range filter if provided
+    // Always exclude cancelled invoices from revenue calculations
+    let filteredInvoices = invoices.filter(inv => inv.status !== 'cancelled');
+
+    if (dateRange) {
+      filteredInvoices = filteredInvoices.filter(inv => {
+        // Use payment_date for paid invoices, invoice_date for others
+        const dateToCheck = inv.status === 'paid'
+          ? (inv.payment_date || inv.invoice_date)
+          : inv.invoice_date;
+        return isDateInRange(dateToCheck, dateRange);
+      });
+    }
+
     const data = [];
     const now = new Date();
     for (let i = 5; i >= 0; i--) {
@@ -13,20 +28,24 @@ export default function RevenueChart({ invoices, isLoading }) {
       const monthKey = format(monthDate, 'yyyy-MM');
       const monthLabel = format(monthDate, 'MMM');
 
-      const monthInvoices = invoices.filter(inv => format(new Date(inv.invoice_date), 'yyyy-MM') === monthKey);
-      
+      const monthInvoices = filteredInvoices.filter(inv =>
+        format(new Date(inv.invoice_date), 'yyyy-MM') === monthKey
+      );
+
       const revenue = monthInvoices
         .filter(inv => inv.status === 'paid')
-        .reduce((sum, inv) => sum + inv.total_amount, 0);
+        .reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0);
 
       const outstanding = monthInvoices
-        .filter(inv => inv.status === 'sent' || inv.status === 'overdue')
-        .reduce((sum, inv) => sum + inv.total_amount, 0);
-        
+        .filter(inv =>
+          ['issued', 'sent', 'overdue', 'partial', 'partially_paid'].includes(inv.status?.toLowerCase())
+        )
+        .reduce((sum, inv) => sum + (inv.balance_due || inv.amount_outstanding || inv.total_amount || inv.total || 0), 0);
+
       data.push({ name: monthLabel, Revenue: revenue, Outstanding: outstanding });
     }
     return data;
-  }, [invoices]);
+  }, [invoices, dateRange]);
 
   if (isLoading) {
     return (
@@ -53,7 +72,16 @@ export default function RevenueChart({ invoices, isLoading }) {
           <BarChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="name" tickLine={false} axisLine={false} />
-            <YAxis tickLine={false} axisLine={false} tickFormatter={(value) => `$${value/1000}k`} />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(value) => {
+                if (value === 0) return '$0';
+                if (value < 1000) return `$${value.toFixed(0)}`;
+                if (value < 1000000) return `$${(value/1000).toFixed(1)}k`;
+                return `$${(value/1000000).toFixed(2)}M`;
+              }}
+            />
             <Tooltip
               cursor={{ fill: 'rgba(241, 245, 249, 0.5)' }}
               formatter={(value) => `$${value.toLocaleString()}`}
