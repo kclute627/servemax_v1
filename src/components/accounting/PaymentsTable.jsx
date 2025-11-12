@@ -99,7 +99,12 @@ export default function PaymentsTable({ payments, invoices, clients, isLoading }
                 <TableCell>{getClientName(payment.client_id)}</TableCell>
                 <TableCell>{getInvoiceNumber(payment.invoice_id)}</TableCell>
                 <TableCell className="font-medium">${payment.amount.toFixed(2)}</TableCell>
-                <TableCell>{format(new Date(payment.payment_date), "MMM d, yyyy h:mm a")}</TableCell>
+                <TableCell>
+                  {payment.payment_date
+                    ? format(new Date(payment.payment_date), "MMM d, yyyy h:mm a")
+                    : 'N/A'
+                  }
+                </TableCell>
                 <TableCell className="capitalize">{payment.payment_method?.replace('_', ' ')}</TableCell>
                 <TableCell>
                   <Badge className={paymentStatusConfig[payment.status]?.color || "bg-slate-100"}>

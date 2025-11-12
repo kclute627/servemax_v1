@@ -2,7 +2,6 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Skeleton } from '@/components/ui/skeleton';
-import { isDateInRange } from '@/utils/dateRangeHelpers';
 
 // Duration ranges with colors reflecting urgency
 const DURATION_RANGES = {

@@ -20,7 +20,7 @@ import { useGlobalData } from '../components/GlobalDataContext'; // Import the c
 
 export default function AccountingPage() {
   // Use data from the global context instead of local state
-  const { invoices, payments, clients, employees, serverPayRecords, isLoading } = useGlobalData();
+  const { invoices, payments, clients, employees, serverPayRecords, isLoading, refreshData } = useGlobalData();
   const [searchTerm, setSearchTerm] = useState('');
   
   // No need for useEffect or loadData here anymore, as data is provided by context
@@ -107,6 +107,7 @@ export default function AccountingPage() {
                     invoices={filteredInvoices}
                     clients={clients}
                     isLoading={isLoading}
+                    onPaymentApplied={refreshData}
                 />
             </TabsContent>
             <TabsContent value="payments">

@@ -28,21 +28,35 @@ export default function RevenueChart({ invoices, isLoading, dateRange }) {
       const monthKey = format(monthDate, 'yyyy-MM');
       const monthLabel = format(monthDate, 'MMM');
 
+      // Invoices issued in this month (for billed and outstanding calculations)
       const monthInvoices = filteredInvoices.filter(inv =>
         format(new Date(inv.invoice_date), 'yyyy-MM') === monthKey
       );
 
-      const revenue = monthInvoices
-        .filter(inv => inv.status === 'paid')
+      // Total amount billed (all invoices issued in this month)
+      const billed = monthInvoices
+        .filter(inv =>
+          ['issued', 'sent', 'overdue', 'paid', 'partial', 'partially_paid'].includes(inv.status?.toLowerCase())
+        )
         .reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0);
 
+      // Revenue collected (invoices paid in this month - based on payment_date)
+      const revenue = filteredInvoices
+        .filter(inv => {
+          if (inv.status !== 'paid' || !inv.payment_date) return false;
+          const paymentMonth = format(new Date(inv.payment_date), 'yyyy-MM');
+          return paymentMonth === monthKey;
+        })
+        .reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0);
+
+      // Outstanding balance (unpaid/partially paid invoices issued in this month)
       const outstanding = monthInvoices
         .filter(inv =>
           ['issued', 'sent', 'overdue', 'partial', 'partially_paid'].includes(inv.status?.toLowerCase())
         )
         .reduce((sum, inv) => sum + (inv.balance_due || inv.amount_outstanding || inv.total_amount || inv.total || 0), 0);
 
-      data.push({ name: monthLabel, Revenue: revenue, Outstanding: outstanding });
+      data.push({ name: monthLabel, Billed: billed, Revenue: revenue, Outstanding: outstanding });
     }
     return data;
   }, [invoices, dateRange]);
@@ -65,7 +79,7 @@ export default function RevenueChart({ invoices, isLoading, dateRange }) {
     <Card className="shadow-sm border-0">
       <CardHeader>
         <CardTitle>Financial Overview</CardTitle>
-        <CardDescription>Revenue vs. Outstanding amount over the last 6 months.</CardDescription>
+        <CardDescription>Invoices billed, revenue collected, and outstanding amounts over the last 6 months.</CardDescription>
       </CardHeader>
       <CardContent>
         <ResponsiveContainer width="100%" height={300}>
@@ -87,6 +101,7 @@ export default function RevenueChart({ invoices, isLoading, dateRange }) {
               formatter={(value) => `$${value.toLocaleString()}`}
             />
             <Legend />
+            <Bar dataKey="Billed" fill="hsl(210 100% 70%)" radius={[4, 4, 0, 0]} />
             <Bar dataKey="Revenue" fill="hsl(142.1 76.2% 36.3%)" radius={[4, 4, 0, 0]} />
             <Bar dataKey="Outstanding" fill="hsl(221.2 83.2% 53.3%)" radius={[4, 4, 0, 0]} />
           </BarChart>

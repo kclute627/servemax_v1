@@ -549,7 +549,7 @@ export class MultiTenantAccess {
       ...queryOptions,
       where: [
         ...(queryOptions.where || []),
-        ['company_id', '==', user.company_id]
+        ['created_by', '==', user.company_id]
       ]
     };
 
