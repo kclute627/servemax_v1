@@ -67,7 +67,12 @@ export class FirebaseEntity {
 
   // Simple filter method (mimics Base44's filter method)
   async filter(filterObj) {
-    const whereConditions = Object.entries(filterObj).map(([key, value]) => [key, '==', value]);
+    // Filter out undefined, null, and empty string values to avoid Firestore query errors
+    const validEntries = Object.entries(filterObj).filter(([key, value]) => {
+      return value !== undefined && value !== null && value !== '';
+    });
+
+    const whereConditions = validEntries.map(([key, value]) => [key, '==', value]);
     return this.find({ where: whereConditions });
   }
 

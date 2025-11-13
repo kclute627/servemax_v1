@@ -7,18 +7,18 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Bell, Mail, Save, Loader2, UserCircle, Map, Target } from "lucide-react";
+import { Bell, Save, Loader2, UserCircle, Target } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import AddressAutocomplete from "../jobs/AddressAutocomplete";
+import { useToast } from "@/components/ui/use-toast";
 import ESignatureSection from "./ESignatureSection";
 
 export default function UserSettingsPanel() {
+  const { toast } = useToast();
   const [user, setUser] = useState(null);
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
     license_number: '',
-    address: { address1: '', address2: '', city: '', state: '', postal_code: '' },
     service_areas_text: '',
     notification_preferences: {
       job_assigned: true,
@@ -26,9 +26,12 @@ export default function UserSettingsPanel() {
       mention_in_notes: true,
     },
   });
+  const [originalFormData, setOriginalFormData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isAddressLoading, setIsAddressLoading] = useState(false);
+
+  // Check if form has unsaved changes
+  const hasChanges = originalFormData && JSON.stringify(formData) !== JSON.stringify(originalFormData);
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -42,14 +45,16 @@ export default function UserSettingsPanel() {
         const firstName = nameParts[0] || currentUser.first_name || '';
         const lastName = nameParts.slice(1).join(' ') || currentUser.last_name || '';
         
-        setFormData({
+        const initialData = {
           first_name: firstName,
           last_name: lastName,
           license_number: currentUser.license_number || '',
-          address: currentUser.address || { address1: '', address2: '', city: '', state: '', postal_code: '' },
           service_areas_text: (currentUser.service_areas || []).join(', '),
           notification_preferences: currentUser.notification_preferences || { job_assigned: true, job_completed: false, mention_in_notes: true }
-        });
+        };
+
+        setFormData(initialData);
+        setOriginalFormData(initialData);
 
       } catch (error) {
         console.error("Failed to load user data:", error);
@@ -63,48 +68,36 @@ export default function UserSettingsPanel() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleAddressFieldChange = (field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      address: { ...prev.address, [field]: value }
-    }));
-  };
-
-  const handleAddressSelect = (addressDetails) => {
-    setFormData(prev => ({
-      ...prev,
-      address: {
-        address1: addressDetails.address1 || '',
-        address2: prev.address.address2, // Keep suite number
-        city: addressDetails.city || '',
-        state: addressDetails.state || '',
-        postal_code: addressDetails.postal_code || '',
-        county: addressDetails.county || '',
-        latitude: addressDetails.latitude || null,
-        longitude: addressDetails.longitude || null
-      }
-    }));
-  };
-
   const handleSave = async () => {
     setIsSaving(true);
     try {
       const service_areas = formData.service_areas_text.split(',').map(s => s.trim()).filter(Boolean);
       const full_name = `${formData.first_name} ${formData.last_name}`.trim();
-      
+
       await User.updateMyUserData({
         first_name: formData.first_name,
         last_name: formData.last_name,
         full_name: full_name, // Update the built-in full_name field too
         license_number: formData.license_number,
-        address: formData.address,
         service_areas: service_areas,
         notification_preferences: formData.notification_preferences,
       });
-      alert("Your settings have been saved.");
+
+      // Update original data to mark as saved
+      setOriginalFormData(formData);
+
+      toast({
+        variant: "success",
+        title: "Settings saved successfully",
+        description: "Your personal settings have been updated",
+      });
     } catch (error) {
       console.error("Failed to save user settings:", error);
-      alert("An error occurred while saving your settings.");
+      toast({
+        variant: "destructive",
+        title: "Error saving settings",
+        description: "An error occurred while saving your settings. Please try again.",
+      });
     }
     setIsSaving(false);
   };
@@ -119,7 +112,7 @@ export default function UserSettingsPanel() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><UserCircle className="w-5 h-5" />Profile Information</CardTitle>
@@ -143,45 +136,6 @@ export default function UserSettingsPanel() {
           <div>
             <Label htmlFor="license_number">License Number</Label>
             <Input id="license_number" value={formData.license_number} onChange={(e) => handleInputChange('license_number', e.target.value)} placeholder="e.g., PC12345" />
-          </div>
-        </CardContent>
-      </Card>
-      
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Map className="w-5 h-5" />Address</CardTitle>
-          <CardDescription>Your primary contact address.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="md:col-span-3">
-              <Label htmlFor="address1">Street Address</Label>
-              <AddressAutocomplete
-                id="address1"
-                value={formData.address.address1}
-                onChange={(value) => handleAddressFieldChange('address1', value)}
-                onAddressSelect={handleAddressSelect}
-                onLoadingChange={setIsAddressLoading}
-              />
-            </div>
-            <div className="md:col-span-1">
-              <Label htmlFor="address2">Apt/Suite</Label>
-              <Input id="address2" value={formData.address.address2} onChange={(e) => handleAddressFieldChange('address2', e.target.value)} />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <Label htmlFor="city">City</Label>
-              <Input id="city" value={formData.address.city} onChange={(e) => handleAddressFieldChange('city', e.target.value)} disabled={isAddressLoading} />
-            </div>
-            <div>
-              <Label htmlFor="state">State</Label>
-              <Input id="state" value={formData.address.state} onChange={(e) => handleAddressFieldChange('state', e.target.value)} disabled={isAddressLoading} />
-            </div>
-            <div>
-              <Label htmlFor="postal_code">ZIP Code</Label>
-              <Input id="postal_code" value={formData.address.postal_code} onChange={(e) => handleAddressFieldChange('postal_code', e.target.value)} disabled={isAddressLoading} />
-            </div>
           </div>
         </CardContent>
       </Card>
@@ -236,12 +190,22 @@ export default function UserSettingsPanel() {
           </div>
         </CardContent>
       </Card>
-      
-      <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={isSaving} className="gap-2">
-          {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          {isSaving ? 'Saving...' : 'Save My Settings'}
-        </Button>
+
+      {/* Sticky Save Button */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-lg z-10">
+        <div className="max-w-7xl mx-auto px-6 md:px-8 py-4 flex justify-end items-center">
+          <Button
+            onClick={handleSave}
+            disabled={isSaving || !hasChanges}
+            className="gap-2 relative"
+          >
+            {hasChanges && (
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full animate-pulse border-2 border-white"></span>
+            )}
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {isSaving ? 'Saving...' : 'Save My Settings'}
+          </Button>
+        </div>
       </div>
     </div>
   );

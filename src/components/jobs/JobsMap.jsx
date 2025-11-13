@@ -1,62 +1,202 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { MapPin, Briefcase, User, Clock, Loader2, ArrowRight } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { formatDistanceToNow } from 'date-fns';
-
-// Fix for default Leaflet icon path issue with bundlers
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
-});
+import { loadGooglePlacesAPI } from '@/utils/googlePlaces';
 
 const statusConfig = {
-  pending: { color: "border-slate-300", bg: "bg-slate-50" },
-  assigned: { color: "border-blue-300", bg: "bg-blue-50" },
-  in_progress: { color: "border-amber-300", bg: "bg-amber-50" },
-  served: { color: "border-green-300", bg: "bg-green-50" },
+  pending: { color: "border-slate-300", bg: "bg-slate-50", markerColor: "#94a3b8" },
+  assigned: { color: "border-blue-300", bg: "bg-blue-50", markerColor: "#3b82f6" },
+  in_progress: { color: "border-amber-300", bg: "bg-amber-50", markerColor: "#f59e0b" },
+  served: { color: "border-green-300", bg: "bg-green-50", markerColor: "#10b981" },
+  needs_affidavit: { color: "border-purple-300", bg: "bg-purple-50", markerColor: "#a855f7" },
+  unable_to_serve: { color: "border-red-300", bg: "bg-red-50", markerColor: "#ef4444" },
 };
-
-function ChangeView({ center, zoom }) {
-  const map = useMap();
-  useEffect(() => {
-    if (center) {
-      map.setView(center, zoom);
-    }
-  }, [center, zoom, map]);
-  return null;
-}
 
 export default function JobsMap({ jobs, isLoading }) {
   const [selectedJobId, setSelectedJobId] = useState(null);
-  const [mapCenter, setMapCenter] = useState([34.0522, -118.2437]); // Default to LA
-  const [mapZoom, setMapZoom] = useState(10);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapError, setMapError] = useState(false);
+  const mapRef = useRef(null);
+  const googleMapRef = useRef(null);
+  const markersRef = useRef({});
+  const infoWindowRef = useRef(null);
   const jobItemRefs = useRef({});
+
+  // Helper function to check if job number is valid (not UUID or timestamp)
+  const isValidJobNumber = (jobNumber) => {
+    if (!jobNumber) return false;
+    // Check if it's a UUID (contains hyphens) or timestamp (very long number)
+    const isUUID = typeof jobNumber === 'string' && jobNumber.includes('-');
+    const isTimestamp = typeof jobNumber === 'string' && jobNumber.length > 10 && !isNaN(jobNumber);
+    return !isUUID && !isTimestamp;
+  };
 
   const jobsWithCoords = useMemo(() =>
     jobs.filter(job => job.addresses?.[0]?.latitude && job.addresses?.[0]?.longitude),
     [jobs]
   );
 
-  useEffect(() => {
-    if (jobsWithCoords.length > 0) {
-      const latitudes = jobsWithCoords.map(j => j.addresses[0].latitude);
-      const longitudes = jobsWithCoords.map(j => j.addresses[0].longitude);
-      const avgLat = latitudes.reduce((sum, lat) => sum + lat, 0) / latitudes.length;
-      const avgLng = longitudes.reduce((sum, lng) => sum + lng, 0) / longitudes.length;
-      setMapCenter([avgLat, avgLng]);
-    }
-  }, [jobsWithCoords]);
+  // Initialize Google Maps
+  const initializeMap = useCallback(async () => {
+    if (!mapRef.current || mapLoaded) return;
 
+    try {
+      await loadGooglePlacesAPI();
+
+      if (!window.google || !window.google.maps) {
+        setMapError(true);
+        return;
+      }
+
+      // Try to get user's current location
+      let center = { lat: 41.8781, lng: -87.6298 }; // Default fallback to Chicago
+
+      try {
+        console.log('[JobsMap] Requesting user location...');
+
+        // Request user's location with increased timeout and high accuracy
+        const position = await new Promise((resolve, reject) => {
+          if (!navigator.geolocation) {
+            reject(new Error('Geolocation not supported'));
+            return;
+          }
+
+          navigator.geolocation.getCurrentPosition(
+            resolve,
+            (error) => {
+              console.error('[JobsMap] Geolocation error:', error.code, error.message);
+              reject(error);
+            },
+            {
+              enableHighAccuracy: true, // Use GPS if available
+              timeout: 15000, // Increased to 15 seconds
+              maximumAge: 300000 // Cache for 5 minutes
+            }
+          );
+        });
+
+        // Use user's location as center
+        center = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        };
+        console.log('[JobsMap] Successfully using user location as center:', center);
+      } catch (geoError) {
+        console.log('[JobsMap] Geolocation failed, using default center (Chicago). Error:', geoError?.message || geoError);
+        console.log('[JobsMap] Using default center (Chicago):', center);
+        // Keep the default Chicago center instead of falling back to job locations
+      }
+
+      // Create the map
+      googleMapRef.current = new window.google.maps.Map(mapRef.current, {
+        center: center,
+        zoom: 8, // More zoomed out for better overview
+        mapTypeId: 'roadmap',
+        styles: [], // Can add custom styles here if desired
+        // Add standard UI controls for easier navigation
+        zoomControl: true,
+        mapTypeControl: true,
+        scaleControl: true,
+        streetViewControl: true,
+        rotateControl: true,
+        fullscreenControl: true,
+        gestureHandling: 'greedy' // Allow scrolling to zoom without Cmd/Ctrl key
+      });
+
+      // Create single info window for reuse
+      infoWindowRef.current = new window.google.maps.InfoWindow();
+
+      setMapLoaded(true);
+    } catch (error) {
+      console.error('Error initializing map:', error);
+      setMapError(true);
+    }
+  }, [jobsWithCoords, mapLoaded]);
+
+  // Update markers when jobs change
+  useEffect(() => {
+    if (!googleMapRef.current || !mapLoaded) return;
+
+    // Clear existing markers
+    Object.values(markersRef.current).forEach(marker => marker.setMap(null));
+    markersRef.current = {};
+
+    // Create markers for each job
+    jobsWithCoords.forEach(job => {
+      const position = {
+        lat: job.addresses[0].latitude,
+        lng: job.addresses[0].longitude
+      };
+
+      const marker = new window.google.maps.Marker({
+        position: position,
+        map: googleMapRef.current,
+        title: job.recipient?.name || 'Job',
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: 10,
+          fillColor: statusConfig[job.status]?.markerColor || '#94a3b8',
+          fillOpacity: selectedJobId === job.id ? 1 : 0.8,
+          strokeColor: '#ffffff',
+          strokeWeight: 2,
+        }
+      });
+
+      // Add click listener
+      marker.addListener('click', () => {
+        setSelectedJobId(job.id);
+
+        // Create info window content
+        const dueText = job.due_date ? formatDistanceToNow(new Date(job.due_date), { addSuffix: true }) : 'N/A';
+
+        const content = `
+          <div class="p-2" style="max-width: 250px;">
+            <p class="font-bold text-base mb-1">${job.recipient?.name || 'Unknown'}</p>
+            <p class="text-slate-600 text-sm mb-2">${job.addresses[0].address1}</p>
+            <p class="text-sm text-slate-500 mb-3">Due: ${dueText}</p>
+            <a href="${createPageUrl("JobDetails")}?id=${job.id}"
+               class="inline-block w-full text-center px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">
+              View Details →
+            </a>
+          </div>
+        `;
+
+        infoWindowRef.current.setContent(content);
+        infoWindowRef.current.open(googleMapRef.current, marker);
+      });
+
+      markersRef.current[job.id] = marker;
+    });
+  }, [jobsWithCoords, mapLoaded, selectedJobId]);
+
+  // Initialize map when component mounts
+  useEffect(() => {
+    initializeMap();
+  }, [initializeMap]);
+
+  // Update marker opacity when selection changes
+  useEffect(() => {
+    Object.entries(markersRef.current).forEach(([jobId, marker]) => {
+      const job = jobsWithCoords.find(j => j.id === jobId);
+      if (job) {
+        marker.setIcon({
+          path: window.google.maps.SymbolPath.CIRCLE,
+          scale: selectedJobId === jobId ? 12 : 10,
+          fillColor: statusConfig[job.status]?.markerColor || '#94a3b8',
+          fillOpacity: selectedJobId === jobId ? 1 : 0.8,
+          strokeColor: '#ffffff',
+          strokeWeight: selectedJobId === jobId ? 3 : 2,
+        });
+      }
+    });
+  }, [selectedJobId, jobsWithCoords]);
+
+  // Scroll to selected job in sidebar
   useEffect(() => {
     if (selectedJobId && jobItemRefs.current[selectedJobId]) {
       jobItemRefs.current[selectedJobId].scrollIntoView({
@@ -66,14 +206,18 @@ export default function JobsMap({ jobs, isLoading }) {
     }
   }, [selectedJobId]);
 
-  const handleMarkerClick = (job) => {
-    setSelectedJobId(job.id);
-  };
-
   const handleJobCardClick = (job) => {
     setSelectedJobId(job.id);
-    setMapCenter([job.addresses[0].latitude, job.addresses[0].longitude]);
-    setMapZoom(14);
+    if (googleMapRef.current && markersRef.current[job.id]) {
+      googleMapRef.current.setCenter({
+        lat: job.addresses[0].latitude,
+        lng: job.addresses[0].longitude
+      });
+      googleMapRef.current.setZoom(14);
+
+      // Trigger marker click to show info window
+      window.google.maps.event.trigger(markersRef.current[job.id], 'click');
+    }
   };
   
   if (isLoading) {
@@ -117,15 +261,14 @@ export default function JobsMap({ jobs, isLoading }) {
                   : 'bg-white hover:bg-slate-50 border-slate-200'
               }`}
             >
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="font-bold text-slate-900">{job.recipient.name}</p>
-                  <p className="text-sm text-slate-600">{job.addresses[0].address1}</p>
-                </div>
-                <Badge className={statusConfig[job.status]?.bg || 'bg-slate-50'}>{job.status}</Badge>
+              <div>
+                <p className="font-bold text-slate-900">{job.recipient.name}</p>
+                <p className="text-sm text-slate-600">{job.addresses[0].address1}</p>
               </div>
               <div className="flex items-center justify-between mt-3 text-sm text-slate-500">
-                <span>Job #{job.job_number}</span>
+                <span>
+                  {isValidJobNumber(job.job_number) ? `Job #${job.job_number}` : 'Job'}
+                </span>
                 {job.due_date && <span>Due: {formatDistanceToNow(new Date(job.due_date), { addSuffix: true })}</span>}
               </div>
             </div>
@@ -134,47 +277,28 @@ export default function JobsMap({ jobs, isLoading }) {
       </div>
 
       {/* Map Area */}
-      <div className="w-2/3 h-full">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full bg-slate-50">
+      <div className="w-2/3 h-full relative">
+        {/* Always render the map div so ref is available */}
+        <div
+          ref={mapRef}
+          className="h-full w-full"
+          style={{ minHeight: '400px' }}
+        />
+
+        {/* Show overlays based on state */}
+        {mapError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
+            <div className="text-center">
+              <MapPin className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+              <p className="text-slate-600">Failed to load map</p>
+            </div>
+          </div>
+        )}
+
+        {!mapLoaded && !mapError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
             <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
           </div>
-        ) : (
-          <MapContainer center={mapCenter} zoom={mapZoom} scrollWheelZoom={true} className="h-full w-full">
-            <TileLayer
-              attribution='&copy; Google'
-              url="https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-              subdomains={['mt0','mt1','mt2','mt3']}
-            />
-            <ChangeView center={mapCenter} zoom={mapZoom} />
-
-            {jobsWithCoords.map(job => (
-              <Marker
-                key={job.id}
-                position={[job.addresses[0].latitude, job.addresses[0].longitude]}
-                eventHandlers={{ click: () => handleMarkerClick(job) }}
-                opacity={selectedJobId === job.id ? 1 : 0.8}
-              >
-                <Popup>
-                  <div className="w-64">
-                    <p className="font-bold text-base mb-1">{job.recipient.name}</p>
-                    <p className="text-slate-600 text-sm mb-2">{job.addresses[0].address1}</p>
-                    <div className="flex items-center justify-between mb-3">
-                      <Badge className={statusConfig[job.status]?.bg || 'bg-slate-50'}>{job.status}</Badge>
-                      <span className="text-sm text-slate-500">
-                        Due: {job.due_date ? formatDistanceToNow(new Date(job.due_date), { addSuffix: true }) : 'N/A'}
-                      </span>
-                    </div>
-                    <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`}>
-                      <Button size="sm" className="w-full gap-2">
-                          View Details <ArrowRight className="w-4 h-4" />
-                      </Button>
-                    </Link>
-                  </div>
-                </Popup>
-              </Marker>
-            ))}
-          </MapContainer>
         )}
       </div>
     </div>
