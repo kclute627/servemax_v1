@@ -20,7 +20,8 @@ import {
   List,
   MapPin,
   Briefcase,
-  Columns
+  Columns,
+  Route
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -40,6 +41,7 @@ import JobFilters from "../components/jobs/JobFilters";
 import JobsMap from "../components/jobs/JobsMap";
 import KanbanView from "../components/jobs/KanbanView";
 import CaseView from "../components/jobs/CaseView";
+import RoutingView from "../components/jobs/RoutingView";
 import { useGlobalData } from "../components/GlobalDataContext"; // Changed from useJobs to useGlobalData
 import { StatsManager } from "@/firebase/stats";
 
@@ -50,6 +52,7 @@ export default function JobsPage() {
     clients,
     employees,
     invoices,
+    courtCases,
     allAssignableServers,
     myCompanyClientId,
     companySettings,
@@ -401,7 +404,7 @@ export default function JobsPage() {
                   variant={currentView === 'list' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => setCurrentView('list')}
-                  className={`gap-2 h-9 px-4 ${currentView === 'list' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-600 hover:text-slate-800'}`}
+                  className={`gap-2 h-9 px-4 ${currentView === 'list' ? 'bg-white text-slate-900 shadow-md hover:bg-white hover:text-slate-900' : 'text-slate-600 hover:text-slate-800'}`}
                 >
                   <List className="w-4 h-4" />
                   List
@@ -410,7 +413,7 @@ export default function JobsPage() {
                   variant={currentView === 'map' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => setCurrentView('map')}
-                  className={`gap-2 h-9 px-4 ${currentView === 'map' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-600 hover:text-slate-800'}`}
+                  className={`gap-2 h-9 px-4 ${currentView === 'map' ? 'bg-white text-slate-900 shadow-md hover:bg-white hover:text-slate-900' : 'text-slate-600 hover:text-slate-800'}`}
                 >
                   <MapPin className="w-4 h-4" />
                   Map
@@ -419,17 +422,26 @@ export default function JobsPage() {
                   variant={currentView === 'case' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => setCurrentView('case')}
-                  className={`gap-2 h-9 px-4 ${currentView === 'case' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-600 hover:text-slate-800'}`}
+                  className={`gap-2 h-9 px-4 ${currentView === 'case' ? 'bg-white text-slate-900 shadow-md hover:bg-white hover:text-slate-900' : 'text-slate-600 hover:text-slate-800'}`}
                 >
                   <Briefcase className="w-4 h-4" />
                   Case
+                </Button>
+                <Button
+                  variant={currentView === 'routing' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setCurrentView('routing')}
+                  className={`gap-2 h-9 px-4 ${currentView === 'routing' ? 'bg-white text-slate-900 shadow-md hover:bg-white hover:text-slate-900' : 'text-slate-600 hover:text-slate-800'}`}
+                >
+                  <Route className="w-4 h-4" />
+                  Routing
                 </Button>
                 {companySettings?.kanbanBoard?.enabled && (
                   <Button
                     variant={currentView === 'kanban' ? 'default' : 'ghost'}
                     size="sm"
                     onClick={() => setCurrentView('kanban')}
-                    className={`gap-2 h-9 px-4 ${currentView === 'kanban' ? 'bg-white text-slate-900 shadow-md' : 'text-slate-600 hover:text-slate-800'}`}
+                    className={`gap-2 h-9 px-4 ${currentView === 'kanban' ? 'bg-white text-slate-900 shadow-md hover:bg-white hover:text-slate-900' : 'text-slate-600 hover:text-slate-800'}`}
                   >
                     <Columns className="w-4 h-4" />
                     Kanban
@@ -568,15 +580,17 @@ export default function JobsPage() {
             />
           )}
 
-          {currentView === 'map' && (
-            <JobsMap jobs={filteredJobs} isLoading={isLoading} /> // Map view uses all filtered jobs
-          )}
+          {/* Always render JobsMap for preloading, hide when not active */}
+          <div style={{ display: currentView === 'map' ? 'block' : 'none' }}>
+            <JobsMap jobs={filteredJobs} isLoading={isLoading} />
+          </div>
 
           {currentView === 'case' && (
             <CaseView
               jobs={filteredJobs}
               clients={clients}
               employees={employees}
+              courtCases={courtCases}
               isLoading={isLoading}
             />
           )}
@@ -589,6 +603,15 @@ export default function JobsPage() {
               onJobStatusChange={handleJobStatusUpdate} // Pass the new handler
               isLoading={isLoading}
               statusColumns={companySettings?.kanbanBoard?.columns || []}
+            />
+          )}
+
+          {currentView === 'routing' && (
+            <RoutingView
+              jobs={filteredJobs}
+              employees={employees}
+              clients={clients}
+              isLoading={isLoading}
             />
           )}
         </div>

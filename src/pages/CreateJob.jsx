@@ -63,7 +63,6 @@ import CaseNumberAutocomplete from "../components/jobs/CaseNumberAutocomplete"; 
 import QuickInvoice from "../components/jobs/QuickInvoice";
 // FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { generateFieldSheet } from "@/api/functions"; // Added import for generateFieldSheet
-import { generateJobNumber, generateInvoiceNumber } from "@/utils/numberGenerators"; // NEW: Fast number generation
 
 export default function CreateJobPage() {
   const navigate = useNavigate();
@@ -403,35 +402,68 @@ export default function CreateJobPage() {
   };
 
   const generateJobNumber = async () => {
-    try {
-      // Use atomic counter for global sequential job numbers across all companies
-      const counterRef = doc(db, 'counters', 'job_number');
+    const maxRetries = 3;
+    let lastError = null;
 
-      const nextNumber = await runTransaction(db, async (transaction) => {
-        const counterDoc = await transaction.get(counterRef);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Generating job number (attempt ${attempt}/${maxRetries})...`);
 
-        if (!counterDoc.exists()) {
-          // Initialize counter if it doesn't exist (first job ever)
-          transaction.set(counterRef, { current_value: 1 });
-          return 1;
+        // Use atomic counter for global sequential job numbers across all companies
+        const counterRef = doc(db, 'counters', 'job_number');
+
+        const nextNumber = await runTransaction(db, async (transaction) => {
+          const counterDoc = await transaction.get(counterRef);
+
+          if (!counterDoc.exists()) {
+            // Initialize counter if it doesn't exist (first job ever)
+            console.log('Counter document does not exist, initializing with value 1');
+            transaction.set(counterRef, {
+              current_value: 1,
+              created_at: new Date().toISOString(),
+              last_updated: new Date().toISOString()
+            });
+            return 1;
+          }
+
+          const currentValue = counterDoc.data().current_value || 0;
+          const newValue = currentValue + 1;
+
+          console.log(`Incrementing counter from ${currentValue} to ${newValue}`);
+
+          // Atomically increment the counter
+          transaction.update(counterRef, {
+            current_value: newValue,
+            last_updated: new Date().toISOString()
+          });
+
+          return newValue;
+        });
+
+        // Format as 6-digit padded string (e.g., "000001", "000100", "123456")
+        const formattedNumber = nextNumber.toString().padStart(6, '0');
+        console.log(`Successfully generated job number: ${formattedNumber}`);
+        return formattedNumber;
+
+      } catch (error) {
+        lastError = error;
+        console.error(`Error generating job number (attempt ${attempt}/${maxRetries}):`, error);
+
+        // If this wasn't the last attempt, wait a bit before retrying
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 100 * attempt)); // Exponential backoff
         }
-
-        const currentValue = counterDoc.data().current_value || 0;
-        const newValue = currentValue + 1;
-
-        // Atomically increment the counter
-        transaction.update(counterRef, { current_value: newValue });
-
-        return newValue;
-      });
-
-      // Format as 6-digit padded string (e.g., "000001", "000100", "123456")
-      return nextNumber.toString().padStart(6, '0');
-    } catch (error) {
-      console.error('Error generating job number:', error);
-      // Fallback to timestamp if transaction fails
-      return Date.now().toString();
+      }
     }
+
+    // All retries failed, fall back to timestamp with clear error
+    console.error('Failed to generate sequential job number after all retries. Using timestamp fallback.', lastError);
+    toast({
+      variant: "destructive",
+      title: "Warning",
+      description: "Using temporary job number. Please contact support if this persists.",
+    });
+    return Date.now().toString();
   };
 
   // Invoice numbers now use the job number (removed separate invoice numbering)

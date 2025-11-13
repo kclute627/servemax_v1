@@ -9,7 +9,7 @@
 
 // Google Places API configuration
 const GOOGLE_PLACES_API_KEY = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
-const PLACES_LIBRARY_URL = 'https://maps.googleapis.com/maps/api/js?libraries=places';
+const PLACES_LIBRARY_URL = 'https://maps.googleapis.com/maps/api/js?libraries=places,geometry';
 
 // Singleton promise for loading the Google Places library
 let googlePlacesPromise = null;
@@ -33,7 +33,7 @@ export async function loadGooglePlacesAPI() {
 
   googlePlacesPromise = new Promise((resolve, reject) => {
     // Check if already loaded
-    if (window.google?.maps?.places) {
+    if (window.google?.maps?.places && window.google?.maps?.geometry) {
       resolve();
       return;
     }
@@ -44,10 +44,10 @@ export async function loadGooglePlacesAPI() {
     script.defer = true;
 
     script.onload = () => {
-      if (window.google?.maps?.places) {
+      if (window.google?.maps?.places && window.google?.maps?.geometry) {
         resolve();
       } else {
-        reject(new Error('Google Places API failed to load'));
+        reject(new Error('Google Maps API (Places & Geometry) failed to load'));
       }
     };
 

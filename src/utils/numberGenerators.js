@@ -1,4 +1,4 @@
-import { doc, updateDoc, increment, getDoc, runTransaction } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, runTransaction, setDoc } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 
 /**
@@ -146,9 +146,68 @@ export async function migrateCompanyToCounters(companyId, currentJobCount = 0, c
   }
 }
 
+/**
+ * Initialize or update the global job number counter
+ * Use this to set up the counter for the first time or to sync it with existing jobs
+ *
+ * @param {number} startingValue - The value to set (e.g., current job count)
+ */
+export async function initializeGlobalJobCounter(startingValue = 0) {
+  try {
+    const counterRef = doc(db, 'counters', 'job_number');
+
+    const counterDoc = await getDoc(counterRef);
+
+    if (counterDoc.exists()) {
+      console.log(`Global job counter already exists with value: ${counterDoc.data().current_value}`);
+      console.log('If you want to update it, use updateGlobalJobCounter instead');
+      return false;
+    }
+
+    // Create new counter document
+    await setDoc(counterRef, {
+      current_value: startingValue,
+      created_at: new Date().toISOString(),
+      last_updated: new Date().toISOString()
+    });
+
+    console.log(`Global job counter initialized with starting value: ${startingValue}`);
+    return true;
+  } catch (error) {
+    console.error('Error initializing global job counter:', error);
+    return false;
+  }
+}
+
+/**
+ * Update the global job number counter to a specific value
+ * Use with caution - this will set the counter to a specific value
+ *
+ * @param {number} newValue - The new value to set
+ */
+export async function updateGlobalJobCounter(newValue) {
+  try {
+    const counterRef = doc(db, 'counters', 'job_number');
+
+    await updateDoc(counterRef, {
+      current_value: newValue,
+      last_updated: new Date().toISOString(),
+      manually_updated_at: new Date().toISOString()
+    });
+
+    console.log(`Global job counter updated to: ${newValue}`);
+    return true;
+  } catch (error) {
+    console.error('Error updating global job counter:', error);
+    return false;
+  }
+}
+
 export default {
   generateJobNumber,
   generateInvoiceNumber,
   initializeCompanyCounters,
-  migrateCompanyToCounters
+  migrateCompanyToCounters,
+  initializeGlobalJobCounter,
+  updateGlobalJobCounter
 };

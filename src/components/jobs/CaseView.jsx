@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { CourtCase } from '@/api/entities';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,25 +37,8 @@ const priorityConfig = {
   emergency: { color: "bg-red-100 text-red-700" }
 };
 
-export default function CaseView({ jobs, clients, employees, isLoading }) {
-  const [courtCases, setCourtCases] = useState([]);
+export default function CaseView({ jobs, clients, employees, courtCases = [], isLoading }) {
   const [expandedCases, setExpandedCases] = useState(new Set());
-  const [casesLoading, setCasesLoading] = useState(true);
-
-  useEffect(() => {
-    loadCourtCases();
-  }, []);
-
-  const loadCourtCases = async () => {
-    setCasesLoading(true);
-    try {
-      const cases = await CourtCase.list();
-      setCourtCases(cases);
-    } catch (error) {
-      console.error("Error loading court cases:", error);
-    }
-    setCasesLoading(false);
-  };
 
   const groupedJobs = useMemo(() => {
     const groups = new Map();
@@ -131,7 +113,7 @@ export default function CaseView({ jobs, clients, employees, isLoading }) {
     return statusConfig.hasOwnProperty(status);
   };
 
-  if (isLoading || casesLoading) {
+  if (isLoading) {
     return (
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
         <div className="space-y-4">

@@ -268,7 +268,7 @@ service cloud.firestore {
     // Counters - global counters for sequential numbering (e.g., job numbers)
     match /counters/{counterId} {
       allow read: if isAuthenticated();
-      allow update: if isAuthenticated(); // Allow incrementing counters when creating jobs
+      allow write: if isAuthenticated(); // Allow creating and incrementing counters when creating jobs
     }
   }
 }

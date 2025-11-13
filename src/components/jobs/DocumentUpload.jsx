@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { PDFDocument } from 'pdf-lib';
 import { UploadFile } from "@/api/integrations";
@@ -32,6 +32,14 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
   const [dontShowMergeWarning, setDontShowMergeWarning] = useState(
     localStorage.getItem('hideMergeWarning') === 'true'
   );
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Cleanup: ensure body overflow is reset on unmount
+  useEffect(() => {
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
 
   const getDocumentCategory = (fileName, contentType) => {
     const name = fileName.toLowerCase();
@@ -263,7 +271,17 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
   //   }
   // };
 
+  const handleDragStart = () => {
+    setIsDragging(true);
+    // Prevent body scroll during drag
+    document.body.style.overflow = 'hidden';
+  };
+
   const handleDragEnd = (result) => {
+    setIsDragging(false);
+    // Re-enable body scroll
+    document.body.style.overflow = '';
+
     if (!result.destination) return;
     if (result.source.index === result.destination.index) return;
 
@@ -289,7 +307,46 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${isDragging ? 'dragging-active' : ''}`}>
+      <style>{`
+        @keyframes fadeSlideIn {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .document-card-enter {
+          animation: fadeSlideIn 0.3s ease-out forwards;
+        }
+
+        .document-dragging {
+          opacity: 0.5;
+          transform: rotate(2deg);
+        }
+
+        /* Prevent text selection during drag */
+        .dragging-active {
+          user-select: none;
+          -webkit-user-select: none;
+          -moz-user-select: none;
+          -ms-user-select: none;
+        }
+
+        /* Fix for drag positioning */
+        [data-rbd-drag-handle-context-id] {
+          cursor: grab !important;
+        }
+
+        [data-rbd-drag-handle-context-id]:active {
+          cursor: grabbing !important;
+        }
+      `}</style>
+
       <div
         className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
           isDragOver 
@@ -337,38 +394,59 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
 
       {(documents && documents.length > 0) && (
         <div className="space-y-4">
-          <h4 className="font-medium text-slate-700">Documents to Serve ({documents.length})</h4>
-          <DragDropContext onDragEnd={handleDragEnd}>
-            <Droppable droppableId="documents-list">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium text-slate-700">Documents to Serve ({documents.length})</h4>
+            <p className="text-xs text-slate-500 flex items-center gap-1">
+              <GripVertical className="w-3 h-3" />
+              Drag to reorder
+            </p>
+          </div>
+          <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <Droppable droppableId="documents-list" direction="horizontal">
               {(provided) => (
-                <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-3">
+                <div
+                  {...provided.droppableProps}
+                  ref={provided.innerRef}
+                  className="flex flex-wrap gap-3"
+                  style={{
+                    minHeight: isDragging ? '200px' : 'auto'
+                  }}
+                >
                   {documents.map((doc, index) => (
                     <Draggable key={doc.id || index} draggableId={doc.id || `doc-${index}`} index={index}>
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
                           {...provided.draggableProps}
-                          className={`p-4 rounded-lg border space-y-3 transition-all ${
-                            index === 0
-                              ? 'bg-blue-50 border-blue-300 border-2'
-                              : snapshot.isDragging
-                              ? 'bg-white border-slate-300 shadow-lg'
-                              : 'bg-slate-50 border-slate-200'
+                          className={`p-3 rounded-lg border space-y-2 transition-all ${!snapshot.isDragging ? 'document-card-enter' : ''} ${
+                            snapshot.isDragging
+                              ? 'bg-white border-blue-400 shadow-2xl border-2 rotate-2 scale-105 w-full md:w-[calc(50%-0.375rem)] lg:w-[calc(33.333%-0.5rem)]'
+                              : index === 0
+                              ? 'bg-blue-50 border-blue-300 border-2 w-full'
+                              : 'bg-slate-50 border-slate-200 w-full md:w-[calc(50%-0.375rem)] lg:w-[calc(33.333%-0.5rem)]'
                           }`}
+                          style={{
+                            ...(!snapshot.isDragging && { animationDelay: `${index * 50}ms` }),
+                            ...provided.draggableProps.style
+                          }}
                         >
                           <div className="flex items-start justify-between">
-                            <div className="flex items-center gap-3">
-                              <div {...provided.dragHandleProps} className="cursor-grab active:cursor-grabbing">
-                                <GripVertical className="w-5 h-5 text-slate-400" />
+                            <div className="flex items-center gap-2">
+                              <div
+                                {...provided.dragHandleProps}
+                                className="cursor-grab active:cursor-grabbing hover:bg-slate-200 rounded p-1 -ml-1 transition-colors"
+                                title="Drag to reorder"
+                              >
+                                <GripVertical className="w-4 h-4 text-slate-500" />
                               </div>
                               {getFileIcon(doc.content_type)}
-                              <div className="flex flex-col gap-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-slate-800">
-                                    {doc.file_url ? 'Uploaded Document' : 'Manual Entry'}
+                              <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-medium text-sm text-slate-800 truncate">
+                                    {doc.file_url ? 'Uploaded' : 'Manual'}
                                   </span>
                                   {index === 0 && (
-                                    <Badge className="bg-blue-600 text-white text-xs">Main Document</Badge>
+                                    <Badge className="bg-blue-600 text-white text-xs px-1.5 py-0">Main</Badge>
                                   )}
                                   {/* TODO: FUTURE - AI Extraction Button for Main Document */}
                                   {/* This button will extract case info from the main document using Google Document AI */}
@@ -377,51 +455,51 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
                                       type="button"
                                       size="sm"
                                       variant="outline"
-                                      className="h-6 px-2 gap-1 border-purple-300 text-purple-700 hover:bg-purple-50"
+                                      className="h-5 px-1.5 gap-1 border-purple-300 text-purple-700 hover:bg-purple-50"
                                       // onClick={() => handleExtractWithAI(doc.file_url, index)}
                                       disabled={true}
                                       title="Coming soon: Extract case information with AI"
                                     >
                                       <Sparkles className="w-3 h-3" />
-                                      <span className="text-xs">Extract Info</span>
+                                      <span className="text-xs">Extract</span>
                                     </Button>
                                   )}
                                 </div>
                               </div>
                             </div>
-                            <Button type="button" variant="ghost" size="icon" onClick={() => removeDocument(index)} className="text-slate-400 hover:text-red-600 h-8 w-8">
-                              <X className="w-4 h-4" />
+                            <Button type="button" variant="ghost" size="icon" onClick={() => removeDocument(index)} className="text-slate-400 hover:text-red-600 h-6 w-6 flex-shrink-0">
+                              <X className="w-3.5 h-3.5" />
                             </Button>
                           </div>
 
                           <div>
-                            <Label htmlFor={`affidavit-text-${index}`} className="text-xs font-semibold">Affidavit Text</Label>
+                            <Label htmlFor={`affidavit-text-${index}`} className="text-xs font-medium mb-1">Affidavit Text</Label>
                             <Input
                               id={`affidavit-text-${index}`}
                               value={doc.affidavit_text}
                               onChange={(e) => handleDocumentChange(index, 'affidavit_text', e.target.value)}
-                              placeholder={doc.file_url ? "Text for the affidavit (defaults to filename)" : "e.g., Summons, Complaint"}
+                              placeholder={doc.file_url ? "Text for affidavit" : "e.g., Summons"}
+                              className="text-sm h-8"
                               required
                             />
                             {doc.file_url && (
-                              <p className="text-xs font-bold text-slate-600 mt-2">{doc.title}</p>
+                              <p className="text-xs text-slate-600 mt-1 truncate" title={doc.title}>{doc.title}</p>
                             )}
                           </div>
 
                           {doc.file_url && (
-                            <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-                              <div className="flex items-center gap-4 text-xs text-slate-600">
-                                <span>Size: {formatFileSize(doc.file_size)}</span>
-                                {doc.page_count && <span>Pages: ~{doc.page_count}</span>}
-                                <span className="capitalize">{doc.content_type?.split('/')[1]}</span>
+                            <div className="flex items-center justify-between pt-1.5 border-t border-slate-200">
+                              <div className="flex items-center gap-2 text-xs text-slate-600 flex-wrap">
+                                <span>{formatFileSize(doc.file_size)}</span>
+                                {doc.page_count && <span>• {doc.page_count}pg</span>}
                               </div>
                               <a
                                 href={doc.file_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                                className="flex items-center gap-0.5 text-xs text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap"
                               >
-                                View Document
+                                View
                                 <ExternalLink className="w-3 h-3" />
                               </a>
                             </div>
