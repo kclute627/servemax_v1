@@ -476,6 +476,54 @@ export class MultiTenantAccess {
     return await entities.Employee.find(modifiedQuery);
   }
 
+  static async getEmployee(employeeId) {
+    const user = await this.getCurrentUser();
+    const employee = await entities.Employee.findById(employeeId);
+
+    // Super admin can access any employee
+    if (isSuperAdmin(user)) {
+      return employee;
+    }
+
+    // Regular users can only access employees from their company
+    if (!employee || employee.company_id !== user.company_id) {
+      throw new Error('Employee not found or access denied');
+    }
+
+    return employee;
+  }
+
+  static async createEmployee(employeeData) {
+    const user = await this.getCurrentUser();
+
+    if (!user.company_id) {
+      throw new Error('No company associated with user');
+    }
+
+    const employeeWithCompany = {
+      ...employeeData,
+      company_id: user.company_id,
+      created_by: user.uid
+    };
+
+    return await entities.Employee.create(employeeWithCompany);
+  }
+
+  static async updateEmployee(employeeId, updateData) {
+    const user = await this.getCurrentUser();
+    const employee = await entities.Employee.findById(employeeId);
+
+    // Super admin can update any employee
+    if (!isSuperAdmin(user)) {
+      // Regular users can only update employees from their company
+      if (!employee || employee.company_id !== user.company_id) {
+        throw new Error('Employee not found or access denied');
+      }
+    }
+
+    return await entities.Employee.update(employeeId, updateData);
+  }
+
   // Invoices with multi-tenant filtering
   static async getInvoices(queryOptions = {}) {
     const user = await this.getCurrentUser();
@@ -676,6 +724,9 @@ export const SecureClientAccess = {
 
 export const SecureEmployeeAccess = {
   list: (queryOptions) => MultiTenantAccess.getEmployees(queryOptions),
+  findById: (id) => MultiTenantAccess.getEmployee(id),
+  create: (data) => MultiTenantAccess.createEmployee(data),
+  update: (id, data) => MultiTenantAccess.updateEmployee(id, data),
   filter: (filterObj) => MultiTenantAccess.getEmployees({ where: Object.entries(filterObj).map(([k, v]) => [k, '==', v]) })
 };
 

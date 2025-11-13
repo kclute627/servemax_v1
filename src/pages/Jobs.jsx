@@ -15,7 +15,6 @@ import {
   Plus,
   Search,
   Filter,
-  Download,
   MoreHorizontal,
   List,
   MapPin,
@@ -67,7 +66,6 @@ export default function JobsPage() {
   const [filters, setFilters] = useState({
     status: "open", // Default to 'open'
     priority: "all",
-    client: "all",
     assignedServer: "all",
     needsAttention: false
   });
@@ -84,15 +82,11 @@ export default function JobsPage() {
   // New useEffect to read URL params on initial load
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const clientId = params.get('client_id');
     const status = params.get('status');
     const priority = params.get('priority');
     const attention = params.get('attention');
 
     const newFilters = {};
-    if (clientId) {
-      newFilters.client = clientId;
-    }
     if (status) {
       newFilters.status = status;
     }
@@ -101,11 +95,6 @@ export default function JobsPage() {
     }
     if (attention === 'true') {
       newFilters.needsAttention = true;
-    }
-
-    // If a client_id is provided, default status to "all" unless specified otherwise
-    if (clientId && !status) {
-      newFilters.status = "all";
     }
 
     if (Object.keys(newFilters).length > 0) {
@@ -167,11 +156,6 @@ export default function JobsPage() {
     // Priority filter
     if (filters.priority !== "all") {
       filtered = filtered.filter(job => job.priority === filters.priority);
-    }
-
-    // Client filter
-    if (filters.client !== "all") {
-      filtered = filtered.filter(job => job.client_id === filters.client);
     }
 
     // Assigned server filter
@@ -314,33 +298,6 @@ export default function JobsPage() {
     }
   }, [refreshData]);
 
-  const exportJobs = () => {
-    const csvContent = [
-      "Job Number,Case Name,Client,Defendant,Status,Priority,Due Date,Service Fee",
-      ...filteredJobs.map(job => {
-        const client = clients.find(c => c.id === job.client_id);
-        return [
-          job.job_number,
-          job.case_name,
-          client?.company_name || "Unknown",
-          job.defendant_name,
-          job.status,
-          job.priority,
-          job.due_date || "",
-          job.service_fee || 0
-        ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(","); // Basic CSV escaping
-      })
-    ].join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "jobs-export.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="p-6 md:p-8">
@@ -352,14 +309,6 @@ export default function JobsPage() {
               <p className="text-slate-600">Manage all process serving jobs</p>
             </div>
             <div className="flex gap-3 flex-wrap justify-start">
-              <Button
-                variant="outline"
-                onClick={exportJobs}
-                className="gap-2"
-              >
-                <Download className="w-4 h-4" />
-                Export ({filteredJobs.length})
-              </Button>
               {/* Changed New Job button to a Link component */}
               <Link to={createPageUrl("CreateJob")}>
                 <Button className="bg-slate-900 hover:bg-slate-800 gap-2">
@@ -390,7 +339,6 @@ export default function JobsPage() {
                   <JobFilters
                     filters={filters}
                     onFilterChange={setFilters}
-                    clients={clients}
                     employees={allAssignableServers} // Now from context
                   />
                 </div>
@@ -456,7 +404,7 @@ export default function JobsPage() {
                 <span className="text-sm font-medium text-slate-700">
                   {filteredJobs.length} {filteredJobs.length === 1 ? 'job' : 'jobs'} found
                 </span>
-                {(searchTerm || filters.status !== 'open' || filters.priority !== 'all' || filters.client !== 'all' || filters.assignedServer !== 'all' || filters.needsAttention) && (
+                {(searchTerm || filters.status !== 'open' || filters.priority !== 'all' || filters.assignedServer !== 'all' || filters.needsAttention) && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -465,7 +413,6 @@ export default function JobsPage() {
                       setFilters({
                         status: "open",
                         priority: "all",
-                        client: "all",
                         assignedServer: "all",
                         needsAttention: false
                       });

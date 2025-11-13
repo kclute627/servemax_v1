@@ -248,25 +248,20 @@ export default function CreateJobPage() {
     }
 
     if (server && server.server_pay_enabled && server.default_pay_items?.length > 0) {
-      const priorityKeyword = priority;
-      let defaultPayItem = server.default_pay_items.find(item =>
-        item.description.toLowerCase().includes(priorityKeyword)
-      );
+      // Filter for items marked as default
+      const defaultItems = server.default_pay_items.filter(item => item.is_default === true);
 
-      if (!defaultPayItem) {
-        defaultPayItem = server.default_pay_items[0];
-      }
-
-      if (defaultPayItem) {
-          const newPayItem = {
-            description: defaultPayItem.description,
-            quantity: 1,
-            rate: defaultPayItem.rate,
-            total: defaultPayItem.rate,
-          };
-          handleInputChange('server_pay_items', [newPayItem]);
+      if (defaultItems.length > 0) {
+        // Add all default items automatically
+        const newPayItems = defaultItems.map(item => ({
+          description: item.description,
+          quantity: 1,
+          rate: item.rate,
+          total: item.rate,
+        }));
+        handleInputChange('server_pay_items', newPayItems);
       } else {
-          handleInputChange('server_pay_items', []);
+        handleInputChange('server_pay_items', []);
       }
     } else {
       handleInputChange('server_pay_items', []);
@@ -1678,6 +1673,10 @@ export default function CreateJobPage() {
                   priority={formData.priority}
                   invoiceSettings={companyData?.invoice_settings}
                   onChange={setInvoiceData}
+                  recipientName={formData.recipient_name}
+                  serviceAddress={formData.addresses?.[0] ?
+                    `${formData.addresses[0].address1}${formData.addresses[0].city ? `, ${formData.addresses[0].city}` : ''}${formData.addresses[0].state ? `, ${formData.addresses[0].state}` : ''}` :
+                    ''}
                 />
               </CardContent>
             </Card>

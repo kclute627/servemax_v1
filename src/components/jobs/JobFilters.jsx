@@ -1,8 +1,7 @@
 import React from 'react';
 import { Select, SelectItem } from "@/components/ui/select";
-import { Filter } from "lucide-react";
 
-export default function JobFilters({ filters, onFilterChange, clients, employees }) {
+export default function JobFilters({ filters, onFilterChange, employees }) {
   const handleFilter = (name, value) => {
     onFilterChange(prev => ({
       ...prev,
@@ -11,7 +10,7 @@ export default function JobFilters({ filters, onFilterChange, clients, employees
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
       <div>
         <label className="text-xs font-medium text-slate-600 mb-1 block">Status</label>
         <Select value={filters.status} onChange={(e) => handleFilter('status', e.target.value)}>
@@ -35,18 +34,6 @@ export default function JobFilters({ filters, onFilterChange, clients, employees
           <SelectItem value="standard">Standard</SelectItem>
           <SelectItem value="rush">Rush</SelectItem>
           <SelectItem value="emergency">Emergency</SelectItem>
-        </Select>
-      </div>
-
-      <div>
-        <label className="text-xs font-medium text-slate-600 mb-1 block">Client</label>
-        <Select value={filters.client} onChange={(e) => handleFilter('client', e.target.value)}>
-          <SelectItem value="all">All Clients</SelectItem>
-          {clients.map(client => (
-            <SelectItem key={client.id} value={client.id}>
-              {client.company_name}
-            </SelectItem>
-          ))}
         </Select>
       </div>
 

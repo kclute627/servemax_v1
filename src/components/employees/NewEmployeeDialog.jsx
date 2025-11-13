@@ -42,7 +42,7 @@ export default function NewEmployeeDialog({ open, onOpenChange, onEmployeeCreate
     try {
       await Employee.create({
         ...formData,
-        status: 'pending',
+        status: 'active',
         hire_date: new Date().toISOString().split('T')[0]
       });
       

@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { X, Plus, ChevronDown } from 'lucide-react';
+import { X, Plus, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function QuickInvoice({
   documents = [],
   priority = 'standard',
   invoiceSettings,
-  onChange
+  onChange,
+  recipientName = '',
+  serviceAddress = ''
 }) {
   const [lineItems, setLineItems] = useState([]);
   const [subtotal, setSubtotal] = useState(0);
@@ -16,6 +18,7 @@ export default function QuickInvoice({
   const [total, setTotal] = useState(0);
   const [showPresetMenu, setShowPresetMenu] = useState(false);
   const [showCustomItemForm, setShowCustomItemForm] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [customItemForm, setCustomItemForm] = useState({
     description: '',
     quantity: 1,
@@ -27,13 +30,28 @@ export default function QuickInvoice({
     const defaultItems = [];
 
     if (invoiceSettings) {
-      // Add service fee
+      // Add service fee with auto-populated description
       if (invoiceSettings.service_fee > 0) {
+        // Build a nice description with available job details
+        let description = '';
+        const descParts = [];
+
+        if (recipientName) {
+          descParts.push(`Serving: ${recipientName}`);
+        }
+        if (serviceAddress) {
+          descParts.push(`At: ${serviceAddress}`);
+        }
+
+        if (descParts.length > 0) {
+          description = descParts.join(' | ');
+        }
+
         defaultItems.push({
           id: `item_${Date.now()}_1`,
           type: 'service_fee',
           item_name: 'Service Fee',
-          description: '',
+          description: description,
           quantity: 1,
           unit_price: invoiceSettings.service_fee,
           total: invoiceSettings.service_fee,
@@ -86,7 +104,7 @@ export default function QuickInvoice({
     }
 
     setLineItems(defaultItems);
-  }, [invoiceSettings]);
+  }, [invoiceSettings, recipientName, serviceAddress]);
 
   // Auto-calculate copy charges when documents change
   useEffect(() => {
@@ -309,10 +327,62 @@ export default function QuickInvoice({
 
   return (
     <div className="border border-slate-200 rounded-lg p-4 bg-white">
-      <h3 className="font-semibold text-slate-900 mb-4">Quick Invoice</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-slate-900">Quick Invoice</h3>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-2 text-slate-600 hover:text-slate-900"
+        >
+          {isExpanded ? (
+            <>
+              <ChevronUp className="w-4 h-4" />
+              <span className="text-sm">Collapse</span>
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-4 h-4" />
+              <span className="text-sm">Expand to Edit</span>
+            </>
+          )}
+        </Button>
+      </div>
 
-      {/* Column Headers */}
-      <div className="grid grid-cols-12 gap-2 pb-2 mb-2 border-b-2 border-slate-300">
+      {/* Collapsed view - show only total */}
+      {!isExpanded && (
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-slate-600">Subtotal</span>
+            <span className="font-medium text-slate-900">${subtotal.toFixed(2)}</span>
+          </div>
+
+          {invoiceSettings?.tax_on_invoice && (
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-600">Tax ({invoiceSettings?.tax_rate || 0}%)</span>
+              <span className="font-medium text-slate-900">${taxAmount.toFixed(2)}</span>
+            </div>
+          )}
+
+          <div className="flex justify-between text-base font-semibold pt-2 border-t border-slate-300">
+            <span className="text-slate-900">TOTAL</span>
+            <span className="text-slate-900">${total.toFixed(2)}</span>
+          </div>
+
+          {lineItems.length > 0 && (
+            <div className="mt-2 text-xs text-slate-500">
+              {lineItems.length} {lineItems.length === 1 ? 'item' : 'items'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Expanded view - full edit mode */}
+      {isExpanded && (
+        <>
+          {/* Column Headers */}
+          <div className="grid grid-cols-12 gap-2 pb-2 mb-2 border-b-2 border-slate-300">
         <div className="col-span-2 text-xs font-semibold text-slate-600 uppercase">Item</div>
         <div className="col-span-5 text-xs font-semibold text-slate-600 uppercase">Description</div>
         <div className="col-span-2 text-xs font-semibold text-slate-600 uppercase text-right">Unit Price</div>
@@ -530,6 +600,8 @@ export default function QuickInvoice({
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

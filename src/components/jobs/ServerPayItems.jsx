@@ -3,10 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function ServerPayItems({ items, onItemsChange, defaultItems = [] }) {
   const [focusedDescIndex, setFocusedDescIndex] = useState(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   
   const handleItemChange = (index, field, value) => {
     const newItems = [...items];
@@ -56,8 +57,46 @@ export default function ServerPayItems({ items, onItemsChange, defaultItems = []
   return (
     <div className="space-y-4">
       <div>
-        <Label>Server Pay Breakdown</Label>
-        <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 mt-2 space-y-3">
+        <div className="flex items-center justify-between mb-2">
+          <Label>Server Pay Breakdown</Label>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="flex items-center gap-2 text-slate-600 hover:text-slate-900"
+          >
+            {isExpanded ? (
+              <>
+                <ChevronUp className="w-4 h-4" />
+                <span className="text-sm">Collapse</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-4 h-4" />
+                <span className="text-sm">Expand to Edit</span>
+              </>
+            )}
+          </Button>
+        </div>
+
+        {/* Always show total */}
+        {!isExpanded && (
+          <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-slate-900">Total Server Pay:</span>
+              <span className="text-2xl font-bold text-slate-900">${calculateTotalPay().toFixed(2)}</span>
+            </div>
+            {items.length > 0 && (
+              <div className="mt-2 text-xs text-slate-500">
+                {items.length} {items.length === 1 ? 'item' : 'items'}
+              </div>
+            )}
+          </div>
+        )}
+
+        {isExpanded && (
+          <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 mt-2 space-y-3">
           {items.map((item, index) => (
             <div key={index} className="grid grid-cols-12 gap-2 items-end">
               <div className="col-span-12 sm:col-span-5 relative">
@@ -134,14 +173,15 @@ export default function ServerPayItems({ items, onItemsChange, defaultItems = []
             <Plus className="w-4 h-4" />
             Add Pay Item
           </Button>
-        </div>
-      </div>
-      <div className="pt-4 border-t border-slate-200">
-          <div className="flex justify-between items-center">
-            <span className="font-semibold text-slate-900">Total Server Pay:</span>
-            <span className="text-2xl font-bold text-slate-900">${calculateTotalPay().toFixed(2)}</span>
+          <div className="pt-4 border-t border-slate-200 mt-4">
+            <div className="flex justify-between items-center">
+              <span className="font-semibold text-slate-900">Total Server Pay:</span>
+              <span className="text-2xl font-bold text-slate-900">${calculateTotalPay().toFixed(2)}</span>
+            </div>
           </div>
         </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -19,11 +19,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Employee } from "@/api/entities";
-import { Loader2, Edit, Plus, Trash2, DollarSign } from "lucide-react";
+import { Loader2, Edit, Plus, Trash2, DollarSign, Star } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmployeeUpdated }) {
-  const [formData, setFormData] = useState({});
+  const [formData, setFormData] = useState({
+    first_name: "",
+    last_name: "",
+    email: "",
+    role: "process_server",
+    status: "active",
+    phone: "",
+    hire_date: "",
+    license_number: "",
+    server_pay_enabled: false
+  });
   const [defaultPayItems, setDefaultPayItems] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -36,14 +46,16 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
         role: employee.role || "process_server",
         status: employee.status || "active",
         phone: employee.phone || "",
+        hire_date: employee.hire_date || "",
         license_number: employee.license_number || "",
-        server_pay_enabled: employee.server_pay_enabled || false // Initialize new field
+        server_pay_enabled: employee.server_pay_enabled || false
       });
       // Ensure existing rates are handled correctly for display if they are 0
       setDefaultPayItems(employee.default_pay_items ?
         employee.default_pay_items.map(item => ({
             ...item,
-            rate: item.rate === 0 ? '' : item.rate // Display 0 as empty string
+            rate: item.rate === 0 ? '' : item.rate, // Display 0 as empty string
+            is_default: item.is_default || false // Initialize is_default
         })) : []
       );
     }
@@ -65,7 +77,13 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
   };
 
   const addItem = () => {
-    setDefaultPayItems([...defaultPayItems, { description: '', rate: '' }]); // Changed from rate: 0 to rate: ''
+    setDefaultPayItems([...defaultPayItems, { description: '', rate: '', is_default: false }]);
+  };
+
+  const toggleDefault = (index) => {
+    const newItems = [...defaultPayItems];
+    newItems[index].is_default = !newItems[index].is_default;
+    setDefaultPayItems(newItems);
   };
 
   const removeItem = (index) => {
@@ -112,52 +130,59 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-6 py-4 max-h-[70vh] overflow-y-auto pr-4">
           {/* Basic Information */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4 pl-1">
             <div>
               <Label htmlFor="first_name">First Name</Label>
-              <Input id="first_name" value={formData.first_name} onChange={(e) => handleInputChange('first_name', e.target.value)} required />
+              <Input id="first_name" value={formData.first_name || ""} onChange={(e) => handleInputChange('first_name', e.target.value)} required />
             </div>
             <div>
               <Label htmlFor="last_name">Last Name</Label>
-              <Input id="last_name" value={formData.last_name} onChange={(e) => handleInputChange('last_name', e.target.value)} required />
+              <Input id="last_name" value={formData.last_name || ""} onChange={(e) => handleInputChange('last_name', e.target.value)} required />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4 pl-1">
             <div>
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={formData.email} onChange={(e) => handleInputChange('email', e.target.value)} required />
+              <Input id="email" type="email" value={formData.email || ""} onChange={(e) => handleInputChange('email', e.target.value)} required />
             </div>
             <div>
               <Label htmlFor="phone">Phone</Label>
-              <Input id="phone" type="tel" value={formData.phone} onChange={(e) => handleInputChange('phone', e.target.value)} />
+              <Input id="phone" type="tel" value={formData.phone || ""} onChange={(e) => handleInputChange('phone', e.target.value)} />
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4 pl-1">
+            <div>
+              <Label htmlFor="hire_date">Hire Date</Label>
+              <Input id="hire_date" type="date" value={formData.hire_date || ""} onChange={(e) => handleInputChange('hire_date', e.target.value)} />
+            </div>
+            <div>
+              {/* Empty column for symmetry */}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-1">
             <div>
               <Label htmlFor="role">Role</Label>
               <Select
                 id="role"
-                value={formData.role}
-                onValueChange={(value) => handleInputChange('role', value)}
+                value={formData.role || "process_server"}
+                onChange={(e) => handleInputChange('role', e.target.value)}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="office_staff">Office Staff</SelectItem>
-                  <SelectItem value="process_server">Process Server</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
+                <SelectItem value="office_staff">Office Staff</SelectItem>
+                <SelectItem value="process_server">Process Server</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
               </Select>
             </div>
             <div>
               <Label htmlFor="status">Status</Label>
-              <Select value={formData.status} onValueChange={(value) => handleInputChange('status', value)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                  <SelectItem value="on_leave">On Leave</SelectItem>
-                </SelectContent>
+              <Select
+                id="status"
+                value={formData.status || "active"}
+                onChange={(e) => handleInputChange('status', e.target.value)}
+              >
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+                <SelectItem value="on_leave">On Leave</SelectItem>
               </Select>
             </div>
           </div>
@@ -168,7 +193,7 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
                 <Label htmlFor="license_number">License Number</Label>
                 <Input
                   id="license_number"
-                  value={formData.license_number}
+                  value={formData.license_number || ""}
                   onChange={(e) => handleInputChange('license_number', e.target.value)}
                   placeholder="Process server license number"
                 />
@@ -185,7 +210,7 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
               </div>
               <Switch
                 id="server_pay_enabled"
-                checked={formData.server_pay_enabled}
+                checked={!!formData.server_pay_enabled}
                 onCheckedChange={(checked) => handleInputChange('server_pay_enabled', checked)}
               />
             </div>
@@ -211,7 +236,7 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
                 </Button>
               </div>
               <p className="text-sm text-slate-600 mb-4">
-                Set default commission rates for this employee. These will be used as defaults when creating jobs.
+                Set commission rates for this employee. Mark items with a star to automatically add them when assigning jobs. You can have multiple default items.
               </p>
 
               <div className="space-y-3">
@@ -226,7 +251,7 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
                       <div className="flex-1">
                         <Label className="text-xs font-medium text-slate-700 mb-1 block">Description</Label>
                         <Input
-                          value={item.description}
+                          value={item.description || ""}
                           placeholder="e.g., Routine Service, Printing, Rush Fee"
                           onChange={(e) => handleItemChange(index, 'description', e.target.value)}
                           className="border-slate-300"
@@ -241,21 +266,33 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
                             step="0.01"
                             min="0"
                             className="pl-7 border-slate-300"
-                            value={item.rate}
+                            value={item.rate === '' ? '' : (item.rate || '')}
                             onChange={(e) => handleItemChange(index, 'rate', e.target.value)}
                             placeholder="0.00"
                           />
                         </div>
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeItem(index)}
-                        className="text-slate-500 hover:text-red-600 hover:bg-red-50"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant={item.is_default ? "default" : "outline"}
+                          size="icon"
+                          onClick={() => toggleDefault(index)}
+                          className={item.is_default ? "bg-amber-500 hover:bg-amber-600 text-white" : "text-slate-500 hover:text-amber-500 hover:border-amber-500"}
+                          title={item.is_default ? "Default item" : "Set as default"}
+                        >
+                          <Star className={`w-4 h-4 ${item.is_default ? 'fill-current' : ''}`} />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeItem(index)}
+                          className="text-slate-500 hover:text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -264,7 +301,7 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
               {defaultPayItems.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-slate-300">
                   <p className="text-sm text-slate-600">
-                    <strong>Example usage:</strong> When assigning jobs to this employee, these items will be available as quick-add options with the rates pre-filled.
+                    <strong>Example usage:</strong> When assigning jobs to this employee, all items will be available as quick-add options. Items marked as default (with a star) will be automatically added to new job assignments.
                   </p>
                 </div>
               )}
