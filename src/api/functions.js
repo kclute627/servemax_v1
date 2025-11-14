@@ -15,3 +15,11 @@ export const findDirectoryCompanies = FirebaseFunctions.findDirectoryCompanies;
 
 export const mergePDFs = FirebaseFunctions.mergePDFs;
 
+export const extractDocumentAI = FirebaseFunctions.extractDocumentAI;
+
+export const extractDocumentClaudeVision = FirebaseFunctions.extractDocumentClaudeVision;
+
+export const extractDocumentClaudeHaiku = FirebaseFunctions.extractDocumentClaudeHaiku;
+
+export const findCourtAddressWithAI = FirebaseFunctions.findCourtAddressWithAI;
+

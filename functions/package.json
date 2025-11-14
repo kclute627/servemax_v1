@@ -13,6 +13,8 @@
   },
   "main": "index.js",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@google-cloud/documentai": "^9.5.0",
     "@googlemaps/google-maps-services-js": "^3.3.42",
     "@sparticuz/chromium": "^141.0.0",
     "date-fns": "^4.1.0",

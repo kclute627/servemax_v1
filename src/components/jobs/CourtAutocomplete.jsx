@@ -96,27 +96,9 @@ export default function CourtAutocomplete({
     setShowSuggestions(false);
     setSuggestions([]);
     justSelectedRef.current = true;
-    
+
     if (onCourtSelect) {
       onCourtSelect(court);
-    }
-  };
-
-  const handleCreateNewCourt = () => {
-    setShowSuggestions(false);
-    setSuggestions([]);
-    justSelectedRef.current = true;
-    
-    // Create a new court object with just the name
-    const newCourt = {
-      branch_name: value,
-      county: '',
-      address: {},
-      isNew: true // Flag to indicate this is a new court
-    };
-    
-    if (onCourtSelect) {
-      onCourtSelect(newCourt);
     }
   };
 
@@ -128,8 +110,8 @@ export default function CourtAutocomplete({
   const handleKeyDown = (e) => {
     if (!showSuggestions) return;
 
-    const totalItems = suggestions.length + (value.length >= 3 ? 1 : 0); // +1 for "Create new" option
-    
+    const totalItems = suggestions.length;
+
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
@@ -143,8 +125,6 @@ export default function CourtAutocomplete({
         e.preventDefault();
         if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
           handleSuggestionSelect(suggestions[selectedIndex]);
-        } else if (selectedIndex === suggestions.length && value.length >= 3) {
-          handleCreateNewCourt();
         }
         break;
       case 'Escape':
@@ -157,14 +137,9 @@ export default function CourtAutocomplete({
 
   const handleInputFocus = () => {
     if (disabled) return;
-    
-    if (value.length >= 3 && !justSelectedRef.current) {
-      if (suggestions.length > 0) {
-        setShowSuggestions(true);
-      } else {
-        // Show the create new option even if no suggestions
-        setShowSuggestions(true);
-      }
+
+    if (value.length >= 3 && !justSelectedRef.current && suggestions.length > 0) {
+      setShowSuggestions(true);
     }
   };
 
@@ -238,7 +213,7 @@ export default function CourtAutocomplete({
         </div>
       </div>
 
-      {showSuggestions && (suggestions.length > 0 || value.length >= 3) && (
+      {showSuggestions && suggestions.length > 0 && (
         <Card className="absolute top-full left-0 right-0 mt-1 z-50 shadow-lg max-h-60 overflow-y-auto">
           <CardContent ref={suggestionsRef} className="p-2">
             {suggestions.map((court, index) => (
@@ -259,22 +234,6 @@ export default function CourtAutocomplete({
                 </div>
               </div>
             ))}
-            
-            {/* Create new court option */}
-            {value.length >= 3 && (
-              <div
-                className={`flex items-start gap-3 p-3 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors border-t border-slate-200 mt-2 pt-3 ${
-                  selectedIndex === suggestions.length ? 'bg-blue-50' : ''
-                }`}
-                onMouseDown={handleCreateNewCourt}
-              >
-                <Plus className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="font-medium text-blue-700">Create new court</p>
-                  <p className="text-sm text-blue-600">"{value}"</p>
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
       )}

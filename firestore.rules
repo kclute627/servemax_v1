@@ -265,6 +265,21 @@ service cloud.firestore {
                               resource.data.company_id == getUserCompanyId();
     }
 
+    // Universal Courts - platform-wide shared court database
+    // All authenticated users can read and contribute to build a knowledge base
+    match /universal_courts/{courtId} {
+      allow read: if isAuthenticated();
+
+      // Allow creating new courts with required fields
+      allow create: if isAuthenticated() &&
+                      request.resource.data.full_court_name != null &&
+                      request.resource.data.full_court_name_lower != null &&
+                      request.resource.data.court_address1 != null;
+
+      // Allow updates for incrementing lookup count and updating timestamps
+      allow update: if isAuthenticated();
+    }
+
     // Counters - global counters for sequential numbering (e.g., job numbers)
     match /counters/{counterId} {
       allow read: if isAuthenticated();

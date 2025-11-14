@@ -195,4 +195,64 @@ export class FirebaseFunctions {
       };
     }
   }
+
+  // Extract document data using Google Document AI
+  static async extractDocumentAI(params) {
+    try {
+      const extractDocumentAI = httpsCallable(functions, 'extractDocumentAI');
+      // Support both old format (string URL) and new format (object with file_url or first_page_base64)
+      const requestData = typeof params === 'string'
+        ? { file_url: params }
+        : params;
+      const result = await extractDocumentAI(requestData);
+      return result.data;
+    } catch (error) {
+      console.error('Extract document AI error:', error);
+      throw error;
+    }
+  }
+
+  // Extract document data using Claude Vision
+  static async extractDocumentClaudeVision(params) {
+    try {
+      const extractDocumentClaudeVision = httpsCallable(functions, 'extractDocumentClaudeVision');
+      // Support both old format (string URL) and new format (object with file_url or first_page_base64)
+      const requestData = typeof params === 'string'
+        ? { file_url: params }
+        : params;
+      const result = await extractDocumentClaudeVision(requestData);
+      return result.data;
+    } catch (error) {
+      console.error('Extract document Claude Vision error:', error);
+      throw error;
+    }
+  }
+
+  // Extract document data using Claude Haiku (Fast & Cheap)
+  static async extractDocumentClaudeHaiku(params) {
+    try {
+      const extractDocumentClaudeHaiku = httpsCallable(functions, 'extractDocumentClaudeHaiku');
+      // Support both old format (string URL) and new format (object with file_url or first_page_base64)
+      const requestData = typeof params === 'string'
+        ? { file_url: params }
+        : params;
+      const result = await extractDocumentClaudeHaiku(requestData);
+      return result.data;
+    } catch (error) {
+      console.error('Extract document Claude Haiku error:', error);
+      throw error;
+    }
+  }
+
+  // Find court address using AI (server-side)
+  static async findCourtAddressWithAI(courtName) {
+    try {
+      const findCourtAddressWithAI = httpsCallable(functions, 'findCourtAddressWithAI');
+      const result = await findCourtAddressWithAI({ courtName });
+      return result.data;
+    } catch (error) {
+      console.error('Find court address with AI error:', error);
+      throw error;
+    }
+  }
 }

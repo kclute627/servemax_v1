@@ -1,9 +1,10 @@
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { PDFDocument } from 'pdf-lib';
 import { UploadFile } from "@/api/integrations";
-import { mergePDFs } from "@/api/functions";
+import { FirebaseStorage } from "@/firebase/storage";
+import { mergePDFs, extractDocumentAI, extractDocumentClaudeVision, extractDocumentClaudeHaiku } from "@/api/functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,23 +22,43 @@ import {
   AlertTriangle,
   GripVertical,
   ExternalLink,
-  Sparkles
+  Sparkles,
+  Check
 } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
 
-export default function DocumentUpload({ documents, onDocumentsChange }) {
+export default function DocumentUpload({ documents, onDocumentsChange, onExtractedData }) {
+  const { toast } = useToast();
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadingDocs, setUploadingDocs] = useState({}); // Track which docs are uploading: { docId: percentage }
   const [isMerging, setIsMerging] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isExtractingClaude, setIsExtractingClaude] = useState(false);
+  const [isExtractingHaiku, setIsExtractingHaiku] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [extractedFirstPage, setExtractedFirstPage] = useState(null);
+  const [backgroundExtraction, setBackgroundExtraction] = useState({
+    status: 'idle', // idle | processing | completed | failed
+    data: null,
+    error: null
+  });
   const [showMergeWarning, setShowMergeWarning] = useState(false);
   const [dontShowMergeWarning, setDontShowMergeWarning] = useState(
     localStorage.getItem('hideMergeWarning') === 'true'
   );
   const [isDragging, setIsDragging] = useState(false);
+  const extractedPageObjectUrlRef = useRef(null);
+  const backgroundExtractionPromiseRef = useRef(null);
 
-  // Cleanup: ensure body overflow is reset on unmount
+  // Cleanup: ensure body overflow is reset on unmount and revoke object URLs
   useEffect(() => {
     return () => {
       document.body.style.overflow = '';
+      // Revoke object URL to prevent memory leaks
+      if (extractedPageObjectUrlRef.current) {
+        URL.revokeObjectURL(extractedPageObjectUrlRef.current);
+      }
     };
   }, []);
 
@@ -91,32 +112,176 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
     setIsUploading(true);
 
     try {
-      const uploadPromises = files.map(async (file) => {
-        // Upload file and get accurate page count in parallel
-        const [{ url }, pageCount] = await Promise.all([
-          UploadFile(file),
-          getActualPageCount(file)
-        ]);
+      // Map to track File objects by doc ID for later processing
+      const fileMap = new Map();
+
+      // Create document objects immediately and add to list (INSTANT feedback!)
+      const newDocs = files.map((file, index) => {
+        const docId = `upload-${Date.now()}-${index}-${Math.random()}`;
+
+        // Store File object for later processing
+        fileMap.set(docId, file);
 
         return {
-          id: `upload-${Date.now()}-${Math.random()}`,
+          id: docId,
           title: file.name,
-          affidavit_text: file.name, // Default affidavit text to filename
-          file_url: url,
+          affidavit_text: file.name,
+          file_url: null, // Will be set when upload completes
           file_size: file.size,
           content_type: file.type,
           document_category: 'to_be_served',
-          page_count: pageCount
+          page_count: null,
+          uploading: true // Mark as uploading
         };
       });
 
-      const uploadedDocs = await Promise.all(uploadPromises);
-      onDocumentsChange(prevDocs => [...(prevDocs || []), ...uploadedDocs]);
-    } catch (error) {
-      console.error("Error uploading files:", error);
-    }
+      // Add documents to list immediately (user sees them right away!)
+      onDocumentsChange(prevDocs => [...(prevDocs || []), ...newDocs]);
 
-    setIsUploading(false);
+      console.log('[DocumentUpload] 📤 Starting uploads for', files.length, 'files');
+
+      // Start uploads in background (non-blocking) - using map to track promises
+      const uploadPromises = files.map((file, index) => {
+        const docId = newDocs[index].id;
+
+        console.log(`[DocumentUpload] Initializing upload for file ${index}: ${file.name}`);
+
+        // Initialize upload progress
+        setUploadingDocs(prev => ({ ...prev, [docId]: 0 }));
+
+        // Upload file with progress tracking
+        return FirebaseStorage.uploadFileWithProgress(
+          file,
+          '', // default path
+          (progress) => {
+            // Update progress for this specific document
+            setUploadingDocs(prev => ({ ...prev, [docId]: Math.round(progress) }));
+          }
+        )
+        .then(result => {
+          // Upload complete! Update document with URL
+          console.log(`[DocumentUpload] ✅ Upload complete for ${file.name}`);
+          console.log(`[DocumentUpload] File URL: ${result.url}`);
+          console.log(`[DocumentUpload] File index: ${index}, Type: ${file.type}`);
+
+          // Update the document with URL
+          onDocumentsChange(prevDocs =>
+            prevDocs.map(doc =>
+              doc.id === docId
+                ? { ...doc, file_url: result.url, uploading: false }
+                : doc
+            )
+          );
+
+          // Clear uploading progress
+          setUploadingDocs(prev => {
+            const newProgress = { ...prev };
+            delete newProgress[docId];
+            return newProgress;
+          });
+
+          // For first PDF document, trigger extraction + page count
+          if (index === 0 && file.type === 'application/pdf') {
+            const firstFile = fileMap.get(docId);
+
+            if (firstFile) {
+              console.log('[DocumentUpload] 🚀 Starting first page extraction from File object...');
+
+              // Extract first page AND get page count from same PDF load
+              prepareFirstPageForExtraction(firstFile)
+                .then(extractResult => {
+                  console.log('[DocumentUpload] Extraction result:', extractResult);
+
+                  if (extractResult && extractResult.pageCount) {
+                    console.log(`[DocumentUpload] ✅ Setting page count: ${extractResult.pageCount}`);
+                    // Update document with page count
+                    onDocumentsChange(prevDocs =>
+                      prevDocs.map(doc =>
+                        doc.id === docId
+                          ? { ...doc, page_count: extractResult.pageCount }
+                          : doc
+                      )
+                    );
+                  } else {
+                    console.warn('[DocumentUpload] ⚠️ No page count in extraction result:', extractResult);
+                  }
+                })
+                .catch(error => {
+                  console.error('[DocumentUpload] ❌ Error extracting first page:', error);
+                  console.error('[DocumentUpload] Error stack:', error.stack);
+                });
+            } else {
+              console.warn('[DocumentUpload] ⚠️ Cannot extract: firstFile missing');
+            }
+          }
+          // For non-first PDFs or non-PDFs, calculate page count separately
+          else if (index > 0 || file.type !== 'application/pdf') {
+            console.log('[DocumentUpload] Calculating page count for non-first document');
+            getActualPageCount(file).then(pageCount => {
+              onDocumentsChange(prevDocs =>
+                prevDocs.map(doc =>
+                  doc.id === docId
+                    ? { ...doc, page_count: pageCount }
+                    : doc
+                )
+              );
+            }).catch(error => {
+              console.error('Error calculating page count:', error);
+            });
+          }
+          else {
+            console.log('[DocumentUpload] Skipping extraction (not first PDF)');
+          }
+        })
+        .catch(error => {
+          console.error(`[DocumentUpload] Upload failed for ${file.name}:`, error);
+
+          // Mark document as failed
+          onDocumentsChange(prevDocs =>
+            prevDocs.map(doc =>
+              doc.id === docId
+                ? { ...doc, uploading: false, uploadFailed: true }
+                : doc
+            )
+          );
+
+          // Clear uploading progress
+          setUploadingDocs(prev => {
+            const newProgress = { ...prev };
+            delete newProgress[docId];
+            return newProgress;
+          });
+
+          toast({
+            variant: "destructive",
+            title: "Upload failed",
+            description: `Failed to upload ${file.name}. Please try again.`,
+          });
+        });
+      });
+
+      // Wait for all uploads to complete (or fail) - don't block UI
+      Promise.allSettled(uploadPromises).then(results => {
+        console.log('[DocumentUpload] All uploads completed or failed');
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            console.log(`[DocumentUpload] File ${index} upload succeeded`);
+          } else {
+            console.error(`[DocumentUpload] File ${index} upload failed:`, result.reason);
+          }
+        });
+      });
+
+    } catch (error) {
+      console.error("[DocumentUpload] ❌ Error setting up uploads:", error);
+      toast({
+        variant: "destructive",
+        title: "Upload failed",
+        description: error.message || "Failed to upload files. Please try again.",
+      });
+    } finally {
+      setIsUploading(false);
+    }
   }, [onDocumentsChange]);
 
   const handleMergeClick = () => {
@@ -238,38 +403,319 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
     onDocumentsChange(documents.filter((_, i) => i !== index));
   };
 
-  // TODO: FUTURE IMPLEMENTATION - Google Document AI Integration
-  // This function will be implemented to extract case information from the main document
-  // using Google Document AI API. It will:
-  // 1. Send the main document PDF to Google Document AI
-  // 2. Extract key information such as:
-  //    - Case number
-  //    - Party names (plaintiff/defendant)
-  //    - Court information
-  //    - Filing dates
-  //    - Service addresses
-  // 3. Auto-populate the job creation form with extracted data
-  // 4. Show a confirmation dialog for user to review/edit extracted info
-  // const handleExtractWithAI = async (documentUrl, documentIndex) => {
-  //   try {
-  //     setIsExtracting(true);
-  //
-  //     // Call Google Document AI API
-  //     const extractedData = await extractDocumentData(documentUrl);
-  //
-  //     // Show confirmation dialog with extracted data
-  //     // User can review and edit before applying
-  //
-  //     // Apply extracted data to job form
-  //     onExtractedDataReady(extractedData);
-  //
-  //   } catch (error) {
-  //     console.error('Error extracting document data:', error);
-  //     alert('Failed to extract document data. Please try again.');
-  //   } finally {
-  //     setIsExtracting(false);
-  //   }
-  // };
+  // Pre-extract first page of the main document for faster AI processing
+  // Simplified: Only accepts File objects, no abort logic, no URL downloads
+  const prepareFirstPageForExtraction = async (file) => {
+    console.log('[DocumentUpload] 📄 prepareFirstPageForExtraction called');
+    console.log('[DocumentUpload] File:', file.name, 'Size:', file.size, 'bytes');
+
+    try {
+      setIsPreparing(true);
+      setExtractedFirstPage(null);
+
+      // Load PDF from File object (no download needed)
+      console.log('[DocumentUpload] Loading PDF from File object...');
+      const pdfBytes = await file.arrayBuffer();
+      console.log('[DocumentUpload] File loaded into memory:', pdfBytes.byteLength, 'bytes');
+
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+      const totalPages = pdfDoc.getPageCount();
+      console.log(`[DocumentUpload] PDF loaded, ${totalPages} pages`);
+
+      // Create a new PDF with ONLY the first page
+      const extractedPdf = await PDFDocument.create();
+      const [firstPage] = await extractedPdf.copyPages(pdfDoc, [0]);
+      extractedPdf.addPage(firstPage);
+
+      const firstPageBytes = await extractedPdf.save();
+
+      // Convert to base64 for sending to Cloud Function
+      const base64 = btoa(
+        new Uint8Array(firstPageBytes).reduce(
+          (data, byte) => data + String.fromCharCode(byte),
+          ''
+        )
+      );
+
+      setExtractedFirstPage(base64);
+      console.log(`[DocumentUpload] ⚡ First page extracted (${firstPageBytes.byteLength} bytes, ${totalPages} pages total)`);
+
+      // Create object URL for debugging
+      if (extractedPageObjectUrlRef.current) {
+        URL.revokeObjectURL(extractedPageObjectUrlRef.current);
+      }
+      const blob = new Blob([firstPageBytes], { type: 'application/pdf' });
+      const objectUrl = URL.createObjectURL(blob);
+      extractedPageObjectUrlRef.current = objectUrl;
+      console.log(`%c[DocumentUpload] 📄 View extracted page:`, 'color: #9333ea; font-weight: bold', objectUrl);
+
+      // Return both extracted page and page count
+      const result = { extractedFirstPage: base64, pageCount: totalPages };
+      console.log('[DocumentUpload] ✅ Extraction complete:', { hasFirstPage: !!base64, pageCount: totalPages });
+      return result;
+    } catch (error) {
+      console.error('[DocumentUpload] ❌ Error extracting first page:', error);
+      setExtractedFirstPage(null);
+      return { extractedFirstPage: null, pageCount: null };
+    } finally {
+      setIsPreparing(false);
+    }
+  };
+
+  // Note: Removed useEffect that watched documents[0]?.file_url to prevent race conditions.
+  // Extraction now only happens from the upload handler.
+
+  // SILENT background extraction with Claude Sonnet when first 3 pages are ready
+  // User doesn't know this is happening - it's for speed optimization
+  useEffect(() => {
+    const startBackgroundExtraction = async () => {
+      if (!extractedFirstPage || backgroundExtraction.status !== 'idle') {
+        return; // No pages ready or already processing
+      }
+
+      console.log('[DocumentUpload] 🔇 Starting silent background extraction with Claude Sonnet...');
+      setBackgroundExtraction({ status: 'processing', data: null, error: null });
+
+      // Store the promise so button handler can await it
+      const extractionPromise = extractDocumentClaudeVision({
+        first_page_base64: extractedFirstPage
+      });
+      backgroundExtractionPromiseRef.current = extractionPromise;
+
+      try {
+        const result = await extractionPromise;
+
+        if (result.success && result.extractedData) {
+          console.log('[DocumentUpload] ✅ Background extraction completed! Cached', Object.keys(result.extractedData).length, 'fields');
+          setBackgroundExtraction({ status: 'completed', data: result.extractedData, error: null });
+        } else {
+          throw new Error('No data extracted');
+        }
+      } catch (error) {
+        console.error('[DocumentUpload] ❌ Background extraction failed:', error);
+        setBackgroundExtraction({ status: 'failed', data: null, error: error.message });
+      } finally {
+        backgroundExtractionPromiseRef.current = null;
+      }
+    };
+
+    startBackgroundExtraction();
+  }, [extractedFirstPage]);
+
+  // Extract case information from the main document using Google Document AI
+  const handleExtractWithAI = async (documentUrl, documentIndex) => {
+    console.time('Document AI Extraction');
+    try {
+      setIsExtracting(true);
+
+      toast({
+        title: "Extracting document data",
+        description: "Processing with Document AI...",
+      });
+
+      // Call Google Document AI Cloud Function
+      // Use pre-extracted first 3 pages if available (much faster!)
+      const result = extractedFirstPage
+        ? await extractDocumentAI({ first_page_base64: extractedFirstPage })
+        : await extractDocumentAI({ file_url: documentUrl });
+
+      console.timeEnd('Document AI Extraction');
+
+      if (result.success && result.extractedData) {
+        console.log('[DocumentUpload] Document AI extracted data:', result.extractedData);
+
+        // Pass extracted data to parent component (CreateJob)
+        if (onExtractedData) {
+          onExtractedData(result.extractedData);
+        }
+
+        toast({
+          variant: "success",
+          title: "Document AI extraction complete",
+          description: `Extracted ${Object.keys(result.extractedData).length} fields`,
+        });
+      } else {
+        throw new Error('No data extracted from document');
+      }
+    } catch (error) {
+      console.timeEnd('Document AI Extraction');
+      console.error('Error extracting document data:', error);
+      toast({
+        variant: "destructive",
+        title: "Document AI extraction failed",
+        description: error.message || "Failed to extract document data. Please try again.",
+      });
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  // Helper: Check if all critical fields are present in extracted data
+  const hasAllKeyFields = (data) => {
+    if (!data) return false;
+    return !!(data.caseNumber && data.plaintiff && data.defendant && data.full_court_name);
+  };
+
+  // Helper: Extract remaining pages when first page is missing key fields
+  const extractRemainingPages = async (documentUrl) => {
+    console.log('[DocumentUpload] 🔍 Key fields missing from page 1, expanding search to full document...');
+
+    try {
+      // Extract from full document (fallback to file_url)
+      const result = await extractDocumentClaudeVision({ file_url: documentUrl });
+
+      if (result.success && result.extractedData) {
+        console.log('[DocumentUpload] ✅ Full document extraction complete:', Object.keys(result.extractedData).length, 'fields');
+        return result.extractedData;
+      }
+
+      throw new Error('Failed to extract from remaining pages');
+    } catch (error) {
+      console.error('[DocumentUpload] ❌ Error extracting remaining pages:', error);
+      throw error;
+    }
+  };
+
+  // Extract case information from the main document using Claude Vision (Sonnet)
+  // Uses progressive extraction: page 1 first (fast), then expand if needed
+  const handleExtractWithClaudeVision = async (documentUrl, documentIndex) => {
+    console.time('Claude Vision Extraction');
+
+    try {
+      // Show spinner immediately when user clicks
+      setIsExtractingClaude(true);
+
+      let extractedData = null;
+
+      // Case 1: Background extraction already completed
+      if (backgroundExtraction.status === 'completed' && backgroundExtraction.data) {
+        console.log('[DocumentUpload] ⚡ Page 1 extraction already cached');
+        extractedData = backgroundExtraction.data;
+      }
+
+      // Case 2: Background extraction still running - wait for it
+      else if (backgroundExtraction.status === 'processing' && backgroundExtractionPromiseRef.current) {
+        console.log('[DocumentUpload] ⏳ Waiting for page 1 extraction...');
+        const result = await backgroundExtractionPromiseRef.current;
+
+        if (result.success && result.extractedData) {
+          console.log('[DocumentUpload] ✅ Page 1 extraction completed!');
+          extractedData = result.extractedData;
+        } else {
+          throw new Error('Page 1 extraction failed');
+        }
+      }
+
+      // Case 3: Background extraction not available
+      else {
+        console.log('[DocumentUpload] Background extraction not available, status:', backgroundExtraction.status);
+        throw new Error('Background extraction not ready. Please wait a moment and try again.');
+      }
+
+      // Now check if we have all key fields
+      if (hasAllKeyFields(extractedData)) {
+        console.log('[DocumentUpload] ✅ All key fields present! Using page 1 data.');
+
+        // Pass extracted data to parent component (CreateJob)
+        if (onExtractedData) {
+          onExtractedData(extractedData);
+        }
+
+        toast({
+          variant: "success",
+          title: "Claude Sonnet extraction complete",
+          description: `Extracted ${Object.keys(extractedData).length} fields (page 1 only)`,
+        });
+
+        setIsExtractingClaude(false);
+        console.timeEnd('Claude Vision Extraction');
+        return;
+      }
+
+      // Key fields missing - expand search to full document
+      console.log('[DocumentUpload] ⚠️  Missing key fields, expanding to full document...');
+
+      const expandedData = await extractRemainingPages(documentUrl);
+
+      // Merge page 1 with expanded data (expanded data takes priority)
+      const mergedData = { ...extractedData, ...expandedData };
+
+      console.log('[DocumentUpload] ✅ Merged data from page 1 + full document');
+
+      // Pass merged data to parent component
+      if (onExtractedData) {
+        onExtractedData(mergedData);
+      }
+
+      toast({
+        variant: "success",
+        title: "Claude Sonnet extraction complete",
+        description: `Extracted ${Object.keys(mergedData).length} fields (full document)`,
+      });
+
+      setIsExtractingClaude(false);
+      console.timeEnd('Claude Vision Extraction');
+
+    } catch (error) {
+      console.timeEnd('Claude Vision Extraction');
+      console.error('Error with Claude Sonnet extraction:', error);
+      toast({
+        variant: "destructive",
+        title: "Claude Sonnet extraction failed",
+        description: error.message || "Failed to extract document data. Please try another method.",
+      });
+      setIsExtractingClaude(false);
+    }
+  };
+
+  // Extract case information from the main document using Claude Haiku (Fast & Cheap)
+  const handleExtractWithHaiku = async (documentUrl, documentIndex) => {
+    console.time('Claude Haiku Extraction');
+    try {
+      setIsExtractingHaiku(true);
+
+      toast({
+        title: "Extracting document data",
+        description: "Processing with Claude Haiku (fast & cheap)...",
+      });
+
+      // Call Claude Haiku Cloud Function
+      // Use pre-extracted first 3 pages if available (much faster!)
+      const result = extractedFirstPage
+        ? await extractDocumentClaudeHaiku({ first_page_base64: extractedFirstPage })
+        : await extractDocumentClaudeHaiku({ file_url: documentUrl });
+
+      console.timeEnd('Claude Haiku Extraction');
+
+      if (result.success && result.extractedData) {
+        console.log('[DocumentUpload] Claude Haiku extracted data:', result.extractedData);
+        console.log(`[DocumentUpload] ⚡ Claude Haiku extraction took ${result.duration}s (server-side)`);
+
+        // Pass extracted data to parent component (CreateJob)
+        if (onExtractedData) {
+          onExtractedData(result.extractedData);
+        }
+
+        toast({
+          variant: "success",
+          title: "Claude Haiku extraction complete",
+          description: `Extracted ${Object.keys(result.extractedData).length} fields in ${result.duration}s`,
+        });
+      } else {
+        throw new Error('No data extracted from document');
+      }
+    } catch (error) {
+      console.timeEnd('Claude Haiku Extraction');
+      console.error('Error extracting document data with Claude Haiku:', error);
+      toast({
+        variant: "destructive",
+        title: "Claude Haiku extraction failed",
+        description: error.message || "Failed to extract document data. Please try again.",
+      });
+    } finally {
+      setIsExtractingHaiku(false);
+    }
+  };
 
   const handleDragStart = () => {
     setIsDragging(true);
@@ -443,26 +889,90 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
                               <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="font-medium text-sm text-slate-800 truncate">
-                                    {doc.file_url ? 'Uploaded' : 'Manual'}
+                                    {doc.uploading
+                                      ? `Uploading... ${uploadingDocs[doc.id] || 0}%`
+                                      : doc.file_url ? 'Uploaded' : 'Manual'
+                                    }
                                   </span>
                                   {index === 0 && (
                                     <Badge className="bg-blue-600 text-white text-xs px-1.5 py-0">Main</Badge>
                                   )}
-                                  {/* TODO: FUTURE - AI Extraction Button for Main Document */}
-                                  {/* This button will extract case info from the main document using Google Document AI */}
+
+                                  {/* AI Extraction Buttons for Main Document */}
                                   {index === 0 && doc.content_type === 'application/pdf' && doc.file_url && (
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-5 px-1.5 gap-1 border-purple-300 text-purple-700 hover:bg-purple-50"
-                                      // onClick={() => handleExtractWithAI(doc.file_url, index)}
-                                      disabled={true}
-                                      title="Coming soon: Extract case information with AI"
-                                    >
-                                      <Sparkles className="w-3 h-3" />
-                                      <span className="text-xs">Extract</span>
-                                    </Button>
+                                    <>
+                                      {/* Document AI Button */}
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-5 px-1.5 gap-1 border-purple-300 text-purple-700 hover:bg-purple-50"
+                                        onClick={() => handleExtractWithAI(doc.file_url, index)}
+                                        disabled={isExtracting}
+                                        title={
+                                          isExtracting
+                                            ? "Extracting with Document AI..."
+                                            : "Extract with Document AI"
+                                        }
+                                      >
+                                        {isExtracting ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Sparkles className="w-3 h-3" />
+                                        )}
+                                        <span className="text-xs">
+                                          {isExtracting ? 'Extracting...' : 'Doc AI'}
+                                        </span>
+                                      </Button>
+
+                                      {/* Claude Vision (Sonnet) Button */}
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-5 px-1.5 gap-1 border-blue-300 text-blue-700 hover:bg-blue-50"
+                                        onClick={() => handleExtractWithClaudeVision(doc.file_url, index)}
+                                        disabled={isExtractingClaude}
+                                        title={
+                                          isExtractingClaude
+                                            ? "Extracting with Claude Sonnet..."
+                                            : "Extract with Claude Sonnet"
+                                        }
+                                      >
+                                        {isExtractingClaude ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Sparkles className="w-3 h-3" />
+                                        )}
+                                        <span className="text-xs">
+                                          {isExtractingClaude ? 'Extracting...' : 'Sonnet'}
+                                        </span>
+                                      </Button>
+
+                                      {/* Claude Haiku Button */}
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-5 px-1.5 gap-1 border-amber-300 text-amber-700 hover:bg-amber-50"
+                                        onClick={() => handleExtractWithHaiku(doc.file_url, index)}
+                                        disabled={isExtractingHaiku}
+                                        title={
+                                          isExtractingHaiku
+                                            ? "Extracting with Claude Haiku..."
+                                            : "Extract with Claude Haiku (fast & cheap!)"
+                                        }
+                                      >
+                                        {isExtractingHaiku ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Sparkles className="w-3 h-3" />
+                                        )}
+                                        <span className="text-xs">
+                                          {isExtractingHaiku ? 'Extracting...' : 'Haiku'}
+                                        </span>
+                                      </Button>
+                                    </>
                                   )}
                                 </div>
                               </div>
@@ -482,12 +992,31 @@ export default function DocumentUpload({ documents, onDocumentsChange }) {
                               className="text-sm h-8"
                               required
                             />
-                            {doc.file_url && (
+                            {!doc.uploading && doc.file_url && (
                               <p className="text-xs text-slate-600 mt-1 truncate" title={doc.title}>{doc.title}</p>
+                            )}
+                            {doc.uploading && (
+                              <p className="text-xs text-blue-600 mt-1 truncate" title={doc.title}>{doc.title}</p>
                             )}
                           </div>
 
-                          {doc.file_url && (
+                          {/* Upload Progress Bar */}
+                          {doc.uploading && uploadingDocs[doc.id] !== undefined && (
+                            <div className="space-y-1 pb-2">
+                              <div className="w-full bg-blue-200 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className="bg-blue-600 h-1.5 rounded-full transition-all duration-300 ease-out"
+                                  style={{ width: `${uploadingDocs[doc.id]}%` }}
+                                />
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-slate-600">
+                                <span>{formatFileSize(doc.file_size)}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* File metadata after upload complete */}
+                          {!doc.uploading && doc.file_url && (
                             <div className="flex items-center justify-between pt-1.5 border-t border-slate-200">
                               <div className="flex items-center gap-2 text-xs text-slate-600 flex-wrap">
                                 <span>{formatFileSize(doc.file_size)}</span>

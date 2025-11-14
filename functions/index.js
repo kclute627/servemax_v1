@@ -1,6 +1,7 @@
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 const {defineSecret} = require("firebase-functions/params");
+const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const {PDFDocument, rgb, StandardFonts} = require("pdf-lib");
 const {Client} = require("@googlemaps/google-maps-services-js");
@@ -9,11 +10,14 @@ const puppeteer = require("puppeteer-core");
 const chromium = require("@sparticuz/chromium");
 const Handlebars = require("handlebars");
 const {format} = require("date-fns");
+const {DocumentProcessorServiceClient} = require("@google-cloud/documentai").v1;
+const Anthropic = require("@anthropic-ai/sdk");
 
 admin.initializeApp();
 
-// Define the Google Maps API key as a secret
+// Define secrets
 const googleMapsApiKey = defineSecret("GOOGLE_MAPS_API_KEY");
+const anthropicApiKey = defineSecret("CLAUDE_API_KEY");
 
 /**
  * Merges multiple PDFs in the specified order
@@ -2676,6 +2680,810 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
     throw new HttpsError(
         "internal",
         `Failed to respond to partnership request: ${error.message}`,
+    );
+  }
+});
+
+/**
+ * Extract data from PDF document using Google Document AI
+ * @param {Object} data - { file_url: string }
+ * @returns {Object} - { success: boolean, extractedData: object }
+ */
+exports.extractDocumentAI = onCall({
+  region: "us-central1",
+  timeoutSeconds: 540,
+  memory: "1GiB",
+  cpu: 2,
+}, async (request) => {
+  try {
+    const {file_url, first_page_base64} = request.data;
+
+    // Validate input - need either file_url or first_page_base64
+    if (!file_url && !first_page_base64) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Either file_url or first_page_base64 is required",
+      );
+    }
+
+    let firstPageBytes;
+    let extractedPageCount;
+
+    // Fast path: Use pre-extracted first page if provided
+    if (first_page_base64) {
+      console.log(`[Document AI] Using pre-extracted first page (fast path!)`);
+
+      firstPageBytes = Buffer.from(first_page_base64, "base64");
+
+      // Verify it's a valid PDF with 1 page
+      const pdfDoc = await PDFDocument.load(firstPageBytes);
+      extractedPageCount = pdfDoc.getPageCount();
+
+      console.log(`[Document AI] Pre-extracted PDF - Pages: ${extractedPageCount}, Size: ${firstPageBytes.byteLength} bytes`);
+
+      // Safety check: ensure we only have 1 page
+      if (extractedPageCount !== 1) {
+        console.error(`[Document AI] ERROR: Pre-extracted PDF has ${extractedPageCount} pages, expected 1!`);
+        throw new HttpsError(
+            "invalid-argument",
+            `Pre-extracted PDF must have exactly 1 page, got ${extractedPageCount}`,
+        );
+      }
+    } else {
+      // Slow path: Download and extract first page from full PDF
+      console.log(`[Document AI] Downloading and extracting first page from: ${file_url}`);
+
+      const response = await fetch(file_url);
+      if (!response.ok) {
+        throw new Error(`Failed to download PDF from ${file_url}`);
+      }
+
+      const pdfBytes = await response.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+
+      const originalPageCount = pdfDoc.getPageCount();
+      const originalSize = pdfBytes.byteLength;
+      console.log(`[Document AI] Original PDF - Pages: ${originalPageCount}, Size: ${originalSize} bytes`);
+
+      // Create a new PDF with only the first page
+      const firstPagePdf = await PDFDocument.create();
+      const [firstPage] = await firstPagePdf.copyPages(pdfDoc, [0]);
+      firstPagePdf.addPage(firstPage);
+
+      firstPageBytes = await firstPagePdf.save();
+      extractedPageCount = firstPagePdf.getPageCount();
+      const extractedSize = firstPageBytes.byteLength;
+
+      console.log(`[Document AI] Extracted PDF - Pages: ${extractedPageCount}, Size: ${extractedSize} bytes`);
+      console.log(`[Document AI] Verification - Extracted ${extractedPageCount} page(s), ${((extractedSize / originalSize) * 100).toFixed(1)}% of original size`);
+
+      // Safety check: ensure we only have 1 page
+      if (extractedPageCount !== 1) {
+        console.error(`[Document AI] ERROR: Expected 1 page but got ${extractedPageCount} pages!`);
+        throw new HttpsError(
+            "internal",
+            `Page extraction failed: expected 1 page but got ${extractedPageCount}`,
+        );
+      }
+    }
+
+    // Step 2: Initialize Document AI client
+    const client = new DocumentProcessorServiceClient();
+
+    // Your processor endpoint
+    const processorName = "projects/326484335453/locations/us/processors/de67c53e241e8ed";
+
+    console.log(`[Document AI] Sending to processor: ${processorName}`);
+
+    // Step 3: Process the document
+    const docRequest = {
+      name: processorName,
+      rawDocument: {
+        content: Buffer.from(firstPageBytes).toString("base64"),
+        mimeType: "application/pdf",
+      },
+    };
+
+    const [result] = await client.processDocument(docRequest);
+    const {document} = result;
+
+    console.log(`[Document AI] Document processed successfully`);
+
+    // Log what Document AI sees
+    const docPageCount = document.pages ? document.pages.length : 0;
+    console.log(`[Document AI] Processor detected ${docPageCount} page(s) in submitted PDF`);
+
+    if (docPageCount > 1) {
+      console.warn(`[Document AI] WARNING: Document AI detected ${docPageCount} pages, expected 1!`);
+    }
+
+    // Step 4: Extract entities from the document
+    const extractedData = {};
+
+    if (document.entities) {
+      console.log(`[Document AI] Found ${document.entities.length} entities`);
+
+      for (const entity of document.entities) {
+        const fieldName = entity.type;
+        const fieldValue = entity.mentionText || "";
+
+        // Map Document AI field names to our form fields
+        extractedData[fieldName] = fieldValue.trim();
+
+        // Log which page the entity was found on
+        const pageRef = entity.pageAnchor?.pageRefs?.[0];
+        const pageNum = pageRef ? (pageRef.page || 0) + 1 : "unknown";
+
+        console.log(`[Document AI] Extracted ${fieldName} from page ${pageNum}: ${fieldValue.substring(0, 50)}...`);
+      }
+    }
+
+    console.log(`[Document AI] Extraction complete. Fields extracted: ${Object.keys(extractedData).length}`);
+
+    return {
+      success: true,
+      extractedData,
+      pageCount: extractedPageCount,
+      message: `Successfully extracted ${Object.keys(extractedData).length} fields from document`,
+    };
+  } catch (error) {
+    console.error("[Document AI] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError(
+        "internal",
+        `Failed to extract document data: ${error.message}`,
+    );
+  }
+});
+
+/**
+ * Extract data from PDF document using Claude Vision
+ * @param {Object} data - { file_url: string } or { first_page_base64: string }
+ * @returns {Object} - { success: boolean, extractedData: object }
+ */
+exports.extractDocumentClaudeVision = onCall({
+  region: "us-central1",
+  timeoutSeconds: 540,
+  memory: "1GiB",
+  cpu: 2,
+  secrets: [anthropicApiKey],
+}, async (request) => {
+  const startTime = Date.now();
+
+  try {
+    const {file_url, first_page_base64} = request.data;
+
+    // Validate input
+    if (!file_url && !first_page_base64) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Either file_url or first_page_base64 is required",
+      );
+    }
+
+    let firstPageBytes;
+    let extractedPageCount;
+
+    // Fast path: Use pre-extracted first page if provided
+    if (first_page_base64) {
+      console.log(`[Claude Vision] Using pre-extracted first page (fast path!)`);
+      firstPageBytes = Buffer.from(first_page_base64, "base64");
+      const pdfDoc = await PDFDocument.load(firstPageBytes);
+      extractedPageCount = pdfDoc.getPageCount();
+      console.log(`[Claude Vision] Pre-extracted PDF - Pages: ${extractedPageCount}, Size: ${firstPageBytes.byteLength} bytes`);
+    } else {
+      // Slow path: Download and extract first page
+      console.log(`[Claude Vision] Downloading and extracting first page from: ${file_url}`);
+      const response = await fetch(file_url);
+      if (!response.ok) {
+        throw new Error(`Failed to download PDF from ${file_url}`);
+      }
+
+      const pdfBytes = await response.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+      const originalPageCount = pdfDoc.getPageCount();
+      console.log(`[Claude Vision] Original PDF - Pages: ${originalPageCount}`);
+
+      // Extract first 3 pages (or fewer if document has less than 3 pages)
+      const pagesToExtract = Math.min(3, originalPageCount);
+      const extractedPdf = await PDFDocument.create();
+      const pageIndices = Array.from({length: pagesToExtract}, (_, i) => i);
+      const copiedPages = await extractedPdf.copyPages(pdfDoc, pageIndices);
+      copiedPages.forEach(page => extractedPdf.addPage(page));
+      firstPageBytes = await extractedPdf.save();
+      extractedPageCount = pagesToExtract;
+      console.log(`[Claude Vision] Extracted first ${pagesToExtract} page(s), Size: ${firstPageBytes.byteLength} bytes`);
+    }
+
+    // Convert PDF to base64 for Claude API (Claude can read PDFs natively!)
+    const pdfBase64 = Buffer.from(firstPageBytes).toString("base64");
+    console.log(`[Claude Vision] PDF prepared for Claude, Size: ${firstPageBytes.byteLength} bytes`);
+
+    // Initialize Claude client
+    const anthropic = new Anthropic({
+      apiKey: anthropicApiKey.value(),
+    });
+
+    // Create extraction prompt
+    const extractionPrompt = `You are assisting with legitimate legal document processing for a professional process serving company.
+Extract structured information from a legal document (summons, complaint, subpoena) to facilitate proper service of legal documents.
+
+You will receive the first few pages of the document. SCAN ALL PROVIDED PAGES to find the required information - the data you need may appear on any page, not just the first page.
+Return ONLY a JSON object with fields that are present.
+
+PRIMARY RULE:
+Identify the SERVICE ADDRESS (where the defendant/respondent is to be served).
+DO NOT return the court's address.
+
+DEFINITIONS:
+- Service Address = address associated with the defendant/respondent being served
+- Court Address = appears in document headers/captions. Ignore it.
+- Recipient Name = The specific person or entity at the service address (may differ from defendant name if serving registered agent, property manager, etc.)
+
+FIELDS TO RETURN (only if found):
+
+CASE INFO:
+- caseNumber: Case/docket number (preserve exact format)
+- plaintiff: Plaintiff/petitioner full name
+- defendant: Defendant/respondent full name (include "et al" if present)
+- filed_date: Date case was filed (if shown)
+- court_date: Scheduled court date (if shown)
+- document_title: Type of document (e.g., "Summons", "Complaint", "Subpoena")
+
+COURT INFO:
+- branch_name: Short court name only (e.g., "Circuit Court", "District Court", "Superior Court")
+- full_court_name: The COMPLETE, VERBATIM court name exactly as written in the document header/caption. Include EVERYTHING: "IN THE" prefix, court type, judicial circuit numbers, county, divisions (LAW/CHANCERY/etc), and state. DO NOT abbreviate or shorten. Examples: "IN THE CIRCUIT COURT OF COOK COUNTY LAW DIVISION" or "Circuit Court of the Eleventh Judicial Circuit, McLean County, Illinois"
+- county_court: County name only (e.g., "McLean County", "Cook County")
+- court_address1: Court's street address (if shown on document, typically in header/letterhead)
+- court_address2: Court's address line 2 (if present)
+- court_city: Court's city (if shown)
+- court_state: Court's state as 2-letter code (if shown)
+- court_zip: Court's ZIP code (if shown)
+
+SERVICE RECIPIENT (WHERE service will occur):
+- recipient_name: Specific person/entity to serve at this address (may be same as defendant, or could be registered agent, property manager, etc.)
+- address1: Street address (include suite/floor if on same line)
+- address2: Additional address line (suite/apt/floor if on separate line)
+- recipient_city: City name
+- recipient_state: Two-letter state code (e.g., "IL", "CA", "NY")
+- recipient_zip_code: ZIP code (5-digit or ZIP+4)
+
+EXTRACTION RULES:
+1. For full_court_name: Extract the COMPLETE, VERBATIM court name from the document header/caption. This means EVERYTHING including:
+   - "IN THE" or similar prefixes
+   - Court type and judicial circuit numbers
+   - County name
+   - Division name (LAW DIVISION, CHANCERY DIVISION, etc.)
+   - State (if shown)
+   - DO NOT abbreviate, shorten, or omit any words
+   - Example: If document says "IN THE CIRCUIT COURT OF COOK COUNTY LAW DIVISION", return exactly that
+2. CRITICAL - Two Different Addresses:
+   a) Court address (court_address1, court_city, etc.) = The court building's address, usually in document header/letterhead. Extract if present.
+   b) Service address (address1, recipient_city, etc.) = Where the defendant will be served. This is PRIMARY and always required.
+3. Service address is typically found near or below the defendant's name, often labeled "Address" or "To be served at"
+4. If you see both a defendant name AND a recipient name (e.g., "via registered agent John Smith"), extract both separately
+5. Preserve exact case number formatting including hyphens, prefixes, letters
+6. State must be 2-letter code only
+7. Return only keys where you found actual values
+
+OUTPUT FORMAT - CRITICAL:
+Start your response with {
+End your response with }
+DO NOT use markdown code blocks (no triple backticks)
+DO NOT add any explanatory text before or after the JSON
+Return ONLY the raw JSON object
+
+Example:
+{
+  "caseNumber": "2025L013908",
+  "plaintiff": "BENITA DURAN",
+  "defendant": "DOUBLE TREE BY HILTON HOTEL, et al",
+  "branch_name": "Circuit Court",
+  "full_court_name": "IN THE CIRCUIT COURT OF COOK COUNTY LAW DIVISION",
+  "county_court": "Cook County",
+  "court_address1": "50 W Washington St",
+  "court_city": "Chicago",
+  "court_state": "IL",
+  "court_zip": "60602",
+  "document_title": "Summons in a Civil Action",
+  "recipient_name": "Double Tree by Hilton Hotel",
+  "address1": "55 E Monroe St, 30th Floor",
+  "recipient_city": "Chicago",
+  "recipient_state": "IL",
+  "recipient_zip_code": "60603"
+}`;
+
+    console.log(`[Claude Vision] Sending PDF to Claude API...`);
+
+    // Call Claude Vision API with PDF
+    const message = await anthropic.messages.create({
+      model: "claude-sonnet-4-5-20250929",
+      max_tokens: 4096,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: pdfBase64,
+              },
+            },
+            {
+              type: "text",
+              text: extractionPrompt,
+            },
+          ],
+        },
+      ],
+    });
+
+    console.log(`[Claude Vision] Response received`);
+    console.log(`[Claude Vision] Stop reason:`, message.stop_reason);
+    console.log(`[Claude Vision] Usage:`, JSON.stringify(message.usage));
+
+    // Handle refusal - Sonnet is refusing to process for some reason
+    if (message.stop_reason === 'refusal') {
+      console.warn(`[Claude Vision] ⚠️  Sonnet refused to complete extraction`);
+      console.log(`[Claude Vision] Refusal response:`, message.content[0].text);
+      throw new HttpsError(
+          "unavailable",
+          "Claude Sonnet refused to process this document. Please try Haiku or Document AI instead.",
+      );
+    }
+
+    // Parse Claude's response
+    const responseText = message.content[0].text;
+    console.log(`[Claude Vision] Raw response length:`, responseText.length);
+    console.log(`[Claude Vision] Full response:`, responseText);
+
+    // Extract JSON from response (Claude might wrap it in markdown code blocks)
+    let extractedData = {};
+    try {
+      // Remove markdown code blocks - direct string replacement
+      let cleanedText = responseText
+        .replace(/```json/gi, '')
+        .replace(/```/g, '')
+        .trim();
+
+      console.log(`[Claude Vision] Cleaned text preview:`, cleanedText.substring(0, 100));
+
+      // Try direct JSON parse first (most reliable)
+      try {
+        extractedData = JSON.parse(cleanedText);
+        console.log(`[Claude Vision] ✅ Successfully parsed ${Object.keys(extractedData).length} fields (direct parse)`);
+      } catch (directParseError) {
+        console.log(`[Claude Vision] Direct parse failed:`, directParseError.message);
+        console.log(`[Claude Vision] Trying regex fallback...`);
+
+        // Fallback: try regex to find JSON object
+        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          extractedData = JSON.parse(jsonMatch[0]);
+          console.log(`[Claude Vision] ✅ Successfully parsed ${Object.keys(extractedData).length} fields (regex fallback)`);
+        } else {
+          console.error(`[Claude Vision] ❌ No JSON found with regex either`);
+          console.log(`[Claude Vision] Cleaned text:`, cleanedText);
+          throw new Error("No valid JSON found in response");
+        }
+      }
+    } catch (parseError) {
+      console.error(`[Claude Vision] ❌ Failed to parse JSON:`, parseError.message);
+      throw new Error("Failed to parse extraction results");
+    }
+
+    const endTime = Date.now();
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+
+    console.log(`[Claude Vision] ⚡ Extraction complete in ${duration}s. Fields extracted: ${Object.keys(extractedData).length}`);
+
+    return {
+      success: true,
+      extractedData,
+      pageCount: extractedPageCount,
+      duration: parseFloat(duration),
+      message: `Successfully extracted ${Object.keys(extractedData).length} fields from document using Claude Vision in ${duration}s`,
+    };
+  } catch (error) {
+    const endTime = Date.now();
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+    console.error(`[Claude Vision] Error after ${duration}s:`, error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError(
+        "internal",
+        `Failed to extract document data with Claude Vision: ${error.message}`,
+    );
+  }
+});
+
+/**
+ * Extract data from PDF document using Claude Haiku (Fast & Cheap)
+ * @param {Object} data - { file_url: string } or { first_page_base64: string }
+ * @returns {Object} - { success: boolean, extractedData: object }
+ */
+exports.extractDocumentClaudeHaiku = onCall({
+  region: "us-central1",
+  timeoutSeconds: 540,
+  memory: "1GiB",
+  cpu: 2,
+  secrets: [anthropicApiKey],
+}, async (request) => {
+  const startTime = Date.now();
+
+  try {
+    const {file_url, first_page_base64} = request.data;
+
+    // Validate input
+    if (!file_url && !first_page_base64) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Either file_url or first_page_base64 is required",
+      );
+    }
+
+    let firstPageBytes;
+    let extractedPageCount;
+
+    // Fast path: Use pre-extracted first page if provided
+    if (first_page_base64) {
+      console.log(`[Claude Haiku] Using pre-extracted first 3 pages (fast path!)`);
+      firstPageBytes = Buffer.from(first_page_base64, "base64");
+      const pdfDoc = await PDFDocument.load(firstPageBytes);
+      extractedPageCount = pdfDoc.getPageCount();
+      console.log(`[Claude Haiku] Pre-extracted PDF - Pages: ${extractedPageCount}, Size: ${firstPageBytes.byteLength} bytes`);
+    } else {
+      // Slow path: Download and extract first 3 pages
+      console.log(`[Claude Haiku] Downloading and extracting first 3 pages from: ${file_url}`);
+      const response = await fetch(file_url);
+      if (!response.ok) {
+        throw new Error(`Failed to download PDF from ${file_url}`);
+      }
+
+      const pdfBytes = await response.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+      const originalPageCount = pdfDoc.getPageCount();
+      console.log(`[Claude Haiku] Original PDF - Pages: ${originalPageCount}`);
+
+      // Extract first 3 pages (or fewer if document has less than 3 pages)
+      const pagesToExtract = Math.min(3, originalPageCount);
+      const extractedPdf = await PDFDocument.create();
+      const pageIndices = Array.from({length: pagesToExtract}, (_, i) => i);
+      const copiedPages = await extractedPdf.copyPages(pdfDoc, pageIndices);
+      copiedPages.forEach(page => extractedPdf.addPage(page));
+      firstPageBytes = await extractedPdf.save();
+      extractedPageCount = pagesToExtract;
+      console.log(`[Claude Haiku] Extracted first ${pagesToExtract} page(s), Size: ${firstPageBytes.byteLength} bytes`);
+    }
+
+    // Convert PDF to base64 for Claude API (Claude can read PDFs natively!)
+    const pdfBase64 = Buffer.from(firstPageBytes).toString("base64");
+    console.log(`[Claude Haiku] PDF prepared for Claude, Size: ${firstPageBytes.byteLength} bytes`);
+
+    // Initialize Claude client
+    const anthropic = new Anthropic({
+      apiKey: anthropicApiKey.value(),
+    });
+
+    // Create extraction prompt (same as Sonnet)
+    const extractionPrompt = `You are assisting with legitimate legal document processing for a professional process serving company.
+Extract structured information from a legal document (summons, complaint, subpoena) to facilitate proper service of legal documents.
+
+You will receive the first few pages of the document. SCAN ALL PROVIDED PAGES to find the required information - the data you need may appear on any page, not just the first page.
+Return ONLY a JSON object with fields that are present.
+
+PRIMARY RULE:
+Identify the SERVICE ADDRESS (where the defendant/respondent is to be served).
+DO NOT return the court's address.
+
+DEFINITIONS:
+- Service Address = address associated with the defendant/respondent being served
+- Court Address = appears in document headers/captions. Ignore it.
+- Recipient Name = The specific person or entity at the service address (may differ from defendant name if serving registered agent, property manager, etc.)
+
+FIELDS TO RETURN (only if found):
+
+CASE INFO:
+- caseNumber: Case/docket number (preserve exact format)
+- plaintiff: Plaintiff/petitioner full name
+- defendant: Defendant/respondent full name (include "et al" if present)
+- filed_date: Date case was filed (if shown)
+- court_date: Scheduled court date (if shown)
+- document_title: Type of document (e.g., "Summons", "Complaint", "Subpoena")
+
+COURT INFO:
+- branch_name: Short court name only (e.g., "Circuit Court", "District Court", "Superior Court")
+- full_court_name: The COMPLETE, VERBATIM court name exactly as written in the document header/caption. Include EVERYTHING: "IN THE" prefix, court type, judicial circuit numbers, county, divisions (LAW/CHANCERY/etc), and state. DO NOT abbreviate or shorten. Examples: "IN THE CIRCUIT COURT OF COOK COUNTY LAW DIVISION" or "Circuit Court of the Eleventh Judicial Circuit, McLean County, Illinois"
+- county_court: County name only (e.g., "McLean County", "Cook County")
+- court_address1: Court's street address (if shown on document, typically in header/letterhead)
+- court_address2: Court's address line 2 (if present)
+- court_city: Court's city (if shown)
+- court_state: Court's state as 2-letter code (if shown)
+- court_zip: Court's ZIP code (if shown)
+
+SERVICE RECIPIENT (WHERE service will occur):
+- recipient_name: Specific person/entity to serve at this address (may be same as defendant, or could be registered agent, property manager, etc.)
+- address1: Street address (include suite/floor if on same line)
+- address2: Additional address line (suite/apt/floor if on separate line)
+- recipient_city: City name
+- recipient_state: Two-letter state code (e.g., "IL", "CA", "NY")
+- recipient_zip_code: ZIP code (5-digit or ZIP+4)
+
+EXTRACTION RULES:
+1. For full_court_name: Extract the COMPLETE, VERBATIM court name from the document header/caption. This means EVERYTHING including:
+   - "IN THE" or similar prefixes
+   - Court type and judicial circuit numbers
+   - County name
+   - Division name (LAW DIVISION, CHANCERY DIVISION, etc.)
+   - State (if shown)
+   - DO NOT abbreviate, shorten, or omit any words
+   - Example: If document says "IN THE CIRCUIT COURT OF COOK COUNTY LAW DIVISION", return exactly that
+2. CRITICAL - Two Different Addresses:
+   a) Court address (court_address1, court_city, etc.) = The court building's address, usually in document header/letterhead. Extract if present.
+   b) Service address (address1, recipient_city, etc.) = Where the defendant will be served. This is PRIMARY and always required.
+3. Service address is typically found near or below the defendant's name, often labeled "Address" or "To be served at"
+4. If you see both a defendant name AND a recipient name (e.g., "via registered agent John Smith"), extract both separately
+5. Preserve exact case number formatting including hyphens, prefixes, letters
+6. State must be 2-letter code only
+7. Return only keys where you found actual values
+
+OUTPUT FORMAT - CRITICAL:
+Start your response with {
+End your response with }
+DO NOT use markdown code blocks (no triple backticks)
+DO NOT add any explanatory text before or after the JSON
+Return ONLY the raw JSON object
+
+Example:
+{
+  "caseNumber": "2025L013908",
+  "plaintiff": "BENITA DURAN",
+  "defendant": "DOUBLE TREE BY HILTON HOTEL, et al",
+  "branch_name": "Circuit Court",
+  "full_court_name": "IN THE CIRCUIT COURT OF COOK COUNTY LAW DIVISION",
+  "county_court": "Cook County",
+  "court_address1": "50 W Washington St",
+  "court_city": "Chicago",
+  "court_state": "IL",
+  "court_zip": "60602",
+  "document_title": "Summons in a Civil Action",
+  "recipient_name": "Double Tree by Hilton Hotel",
+  "address1": "55 E Monroe St, 30th Floor",
+  "recipient_city": "Chicago",
+  "recipient_state": "IL",
+  "recipient_zip_code": "60603"
+}`;
+
+    console.log(`[Claude Haiku] Sending PDF to Claude API...`);
+
+    // Call Claude Haiku API with PDF
+    const message = await anthropic.messages.create({
+      model: "claude-3-5-haiku-20241022",
+      max_tokens: 4096,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: pdfBase64,
+              },
+            },
+            {
+              type: "text",
+              text: extractionPrompt,
+            },
+          ],
+        },
+      ],
+    });
+
+    console.log(`[Claude Haiku] Response received`);
+
+    // Parse Claude's response
+    const responseText = message.content[0].text;
+    console.log(`[Claude Haiku] Raw response length:`, responseText.length);
+
+    // Extract JSON from response (Claude might wrap it in markdown code blocks)
+    let extractedData = {};
+    try {
+      // Remove markdown code blocks - direct string replacement
+      let cleanedText = responseText
+        .replace(/```json/gi, '')
+        .replace(/```/g, '')
+        .trim();
+
+      console.log(`[Claude Haiku] Cleaned text preview:`, cleanedText.substring(0, 100));
+
+      // Try direct JSON parse first (most reliable)
+      try {
+        extractedData = JSON.parse(cleanedText);
+        console.log(`[Claude Haiku] ✅ Successfully parsed ${Object.keys(extractedData).length} fields (direct parse)`);
+      } catch (directParseError) {
+        console.log(`[Claude Haiku] Direct parse failed:`, directParseError.message);
+        console.log(`[Claude Haiku] Trying regex fallback...`);
+
+        // Fallback: try regex to find JSON object
+        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          extractedData = JSON.parse(jsonMatch[0]);
+          console.log(`[Claude Haiku] ✅ Successfully parsed ${Object.keys(extractedData).length} fields (regex fallback)`);
+        } else {
+          console.error(`[Claude Haiku] ❌ No JSON found with regex either`);
+          console.log(`[Claude Haiku] Cleaned text:`, cleanedText);
+          throw new Error("No valid JSON found in response");
+        }
+      }
+    } catch (parseError) {
+      console.error(`[Claude Haiku] ❌ Failed to parse JSON:`, parseError.message);
+      throw new Error("Failed to parse extraction results");
+    }
+
+    const endTime = Date.now();
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+
+    console.log(`[Claude Haiku] ⚡ Extraction complete in ${duration}s. Fields extracted: ${Object.keys(extractedData).length}`);
+
+    return {
+      success: true,
+      extractedData,
+      pageCount: extractedPageCount,
+      duration: parseFloat(duration),
+      model: "haiku",
+      message: `Successfully extracted ${Object.keys(extractedData).length} fields from document using Claude Haiku in ${duration}s`,
+    };
+  } catch (error) {
+    const endTime = Date.now();
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+    console.error(`[Claude Haiku] Error after ${duration}s:`, error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError(
+        "internal",
+        `Failed to extract document data with Claude Haiku: ${error.message}`,
+    );
+  }
+});
+
+/**
+ * Cloud Function: Find Court Address with AI
+ * Uses Claude AI to intelligently find court addresses
+ * Handles fuzzy matching - doesn't require exact court name matches
+ */
+exports.findCourtAddressWithAI = onCall({
+  secrets: [anthropicApiKey],
+}, async (request) => {
+  const startTime = Date.now();
+
+  try {
+    const { courtName } = request.data;
+
+    if (!courtName) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Court name is required",
+      );
+    }
+
+    console.log(`[AI Court Lookup] Finding address for: ${courtName}`);
+
+    // Initialize Claude client
+    const anthropic = new Anthropic({
+      apiKey: anthropicApiKey.value(),
+    });
+
+    // Create prompt for Claude
+    const prompt = `You are a legal research assistant with knowledge of US court systems and addresses.
+
+Find the physical mailing address for this court:
+
+Court Name: "${courtName}"
+
+Instructions:
+- If you know the exact address for this court, return it
+- If the court name includes divisions (LAW DIVISION, CHANCERY, etc.), find the main courthouse address
+- Be flexible with matching - handle variations in formatting, capitalization, or wording
+- Example: "CIRCUIT COURT OF COOK COUNTY, ILLINOIS COUNTY DEPARTMENT, LAW DIVISION" → return Richard J. Daley Center (Cook County Circuit Court main address)
+- If you cannot find the court with high confidence, return null values
+
+Return ONLY valid JSON (no markdown code blocks, no explanations):
+{
+  "court_address1": "street address or null",
+  "court_city": "city name or null",
+  "court_state": "2-letter state code or null",
+  "court_zip": "zip code or null",
+  "confidence": "high or medium or low",
+  "notes": "brief explanation if needed"
+}`;
+
+    console.log(`[AI Court Lookup] Calling Claude API...`);
+
+    // Call Claude API
+    const message = await anthropic.messages.create({
+      model: "claude-sonnet-4-5-20250929",
+      max_tokens: 512,
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    });
+
+    console.log(`[AI Court Lookup] Response received`);
+
+    // Parse Claude's response
+    const responseText = message.content[0].text;
+    console.log(`[AI Court Lookup] Raw response:`, responseText);
+
+    // Extract JSON from response
+    let courtAddress = {};
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        courtAddress = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error("No JSON found in AI response");
+      }
+    } catch (parseError) {
+      console.error(`[AI Court Lookup] Failed to parse JSON:`, parseError);
+      throw new Error("Failed to parse AI response");
+    }
+
+    const endTime = Date.now();
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+
+    // Check if AI found the address
+    if (!courtAddress.court_address1 || courtAddress.court_address1 === "null") {
+      console.log(`[AI Court Lookup] AI could not find address with confidence`);
+      return {
+        success: false,
+        found: false,
+        message: `Could not find address for: ${courtName}`,
+        confidence: courtAddress.confidence || "low",
+        duration: parseFloat(duration),
+      };
+    }
+
+    console.log(`[AI Court Lookup] ⚡ Found address in ${duration}s:`, courtAddress.court_address1);
+    console.log(`[AI Court Lookup] Confidence: ${courtAddress.confidence || "unknown"}`);
+
+    return {
+      success: true,
+      found: true,
+      courtAddress: {
+        court_address1: courtAddress.court_address1,
+        court_city: courtAddress.court_city,
+        court_state: courtAddress.court_state,
+        court_zip: courtAddress.court_zip,
+        source: "ai",
+        confidence: courtAddress.confidence,
+        notes: courtAddress.notes || "",
+      },
+      duration: parseFloat(duration),
+    };
+  } catch (error) {
+    const endTime = Date.now();
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+    console.error(`[AI Court Lookup] Error after ${duration}s:`, error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError(
+        "internal",
+        `Failed to find court address with AI: ${error.message}`,
     );
   }
 });

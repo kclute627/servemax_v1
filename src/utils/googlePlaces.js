@@ -9,6 +9,7 @@
 
 // Google Places API configuration
 const GOOGLE_PLACES_API_KEY = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+const GOOGLE_GEOCODING_API_KEY = import.meta.env.VITE_GOOGLE_GEOCODING_API_KEY || GOOGLE_PLACES_API_KEY;
 const PLACES_LIBRARY_URL = 'https://maps.googleapis.com/maps/api/js?libraries=places,geometry';
 
 // Singleton promise for loading the Google Places library
@@ -252,32 +253,36 @@ export async function getPlaceDetails(placeId) {
 
 /**
  * Geocode an address to get latitude/longitude and county
- * Useful for addresses that weren't selected via autocomplete
+ * Uses the Geocoding REST API with a separate API key for better control
  * @param {string} address - The full address string
  * @returns {Promise<Object>} Object with lat, lng, and county
  */
 export async function geocodeAddress(address) {
   try {
-    const geocoderService = await getGeocoder();
+    // Use the Geocoding REST API directly with the separate geocoding key
+    const encodedAddress = encodeURIComponent(address);
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${GOOGLE_GEOCODING_API_KEY}`;
 
-    return new Promise((resolve, reject) => {
-      geocoderService.geocode({ address }, (results, status) => {
-        if (status === 'OK' && results && results[0]) {
-          const result = results[0];
-          const location = result.geometry.location;
-          const county = extractCounty(result.address_components);
+    const response = await fetch(url);
+    const data = await response.json();
 
-          resolve({
-            latitude: location.lat(),
-            longitude: location.lng(),
-            county: county
-          });
-        } else {
-          console.error('Geocoding error:', status);
-          reject(new Error(`Geocoding failed with status: ${status}`));
-        }
-      });
-    });
+    if (data.status === 'OK' && data.results && data.results[0]) {
+      const result = data.results[0];
+      const location = result.geometry.location;
+      const county = extractCounty(result.address_components);
+
+      return {
+        latitude: location.lat,
+        longitude: location.lng,
+        county: county
+      };
+    } else {
+      console.error('Geocoding error:', data.status);
+      if (data.error_message) {
+        console.error('Geocoding Service:', data.error_message);
+      }
+      throw new Error(`Geocoding failed with status: ${data.status}`);
+    }
   } catch (error) {
     console.error('Error geocoding address:', error);
     throw error;

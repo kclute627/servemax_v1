@@ -48,6 +48,9 @@ import {
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { geocodeAddress } from "@/utils/googlePlaces";
+import { findCourtByName, addCourtToUniversal } from "@/firebase/universalCourts";
+import { findCourtAddressWithAI } from "@/api/functions";
 
 import ClientSearchInput from "../components/jobs/ClientSearchInput";
 import SelectedClientBox from "../components/jobs/SelectedClientBox";
@@ -573,6 +576,377 @@ export default function CreateJobPage() {
     }
   };
 
+  // Handle extracted data from Document AI with database lookups and geocoding
+  const handleExtractedData = async (extractedData) => {
+    console.log('[CreateJob] Received extracted data:', extractedData);
+
+    try {
+      // Step 1: Search for existing case by case number
+      let existingCase = null;
+      if (extractedData.caseNumber) {
+        try {
+          console.log('[CreateJob] Searching for existing case:', extractedData.caseNumber);
+          const allCases = await SecureCaseAccess.list();
+          existingCase = allCases.find(c =>
+            c.case_number && c.case_number.toLowerCase() === extractedData.caseNumber.toLowerCase()
+          );
+
+          if (existingCase) {
+            console.log('[CreateJob] Found existing case:', existingCase);
+            // Use the existing case data - this will populate case AND court info
+            handleCaseSelect(existingCase);
+
+            // Still update recipient and address from extracted data
+            const recipientUpdates = {};
+            if (extractedData.recipient_name) {
+              recipientUpdates.recipient_name = extractedData.recipient_name;
+            }
+
+            const addressUpdates = {};
+            if (extractedData.address1 || extractedData.address_street) addressUpdates.address1 = extractedData.address1 || extractedData.address_street;
+            if (extractedData.city || extractedData.recipient_city) addressUpdates.city = extractedData.city || extractedData.recipient_city;
+            if (extractedData.state || extractedData.recipient_state) addressUpdates.state = extractedData.state || extractedData.recipient_state;
+            if (extractedData.postal_code || extractedData.recipient_zip_code) addressUpdates.postal_code = extractedData.postal_code || extractedData.recipient_zip_code;
+
+            // Apply recipient and address updates
+            setFormData(prev => {
+              const newFormData = { ...prev, ...recipientUpdates };
+
+              if (Object.keys(addressUpdates).length > 0) {
+                const updatedAddresses = [...prev.addresses];
+                updatedAddresses[0] = {
+                  ...updatedAddresses[0],
+                  ...addressUpdates
+                };
+                newFormData.addresses = updatedAddresses;
+              }
+
+              return newFormData;
+            });
+
+            // Geocode the address
+            await geocodeExtractedAddress(addressUpdates);
+
+            toast({
+              variant: "success",
+              title: "Existing case found",
+              description: "Populated form with existing case data and updated recipient/address from document.",
+            });
+            return; // Exit early since case was found
+          } else {
+            console.log('[CreateJob] No existing case found, will create new case');
+          }
+        } catch (error) {
+          console.error('[CreateJob] Error searching for case:', error);
+          // Continue with normal flow if search fails
+        }
+      }
+
+      // Step 2: If no existing case, search for existing court by exact name match
+      let existingCourt = null;
+      const courtName = extractedData.full_court_name || extractedData.branch_name;
+      if (courtName) {
+        try {
+          console.log('[CreateJob] Searching for existing court:', courtName);
+          const allCourts = await SecureCourtAccess.list();
+          existingCourt = allCourts.find(court =>
+            court.branch_name && court.branch_name.toLowerCase() === courtName.toLowerCase()
+          );
+
+          if (existingCourt) {
+            console.log('[CreateJob] Found existing court:', existingCourt);
+            handleCourtSelect(existingCourt);
+          } else {
+            console.log('[CreateJob] No existing court found, will create new court');
+          }
+        } catch (error) {
+          console.error('[CreateJob] Error searching for court:', error);
+          // Continue with normal flow if search fails
+        }
+      }
+
+      // Step 3: Map extracted fields to form (for new case/court)
+      const updates = {};
+
+      // Case information (only if no existing case found)
+      if (!existingCase) {
+        if (extractedData.caseNumber) {
+          updates.case_number = extractedData.caseNumber;
+        }
+        if (extractedData.plaintiff) {
+          updates.plaintiff = extractedData.plaintiff;
+        }
+        if (extractedData.defendant) {
+          updates.defendant = extractedData.defendant;
+        }
+      }
+
+      // Court information (only if no existing court found)
+      if (!existingCourt) {
+        if (courtName) {
+          updates.court_name = courtName;
+        }
+        if (extractedData.county || extractedData.county_court) {
+          updates.court_county = extractedData.county || extractedData.county_court;
+        }
+      }
+
+      // Recipient information (always update)
+      if (extractedData.recipient_name) {
+        updates.recipient_name = extractedData.recipient_name;
+      }
+
+      // Court address (if present on document and no existing court)
+      const courtAddressUpdates = {};
+      if (!existingCourt) {
+        if (extractedData.court_address1) {
+          courtAddressUpdates.address1 = extractedData.court_address1;
+        }
+        if (extractedData.court_address2) {
+          courtAddressUpdates.address2 = extractedData.court_address2;
+        }
+        if (extractedData.court_city) {
+          courtAddressUpdates.city = extractedData.court_city;
+        }
+        if (extractedData.court_state) {
+          courtAddressUpdates.state = extractedData.court_state;
+        }
+        if (extractedData.court_zip) {
+          courtAddressUpdates.postal_code = extractedData.court_zip;
+        }
+      }
+
+      // Service address (always update)
+      const addressUpdates = {};
+      if (extractedData.address1 || extractedData.address_street) {
+        addressUpdates.address1 = extractedData.address1 || extractedData.address_street;
+      }
+      if (extractedData.city || extractedData.recipient_city) {
+        addressUpdates.city = extractedData.city || extractedData.recipient_city;
+      }
+      if (extractedData.state || extractedData.recipient_state) {
+        addressUpdates.state = extractedData.state || extractedData.recipient_state;
+      }
+      if (extractedData.postal_code || extractedData.recipient_zip_code) {
+        addressUpdates.postal_code = extractedData.postal_code || extractedData.recipient_zip_code;
+      }
+
+      // Update form data
+      setFormData(prev => {
+        const newFormData = { ...prev, ...updates };
+
+        // Update court address if we have court address updates
+        if (Object.keys(courtAddressUpdates).length > 0) {
+          newFormData.court_address = {
+            ...prev.court_address,
+            ...courtAddressUpdates
+          };
+        }
+
+        // Update the first address if we have address updates
+        if (Object.keys(addressUpdates).length > 0) {
+          const updatedAddresses = [...prev.addresses];
+          updatedAddresses[0] = {
+            ...updatedAddresses[0],
+            ...addressUpdates
+          };
+          newFormData.addresses = updatedAddresses;
+        }
+
+        return newFormData;
+      });
+
+      // Step 4: Geocode the extracted address to get lat/lng
+      await geocodeExtractedAddress(addressUpdates);
+
+      // Show court details section if court information was extracted
+      if (courtName && !existingCourt) {
+        setShowCourtDetails(true);
+      }
+
+      toast({
+        variant: "success",
+        title: "Form populated",
+        description: existingCourt
+          ? "Extracted data filled with existing court information. Address geocoded."
+          : "Extracted data has been filled and address geocoded. Please review and adjust as needed.",
+      });
+
+      // Step 5: Background court address lookup (if missing from document)
+      // Only run if we have a court name but no court address, and no existing court was found
+      if (!existingCourt && extractedData.full_court_name && !extractedData.court_address1) {
+        console.log('[CreateJob] Court address not on document, triggering background lookup');
+
+        // Pass court metadata for universal_courts saving
+        const courtData = {
+          branch_name: extractedData.branch_name || '',
+          county: extractedData.county || extractedData.county_court || ''
+        };
+
+        lookupCourtAddress(extractedData.full_court_name, courtData).then(courtAddr => {
+          if (courtAddr) {
+            console.log('[CreateJob] Updating form with looked-up court address');
+            console.log('[CreateJob] Court address data to set:', courtAddr);
+            const source = courtAddr.source === 'universal_courts'
+              ? 'from our database'
+              : `via AI (${courtAddr.confidence || 'unknown'} confidence)`;
+
+            setFormData(prev => {
+              const newData = {
+                ...prev,
+                court_address: {
+                  ...prev.court_address,
+                  address1: courtAddr.court_address1 || '',
+                  address2: courtAddr.court_address2 || '',
+                  city: courtAddr.court_city || '',
+                  state: courtAddr.court_state || '',
+                  postal_code: courtAddr.court_zip || ''
+                }
+              };
+              console.log('[CreateJob] Form data after court address update:', {
+                court_address: newData.court_address
+              });
+              return newData;
+            });
+            toast({
+              variant: "default",
+              title: "Court address found",
+              description: `Court address has been added automatically ${source}.`,
+            });
+          }
+        }).catch(err => {
+          console.error('[CreateJob] Court address lookup failed:', err);
+          // Silent fail - not critical to the extraction process
+        });
+      }
+    } catch (error) {
+      console.error('[CreateJob] Error in handleExtractedData:', error);
+      toast({
+        variant: "destructive",
+        title: "Error processing extracted data",
+        description: "Some data may not have been populated correctly.",
+      });
+    }
+  };
+
+  // Helper function to lookup court address using Universal Courts DB first, then AI
+  const lookupCourtAddress = async (courtName, courtData = {}) => {
+    if (!courtName) {
+      return null;
+    }
+
+    try {
+      console.log('[CreateJob] Looking up court address for:', courtName);
+
+      // Step 1: Check universal_courts collection first (free, instant)
+      const universalCourt = await findCourtByName(courtName);
+      if (universalCourt && universalCourt.court_address1) {
+        console.log('[CreateJob] ✅ Found court in universal_courts collection!');
+        return {
+          court_address1: universalCourt.court_address1,
+          court_address2: universalCourt.court_address2 || '',
+          court_city: universalCourt.court_city,
+          court_state: universalCourt.court_state,
+          court_zip: universalCourt.court_zip,
+          source: 'universal_courts'
+        };
+      }
+
+      console.log('[CreateJob] Court not in universal_courts, calling AI...');
+
+      // Step 2: If not in universal collection, use AI to find court address
+      const result = await findCourtAddressWithAI(courtName);
+
+      if (!result.success || !result.found || !result.courtAddress) {
+        console.log('[CreateJob] ❌ AI could not find court address');
+        return null;
+      }
+
+      const courtAddress = result.courtAddress;
+      console.log('[CreateJob] ✅ Court address found via AI:', courtAddress.court_address1);
+      console.log('[CreateJob] AI Confidence:', courtAddress.confidence);
+
+      // Step 3: Save to universal_courts for future use (if confidence is high or medium)
+      if (courtAddress.confidence === 'high' || courtAddress.confidence === 'medium') {
+        console.log('[CreateJob] Saving court to universal_courts collection...');
+        await addCourtToUniversal({
+          full_court_name: courtName,
+          branch_name: courtData.branch_name || '',
+          court_address1: courtAddress.court_address1,
+          court_address2: courtAddress.court_address2 || '',
+          court_city: courtAddress.court_city,
+          court_state: courtAddress.court_state,
+          court_zip: courtAddress.court_zip,
+          county: courtAddress.county || courtData.county || '',
+          source: 'ai'
+        });
+      }
+
+      return {
+        court_address1: courtAddress.court_address1,
+        court_address2: courtAddress.court_address2 || '',
+        court_city: courtAddress.court_city,
+        court_state: courtAddress.court_state,
+        court_zip: courtAddress.court_zip,
+        source: 'ai',
+        confidence: courtAddress.confidence
+      };
+    } catch (error) {
+      console.error('[CreateJob] Error looking up court address:', error);
+      return null;
+    }
+  };
+
+  // Helper function to geocode extracted address
+  const geocodeExtractedAddress = async (addressUpdates) => {
+    if (!addressUpdates.address1) {
+      return; // No address to geocode
+    }
+
+    try {
+      // Build full address string
+      const addressParts = [
+        addressUpdates.address1,
+        addressUpdates.city,
+        addressUpdates.state,
+        addressUpdates.postal_code
+      ].filter(Boolean);
+
+      if (addressParts.length < 2) {
+        console.log('[CreateJob] Insufficient address data for geocoding');
+        return;
+      }
+
+      const fullAddress = addressParts.join(', ');
+      console.log('[CreateJob] Geocoding address:', fullAddress);
+
+      const geoResult = await geocodeAddress(fullAddress);
+      console.log('[CreateJob] Geocoding result:', geoResult);
+
+      // Update form with geocoded coordinates
+      setFormData(prev => {
+        const updatedAddresses = [...prev.addresses];
+        updatedAddresses[0] = {
+          ...updatedAddresses[0],
+          latitude: geoResult.latitude,
+          longitude: geoResult.longitude
+        };
+        return {
+          ...prev,
+          addresses: updatedAddresses
+        };
+      });
+
+      console.log('[CreateJob] Address geocoded successfully:', {
+        lat: geoResult.latitude,
+        lng: geoResult.longitude
+      });
+    } catch (error) {
+      console.error('[CreateJob] Error geocoding address:', error);
+      // Don't show error toast - address can still be used without coordinates
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.client_id) {
@@ -649,10 +1023,36 @@ export default function CreateJobPage() {
         // User typed a court name - CREATE NEW COURT
         console.log('[CreateJob] Creating new court:', formData.court_name);
 
+        // Geocode court address if we have address data but no coordinates
+        let courtAddressWithCoords = formData.court_address || {};
+        if (courtAddressWithCoords.address1 && !courtAddressWithCoords.latitude) {
+          try {
+            console.log('[CreateJob] Geocoding court address...');
+            const fullCourtAddress = [
+              courtAddressWithCoords.address1,
+              courtAddressWithCoords.city,
+              courtAddressWithCoords.state,
+              courtAddressWithCoords.postal_code
+            ].filter(Boolean).join(', ');
+
+            const geoResult = await geocodeAddress(fullCourtAddress);
+            console.log('[CreateJob] Court geocoding result:', geoResult);
+
+            courtAddressWithCoords = {
+              ...courtAddressWithCoords,
+              latitude: geoResult.latitude,
+              longitude: geoResult.longitude
+            };
+          } catch (error) {
+            console.error('[CreateJob] Error geocoding court address:', error);
+            // Continue without coordinates
+          }
+        }
+
         const newCourt = await SecureCourtAccess.create({
           branch_name: formData.court_name,
           county: formData.court_county || "Unknown County",
-          address: formData.court_address || {}
+          address: courtAddressWithCoords
         });
 
         courtId = newCourt.id;
@@ -1009,6 +1409,7 @@ export default function CreateJobPage() {
                 <DocumentUpload
                   documents={uploadedDocuments}
                   onDocumentsChange={setUploadedDocuments}
+                  onExtractedData={handleExtractedData}
                 />
               </CardContent>
             </Card>
