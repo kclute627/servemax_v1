@@ -5,15 +5,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Landmark, Loader2, X, Plus } from "lucide-react";
 
-export default function CourtAutocomplete({ 
-  value, 
-  onChange, 
+export default function CourtAutocomplete({
+  value,
+  onChange,
   onCourtSelect,
   selectedCourt,
   onClearSelection,
   disabled = false,
+  fromExtraction = false, // Flag to skip autocomplete when value is from AI extraction
   placeholder = "Start typing a court name...",
-  ...props 
+  ...props
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -26,8 +27,8 @@ export default function CourtAutocomplete({
   const debounceRef = useRef(null);
 
   useEffect(() => {
-    // Don't search if disabled
-    if (disabled) {
+    // Don't search if disabled or if value is from AI extraction
+    if (disabled || fromExtraction) {
       setSuggestions([]);
       setShowSuggestions(false);
       return;
@@ -57,7 +58,7 @@ export default function CourtAutocomplete({
         clearTimeout(debounceRef.current);
       }
     };
-  }, [value, disabled]);
+  }, [value, disabled, fromExtraction]);
 
   const fetchSuggestions = async (query) => {
     setIsLoading(true);
@@ -79,6 +80,19 @@ export default function CourtAutocomplete({
         filtered: filtered.length
       });
 
+      // Check if there's an exact match (case-insensitive)
+      const exactMatch = filtered.find(court =>
+        court.branch_name?.toLowerCase() === normalizedQuery
+      );
+
+      // If exact match found, auto-select it
+      if (exactMatch) {
+        console.log('[CourtAutocomplete] Exact match found, auto-selecting:', exactMatch.branch_name);
+        handleSuggestionSelect(exactMatch);
+        return; // Don't show dropdown
+      }
+
+      // Otherwise, show dropdown with fuzzy matches (don't auto-select)
       setSuggestions(filtered);
       // Show suggestions dropdown when query is 3+ characters
       setShowSuggestions(true);

@@ -16,7 +16,7 @@ import {
 import BusinessStatsPanel from "../components/dashboard/BusinessStatsPanel";
 import NotificationCenter from "../components/dashboard/NotificationCenter";
 // import FirebaseTest from "../components/FirebaseTest";
-import TrialStatusBanner from "../components/trial/TrialStatusBanner";
+// import TrialStatusBanner from "../components/trial/TrialStatusBanner"; // Disabled for now - will work on subscriptions later
 import SuperAdminDashboard from "./SuperAdminDashboard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { isSuperAdmin } from "@/utils/permissions";
@@ -56,14 +56,14 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Trial Status Banner */}
-          <TrialStatusBanner
+          {/* Trial Status Banner - Disabled for now, will work on subscriptions later */}
+          {/* <TrialStatusBanner
             onUpgrade={() => {
               // Navigate to settings/billing or open upgrade modal
               console.log('Navigate to upgrade');
             }}
             dismissible={true}
-          />
+          /> */}
 
           {/* Notification Center - Partnership & Job Share Requests */}
           {user?.company_id && (

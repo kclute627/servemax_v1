@@ -249,23 +249,37 @@ export default function Layout({ children, currentPageName }) {
                           <NavLink
                             key={item.url}
                             to={item.url}
-                            end
-                            className={({ isActive }) =>
-                              `group flex items-center px-3 py-3 rounded-xl mb-1 hover:bg-white/10 transition-all duration-200 ${
+                            end={item.title !== 'Jobs'}
+                            className={({ isActive }) => {
+                              // Smart matching: Highlight "Jobs" for job-related pages
+                              const isJobsRelated = item.title === 'Jobs' &&
+                                (location.pathname.includes('/Jobs') ||
+                                 location.pathname.includes('/CreateJob') ||
+                                 location.pathname.includes('/jobs'));
+                              const shouldHighlight = isActive || isJobsRelated;
+
+                              return `group flex items-center px-3 py-3 rounded-xl mb-1 hover:bg-white/10 transition-all duration-200 ${
                                 isCollapsed ? 'justify-center' : ''
-                              } ${isActive ? 'bg-white/15 shadow-sm ring-1 ring-white/20 backdrop-blur-sm' : ''}`
-                            }
+                              } ${shouldHighlight ? 'bg-white/15 shadow-sm ring-1 ring-white/20 backdrop-blur-sm' : ''}`;
+                            }}
                           >
                             {({ isActive }) => {
+                              // Smart matching: Highlight "Jobs" for job-related pages
+                              const isJobsRelated = item.title === 'Jobs' &&
+                                (location.pathname.includes('/Jobs') ||
+                                 location.pathname.includes('/CreateJob') ||
+                                 location.pathname.includes('/jobs'));
+                              const shouldHighlight = isActive || isJobsRelated;
                               const textColor = isUserSuperAdmin ? 'text-purple-100' : 'text-blue-100';
+
                               return (
                                 <>
                                   <item.icon
                                     className={`w-5 h-5 flex-shrink-0 transition-colors duration-200 ${
-                                      isActive ? 'text-white' : `${textColor} group-hover:text-white`
+                                      shouldHighlight ? 'text-white' : `${textColor} group-hover:text-white`
                                     }`}
                                   />
-                                  <span className={`font-medium whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'w-0' : 'w-auto ml-3 delay-100'} ${isActive ? 'text-white' : `${textColor} group-hover:text-white`}`}>
+                                  <span className={`font-medium whitespace-nowrap overflow-hidden transition-all duration-300 ease-in-out ${isCollapsed ? 'w-0' : 'w-auto ml-3 delay-100'} ${shouldHighlight ? 'text-white' : `${textColor} group-hover:text-white`}`}>
                                     {item.title}
                                   </span>
                                 </>

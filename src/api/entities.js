@@ -1,5 +1,5 @@
 import { entities, FirebaseAuth } from '../firebase';
-import { SecureClientAccess, SecureEmployeeAccess, SecureCompanyAccess } from '../firebase/multiTenantAccess';
+import { SecureClientAccess, SecureEmployeeAccess, SecureCompanyAccess, SecurePaymentAccess } from '../firebase/multiTenantAccess';
 
 // Export Firebase entities to maintain compatibility with existing code
 // Client now uses Company entity through SecureClientAccess
@@ -11,7 +11,7 @@ export const Employee = SecureEmployeeAccess;
 
 export const Invoice = entities.Invoice;
 
-export const Payment = entities.Payment;
+export const Payment = SecurePaymentAccess;
 
 export const StripeCustomer = entities.StripeCustomer;
 

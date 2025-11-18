@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { createPageUrl } from '@/utils';
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -263,9 +265,11 @@ export default function InvoicesTable({ invoices, clients, isLoading, onPaymentA
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem className="gap-2">
-                          <Eye className="w-4 h-4" />
-                          View Invoice
+                        <DropdownMenuItem className="gap-2" asChild>
+                          <Link to={createPageUrl(`InvoiceDetail?id=${invoice.id}`)}>
+                            <Eye className="w-4 h-4" />
+                            View Invoice
+                          </Link>
                         </DropdownMenuItem>
                         {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
                           <DropdownMenuItem

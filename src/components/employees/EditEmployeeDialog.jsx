@@ -32,7 +32,9 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
     phone: "",
     hire_date: "",
     license_number: "",
-    server_pay_enabled: false
+    server_pay_enabled: false,
+    printing_pay_enabled: false,
+    printing_pay_rate: 0.10
   });
   const [defaultPayItems, setDefaultPayItems] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,7 +50,9 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
         phone: employee.phone || "",
         hire_date: employee.hire_date || "",
         license_number: employee.license_number || "",
-        server_pay_enabled: employee.server_pay_enabled || false
+        server_pay_enabled: employee.server_pay_enabled || false,
+        printing_pay_enabled: employee.printing_pay_enabled || false,
+        printing_pay_rate: employee.printing_pay_rate || 0.10
       });
       // Ensure existing rates are handled correctly for display if they are 0
       setDefaultPayItems(employee.default_pay_items ?
@@ -198,6 +202,45 @@ export default function EditEmployeeDialog({ open, onOpenChange, employee, onEmp
                   placeholder="Process server license number"
                 />
               </div>
+            </div>
+          )}
+
+          {/* Printing Pay Toggle - Show when server pay enabled */}
+          {formData.server_pay_enabled && (
+            <div className="space-y-4 rounded-lg border border-slate-200 p-4 bg-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="printing_pay_enabled" className="text-base font-medium">Pay Employee for Printing</Label>
+                  <p className="text-sm text-slate-600 mt-1">Automatically add printing charges based on total page count</p>
+                </div>
+                <Switch
+                  id="printing_pay_enabled"
+                  checked={!!formData.printing_pay_enabled}
+                  onCheckedChange={(checked) => handleInputChange('printing_pay_enabled', checked)}
+                />
+              </div>
+
+              {formData.printing_pay_enabled && (
+                <div className="pt-3 border-t border-slate-200">
+                  <Label htmlFor="printing_pay_rate">Rate per Page</Label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                    <Input
+                      id="printing_pay_rate"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="pl-7"
+                      value={formData.printing_pay_rate || ''}
+                      onChange={(e) => handleInputChange('printing_pay_rate', parseFloat(e.target.value) || 0)}
+                      placeholder="0.10"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    This rate will be multiplied by the total page count from all documents when the employee is assigned to a job
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

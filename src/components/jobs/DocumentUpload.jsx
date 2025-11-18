@@ -582,6 +582,12 @@ export default function DocumentUpload({ documents, onDocumentsChange, onExtract
     console.time('Claude Vision Extraction');
 
     try {
+      // Guard: Don't re-extract if already in progress
+      if (isExtractingClaude) {
+        console.log('[DocumentUpload] ⚠️  Extraction already in progress, ignoring click');
+        return;
+      }
+
       // Show spinner immediately when user clicks
       setIsExtractingClaude(true);
 

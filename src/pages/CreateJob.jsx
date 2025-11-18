@@ -44,7 +44,8 @@ import {
   Pencil,
   X,
   AlertTriangle,
-  Store
+  Store,
+  FileText
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -64,6 +65,7 @@ import CourtAutocomplete from "../components/jobs/CourtAutocomplete";
 import ContractorSearchInput from "../components/jobs/ContractorSearchInput";
 import CaseNumberAutocomplete from "../components/jobs/CaseNumberAutocomplete"; // New Import
 import QuickInvoice from "../components/jobs/QuickInvoice";
+import PDFViewer from "../components/jobs/PDFViewer";
 // FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { generateFieldSheet } from "@/api/functions"; // Added import for generateFieldSheet
 
@@ -137,6 +139,9 @@ export default function CreateJobPage() {
   const [isEditingCase, setIsEditingCase] = useState(false); // New state for case editing
   const [showCaseEditWarning, setShowCaseEditWarning] = useState(false); // New state for case warning dialog
   const [associatedJobsCount, setAssociatedJobsCount] = useState(0); // New state for job count
+  const [courtFromExtraction, setCourtFromExtraction] = useState(false); // Flag to skip autocomplete when court is from AI extraction
+  const [showPDFViewer, setShowPDFViewer] = useState(false); // PDF viewer visibility
+  const [pdfViewerWidth, setPdfViewerWidth] = useState(50); // PDF viewer width as percentage (min 25, max 75)
 
   useEffect(() => {
     const loadAndSetEmployees = async () => {
@@ -250,26 +255,46 @@ export default function CreateJobPage() {
       }
     }
 
-    if (server && server.server_pay_enabled && server.default_pay_items?.length > 0) {
-      // Filter for items marked as default
-      const defaultItems = server.default_pay_items.filter(item => item.is_default === true);
+    const newPayItems = [];
 
-      if (defaultItems.length > 0) {
-        // Add all default items automatically
-        const newPayItems = defaultItems.map(item => ({
-          description: item.description,
-          quantity: 1,
-          rate: item.rate,
-          total: item.rate,
-        }));
-        handleInputChange('server_pay_items', newPayItems);
-      } else {
-        handleInputChange('server_pay_items', []);
+    if (server && server.server_pay_enabled) {
+      // Add default pay items if configured
+      if (server.default_pay_items?.length > 0) {
+        // Filter for items marked as default
+        const defaultItems = server.default_pay_items.filter(item => item.is_default === true);
+
+        if (defaultItems.length > 0) {
+          // Add all default items automatically
+          defaultItems.forEach(item => {
+            newPayItems.push({
+              description: item.description,
+              quantity: 1,
+              rate: item.rate,
+              total: item.rate,
+            });
+          });
+        }
       }
-    } else {
-      handleInputChange('server_pay_items', []);
+
+      // Add printing pay if enabled
+      if (server.printing_pay_enabled && server.printing_pay_rate) {
+        // Calculate total pages from all uploaded documents
+        const totalPages = uploadedDocuments.reduce((total, doc) => total + (doc.page_count || 0), 0);
+
+        if (totalPages > 0) {
+          const printingTotal = totalPages * server.printing_pay_rate;
+          newPayItems.push({
+            description: 'Printing',
+            quantity: totalPages,
+            rate: server.printing_pay_rate,
+            total: printingTotal,
+          });
+        }
+      }
     }
-  }, [formData.assigned_server_id, formData.priority, formData.server_type, employees, selectedContractor]);
+
+    handleInputChange('server_pay_items', newPayItems);
+  }, [formData.assigned_server_id, formData.priority, formData.server_type, employees, selectedContractor, uploadedDocuments]);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({
@@ -655,6 +680,8 @@ export default function CreateJobPage() {
 
           if (existingCourt) {
             console.log('[CreateJob] Found existing court:', existingCourt);
+            // Auto-select the court (this prevents it from showing in dropdown)
+            setSelectedCourtFromAutocomplete(existingCourt);
             handleCourtSelect(existingCourt);
           } else {
             console.log('[CreateJob] No existing court found, will create new court');
@@ -685,6 +712,8 @@ export default function CreateJobPage() {
       if (!existingCourt) {
         if (courtName) {
           updates.court_name = courtName;
+          // Set flag to prevent autocomplete dropdown from showing
+          setCourtFromExtraction(true);
         }
         if (extractedData.county || extractedData.county_court) {
           updates.court_county = extractedData.county || extractedData.county_court;
@@ -1383,9 +1412,16 @@ export default function CreateJobPage() {
   const isFormValid = formData.client_id;
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="p-6 md:p-8">
-        <div className="max-w-screen mx-auto">
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* Main Content */}
+      <div
+        className="flex-1 transition-all duration-300"
+        style={{
+          width: showPDFViewer ? `${100 - pdfViewerWidth}%` : '100%'
+        }}
+      >
+        <div className="p-6 md:p-8">
+          <div className="max-w-screen mx-auto">
           {/* Header */}
           <div className="flex items-center gap-4 mb-8">
             <Link to={createPageUrl("Jobs")}>
@@ -1403,7 +1439,21 @@ export default function CreateJobPage() {
             {/* Service Documents */}
             <Card>
               <CardHeader>
-                <CardTitle>Service Documents</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Service Documents</CardTitle>
+                  {uploadedDocuments.some(doc => doc.content_type === 'application/pdf' && doc.file_url) && (
+                    <Button
+                      type="button"
+                      variant={showPDFViewer ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setShowPDFViewer(!showPDFViewer)}
+                      className="gap-2 hidden lg:flex"
+                    >
+                      <FileText className="w-4 h-4" />
+                      {showPDFViewer ? 'Hide PDFs' : 'View PDFs'}
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 <DocumentUpload
@@ -1500,7 +1550,17 @@ export default function CreateJobPage() {
                           variant="outline"
                           size="sm"
                           className="gap-2"
-                          onClick={() => setShowCaseEditWarning(true)}
+                          onClick={async () => {
+                            // Count jobs linked to this case
+                            try {
+                              const jobs = await Job.filter({ court_case_id: selectedCase.id });
+                              setAssociatedJobsCount(jobs.length);
+                            } catch (error) {
+                              console.error('Error counting linked jobs:', error);
+                              setAssociatedJobsCount(0);
+                            }
+                            setShowCaseEditWarning(true);
+                          }}
                         >
                           <Pencil className="w-4 h-4" />
                           Edit Case
@@ -1525,9 +1585,8 @@ export default function CreateJobPage() {
                         id="case_number"
                         value={formData.case_number}
                         onChange={(value) => handleInputChange('case_number', value)}
-                        onCaseSelect={handleCaseSelect}
+                        onCaseSelect={isEditingCase ? undefined : handleCaseSelect}
                         placeholder="Enter case number or search existing cases..."
-                        required
                         disabled={selectedCase && !isEditingCase}
                       />
                     </div>
@@ -1542,7 +1601,6 @@ export default function CreateJobPage() {
                     onChange={(e) => handleInputChange('plaintiff', e.target.value)}
                     rows={2}
                     placeholder="Enter plaintiff name(s)"
-                    required
                     className="resize-none"
                     disabled={selectedCase && !isEditingCase}
                   />
@@ -1562,7 +1620,6 @@ export default function CreateJobPage() {
                     onChange={(e) => handleInputChange('defendant', e.target.value)}
                     rows={2}
                     placeholder="Enter defendant name(s)"
-                    required
                     className="resize-none"
                     disabled={selectedCase && !isEditingCase}
                   />
@@ -1631,12 +1688,17 @@ export default function CreateJobPage() {
                           <CourtAutocomplete
                             id="court_name"
                             value={formData.court_name}
-                            onChange={(value) => handleInputChange('court_name', value)}
+                            onChange={(value) => {
+                              handleInputChange('court_name', value);
+                              // Reset flag when user manually types
+                              setCourtFromExtraction(false);
+                            }}
                             onCourtSelect={handleCourtSelect}
                             selectedCourt={selectedCourtFromAutocomplete}
                             onClearSelection={handleClearCourtSelection}
                             placeholder="e.g., 12th Judicial Circuit Court"
                             disabled={(selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew) || (selectedCase && !isEditingCase)}
+                            fromExtraction={courtFromExtraction}
                           />
                         </div>
                         {isEditingExistingCourt && (
@@ -1788,7 +1850,6 @@ export default function CreateJobPage() {
                       value={formData.recipient_name}
                       onChange={(e) => handleInputChange('recipient_name', e.target.value)}
                       placeholder="Name of person/entity to be served"
-                      required
                       autoComplete="off"
                     />
                   </div>
@@ -2194,6 +2255,16 @@ export default function CreateJobPage() {
           </div>
         </div>
       )}
+      </div>
+
+      {/* PDF Viewer */}
+      <PDFViewer
+        documents={uploadedDocuments}
+        isOpen={showPDFViewer}
+        onClose={() => setShowPDFViewer(false)}
+        width={pdfViewerWidth}
+        onWidthChange={setPdfViewerWidth}
+      />
     </div>
   );
 }

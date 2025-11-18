@@ -50,6 +50,8 @@ import Subscriptions from "./Subscriptions";
 
 import System from "./System";
 
+import InvoiceDetail from "./InvoiceDetail";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { GlobalDataProvider } from "../components/GlobalDataContext";
 import { AuthProvider } from "@/components/auth/AuthProvider";
@@ -104,6 +106,8 @@ const PAGES = {
     Subscriptions: Subscriptions,
 
     System: System,
+
+    InvoiceDetail: InvoiceDetail,
 
 }
 
@@ -163,6 +167,7 @@ function PagesContent() {
                 <Route path="/Companies" element={<ProtectedRoute><Companies /></ProtectedRoute>} />
                 <Route path="/Subscriptions" element={<ProtectedRoute><Subscriptions /></ProtectedRoute>} />
                 <Route path="/System" element={<ProtectedRoute><System /></ProtectedRoute>} />
+                <Route path="/InvoiceDetail" element={<ProtectedRoute><InvoiceDetail /></ProtectedRoute>} />
             </Routes>
         </Layout>
     );

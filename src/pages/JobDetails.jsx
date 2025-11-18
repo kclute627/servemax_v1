@@ -2548,7 +2548,7 @@ export default function JobDetailsPage() {
                   if (jobInvoice) {
                     // If invoice exists, show link to invoice page
                     return (
-                      <Link to={createPageUrl(`Invoices?id=${jobInvoice.id}`)}>
+                      <Link to={createPageUrl(`InvoiceDetail?id=${jobInvoice.id}&returnTo=JobDetails&jobId=${job.id}`)}>
                         <Button variant="outline" size="sm" className="gap-2">
                           <FileText className="w-4 h-4" />
                           View Invoice
