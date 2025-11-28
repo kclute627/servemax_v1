@@ -172,6 +172,21 @@ export default function InvoiceDetailPage() {
         balance_due: updatedData.balance_due
       });
 
+      // Log to job activity
+      if (invoice.job_ids && invoice.job_ids.length > 0) {
+        const jobData = await Job.findById(invoice.job_ids[0]);
+        const newLogEntry = {
+          timestamp: new Date().toISOString(),
+          event_type: 'invoice_updated',
+          description: `Invoice ${invoice.invoice_number} updated`,
+          user_name: user?.displayName || user?.email || 'Unknown'
+        };
+        const currentActivityLog = Array.isArray(jobData?.activity_log) ? jobData.activity_log : [];
+        await Job.update(jobData.id, {
+          activity_log: [...currentActivityLog, newLogEntry]
+        });
+      }
+
       toast({
         title: 'Invoice Updated',
         description: 'Your changes have been saved successfully.'
@@ -197,6 +212,21 @@ export default function InvoiceDetailPage() {
         status: 'issued',
         issued_date: new Date().toISOString()
       });
+
+      // Log to job activity
+      if (invoice.job_ids && invoice.job_ids.length > 0) {
+        const jobData = await Job.findById(invoice.job_ids[0]);
+        const newLogEntry = {
+          timestamp: new Date().toISOString(),
+          event_type: 'invoice_issued',
+          description: `Invoice ${invoice.invoice_number} issued`,
+          user_name: user?.displayName || user?.email || 'Unknown'
+        };
+        const currentActivityLog = Array.isArray(jobData?.activity_log) ? jobData.activity_log : [];
+        await Job.update(jobData.id, {
+          activity_log: [...currentActivityLog, newLogEntry]
+        });
+      }
 
       toast({
         title: 'Invoice Issued',
@@ -317,6 +347,21 @@ export default function InvoiceDetailPage() {
         balance_due: newBalanceDue,
         status: newStatus
       });
+
+      // Log to job activity
+      if (invoice.job_ids && invoice.job_ids.length > 0) {
+        const jobData = await Job.findById(invoice.job_ids[0]);
+        const newLogEntry = {
+          timestamp: new Date().toISOString(),
+          event_type: 'payment_applied',
+          description: `Payment of $${paymentAmount.toFixed(2)} applied to invoice ${invoice.invoice_number}`,
+          user_name: user?.displayName || user?.email || 'Unknown'
+        };
+        const currentActivityLog = Array.isArray(jobData?.activity_log) ? jobData.activity_log : [];
+        await Job.update(jobData.id, {
+          activity_log: [...currentActivityLog, newLogEntry]
+        });
+      }
 
       toast({
         title: 'Payment Applied',

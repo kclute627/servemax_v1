@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Job, Employee, Attempt, User, Client, Document, CompanySettings } from '@/api/entities'; // Added Document and CompanySettings imports
 import { createPageUrl } from '@/utils';
+import { useGlobalData } from '@/components/GlobalDataContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +22,16 @@ import {
   Save,
   Plus,
   Pencil,
-  Target
+  Target,
+  User2,
+  Ruler,
+  Weight,
+  Hash,
+  Scissors,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Camera
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import PhotoVideoUpload from '../components/jobs/PhotoVideoUpload';
@@ -66,6 +76,12 @@ export default function LogAttemptPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  // Get data from context for instant pre-population
+  const { jobs: contextJobs, clients: contextClients, employees: contextEmployees } = useGlobalData();
+
+  // Ref to track if job was pre-populated from context (to avoid showing spinner)
+  const jobPrePopulatedRef = useRef(false);
+
   // General Page State
   const [job, setJob] = useState(null);
   const [client, setClient] = useState(null);
@@ -88,6 +104,12 @@ export default function LogAttemptPage() {
 
   // Form state managed by formData
   const [formData, setFormData] = useState(initialFormData);
+
+  // Collapsible section states
+  const [showPhysicalDescription, setShowPhysicalDescription] = useState(false);
+  const [showGPSDetails, setShowGPSDetails] = useState(false);
+  const [showMediaUpload, setShowMediaUpload] = useState(false);
+  const [isCapturingGPS, setIsCapturingGPS] = useState(false);
 
   // New state for address management
   const [selectedAddressType, setSelectedAddressType] = useState(""); // Identifier for existing address, "new", or "custom"
@@ -176,8 +198,11 @@ export default function LogAttemptPage() {
   }, [job, formData.service_type_detail]);
 
   // Main data loading function (replaces loadInitialData)
-  const loadJobData = useCallback(async (jobId, attemptId = null) => {
-    setIsLoading(true);
+  const loadJobData = useCallback(async (jobId, attemptId = null, skipLoading = false) => {
+    // Only show loading spinner if skipLoading is false (i.e., not pre-populated from context)
+    if (!skipLoading) {
+      setIsLoading(true);
+    }
     try {
       const [jobData, employeesData] = await Promise.all([
         Job.findById(jobId),
@@ -325,6 +350,83 @@ export default function LogAttemptPage() {
     setIsLoading(false);
   }, [navigate]);
 
+  /**
+   * Pre-populate job data from GlobalDataContext for instant display.
+   * This eliminates the loading spinner when navigating from Jobs list or JobDetails.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const jobIdFromUrl = params.get('jobId');
+
+    if (jobIdFromUrl && contextJobs && contextJobs.length > 0) {
+      // Look for the job in the context
+      const jobFromContext = contextJobs.find(j => j.id === jobIdFromUrl);
+
+      if (jobFromContext) {
+        // Immediately set the job data to avoid spinner
+        setJob(jobFromContext);
+
+        // Pre-populate client if available in context
+        if (jobFromContext.client_id && contextClients) {
+          const clientFromContext = contextClients.find(c => c.id === jobFromContext.client_id);
+          if (clientFromContext) {
+            setClient(clientFromContext);
+          }
+        }
+
+        // Pre-populate employees from context
+        if (contextEmployees && contextEmployees.length > 0) {
+          setEmployees(contextEmployees);
+        }
+
+        // Set up initial form data with defaults
+        const now = new Date();
+        let defaultAddress = "";
+        let defaultSelectedAddressType = "";
+
+        if (jobFromContext.addresses?.length > 0) {
+          const primaryAddress = jobFromContext.addresses.find(a => a.primary) || jobFromContext.addresses[0];
+          defaultAddress = `${primaryAddress.address1}, ${primaryAddress.city}, ${primaryAddress.state} ${primaryAddress.postal_code}`;
+          defaultSelectedAddressType = primaryAddress.address1;
+        }
+
+        // Determine initial process server based on job's server_type
+        let initialServerId = "";
+        let initialServerNameManual = "";
+
+        if (jobFromContext.server_type === "employee") {
+          if (jobFromContext.assigned_server_id && jobFromContext.assigned_server_id !== "unassigned") {
+            initialServerId = String(jobFromContext.assigned_server_id);
+          }
+        } else {
+          initialServerId = "manual";
+          initialServerNameManual = jobFromContext.server_name || "";
+        }
+
+        setFormData(prev => ({
+          ...prev,
+          job_id: jobFromContext.id,
+          server_id: initialServerId,
+          server_name_manual: initialServerNameManual,
+          attempt_date: now.toLocaleDateString('en-CA'),
+          attempt_time: now.toTimeString().slice(0, 5),
+          address_of_attempt: defaultAddress,
+        }));
+
+        setSelectedAddressType(defaultSelectedAddressType);
+
+        // Hide loading since we have data to show
+        setIsLoading(false);
+
+        // Mark that we pre-populated from context
+        jobPrePopulatedRef.current = true;
+      }
+    } else {
+      // Reset the ref if we don't have context data
+      jobPrePopulatedRef.current = false;
+    }
+  }, [location.search, contextJobs, contextClients, contextEmployees]);
+
   // Consolidated data loading effect (replaces previous jobId and loadInitialData effects)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -335,7 +437,12 @@ export default function LogAttemptPage() {
       // No sessionStorage persistence for jobId as per outline
       setIsEditMode(!!attemptIdFromUrl);
       setEditingAttemptId(attemptIdFromUrl);
-      loadJobData(jobIdFromUrl, attemptIdFromUrl);
+
+      // If job was pre-populated from context, skip showing loading spinner
+      loadJobData(jobIdFromUrl, attemptIdFromUrl, jobPrePopulatedRef.current);
+
+      // Reset the ref after using it
+      jobPrePopulatedRef.current = false;
     } else {
       setError("No Job ID provided");
       setIsLoading(false);
@@ -460,7 +567,7 @@ export default function LogAttemptPage() {
       return;
     }
 
-    setIsLoading(true); // Show loading state
+    setIsCapturingGPS(true); // Show loading state
 
     const options = {
       enableHighAccuracy: true, // Use GPS if available
@@ -485,10 +592,14 @@ export default function LogAttemptPage() {
 
         // Show accuracy information to user
         if (accuracy > 100) {
-          alert(`Location captured, but accuracy is low (±${Math.round(accuracy)}m). Consider moving to a more open area for better GPS signal.`);
+          toast({
+            title: "Location Captured",
+            description: `Accuracy is low (±${Math.round(accuracy)}m). Consider moving to a more open area for better GPS signal.`,
+            variant: "warning"
+          });
         }
 
-        setIsLoading(false);
+        setIsCapturingGPS(false);
       },
       (error) => {
         let errorMessage = "Unable to retrieve your location. ";
@@ -509,8 +620,12 @@ export default function LogAttemptPage() {
         }
 
         console.error("GPS error:", error);
-        alert(errorMessage);
-        setIsLoading(false);
+        toast({
+          title: "Location Error",
+          description: errorMessage,
+          variant: "destructive"
+        });
+        setIsCapturingGPS(false);
       },
       options
     );
@@ -784,157 +899,84 @@ export default function LogAttemptPage() {
   const existingAddresses = job.addresses || [];
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="p-6 md:p-8">
-        {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`}>
-            <Button variant="outline" size="icon">
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900">
-              {isEditMode ? 'Edit Service Attempt' : 'Log Service Attempt'}
-            </h1>
-            <p className="text-slate-600 mt-1">Job #{job.job_number}</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      <div className="max-w-5xl mx-auto p-4 md:p-6">
+        {/* Compact Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`}>
+              <Button variant="ghost" size="sm" className="gap-2">
+                <ArrowLeft className="w-4 h-4" />
+                Back
+              </Button>
+            </Link>
+            <div className="border-l border-slate-300 pl-3">
+              <h1 className="text-xl font-bold text-slate-900">
+                {isEditMode ? 'Edit Attempt' : 'Log Attempt'}
+              </h1>
+              <p className="text-sm text-slate-600">Job #{job.job_number}</p>
+            </div>
           </div>
         </div>
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-6" role="alert">
-            <strong className="font-bold">Error:</strong>
-            <span className="block sm:inline"> {error}</span>
+          <div className="bg-red-50 border-l-4 border-red-500 text-red-700 px-4 py-3 rounded mb-4" role="alert">
+            <p className="text-sm"><strong className="font-semibold">Error:</strong> {error}</p>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Attempt Details */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="w-5 h-5" />
-                Attempt Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Process Server, Date, and Time - Combined Row */}
-              <div className="grid grid-cols-12 gap-4">
-                {/* Process Server */}
-                <div className="col-span-12 md:col-span-5">
-                  <Label htmlFor="server">Process Server</Label>
-                  <Select
-                    id="server"
-                    value={formData.server_id}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setFormData(prev => ({ ...prev, server_id: value }));
-                      if (value !== 'manual') {
-                        setFormData(prev => ({ ...prev, server_name_manual: '' }));
-                      }
-                    }}
-                    className="w-full h-12 mt-1"
-                  >
-                    {employees.map(employee => (
-                      <SelectItem key={employee.id} value={String(employee.id)}>
-                        {employee.first_name} {employee.last_name}
-                      </SelectItem>
-                    ))}
-                    <SelectSeparator />
-                    <SelectItem value="manual">Type in manually</SelectItem>
-                  </Select>
-                </div>
-
-                {/* Date */}
-                <div className="col-span-12 md:col-span-4">
-                  <Label htmlFor="attempt_date">Date</Label>
-                  <Input
-                    id="attempt_date"
-                    type="date"
-                    name="attempt_date"
-                    value={formData.attempt_date}
-                    onChange={handleInputChange}
-                    className="w-full h-12 mt-1"
-                  />
-                </div>
-
-                {/* Time */}
-                <div className="col-span-12 md:col-span-3">
-                  <Label htmlFor="attempt_time">Time</Label>
-                  <Input
-                    id="attempt_time"
-                    type="time"
-                    name="attempt_time"
-                    value={formData.attempt_time}
-                    onChange={handleInputChange}
-                    className="w-full h-12 mt-1"
-                  />
-                </div>
-              </div>
-
-              {/* Manual Server Name Input (if manual is selected) */}
-              {formData.server_id === 'manual' && (
-                <div>
-                  <Label htmlFor="server_name_manual">Server Name</Label>
-                  <Input
-                    id="server_name_manual"
-                    type="text"
-                    name="server_name_manual"
-                    placeholder="Enter server's full name"
-                    value={formData.server_name_manual}
-                    onChange={handleInputChange}
-                    required
-                    className="h-12 mt-1"
-                  />
-                </div>
-              )}
-
-              {/* Attempt Outcome */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Main Form Card */}
+          <Card className="shadow-sm">
+            <CardContent className="pt-6 space-y-4">
+              {/* Attempt Outcome - Featured at Top */}
               <div>
-                <Label className="text-sm text-slate-600">Attempt Outcome</Label>
-                <div className="flex gap-4 mt-2">
+                <Label className="text-sm font-semibold mb-2 block">Attempt Outcome</Label>
+                <div className="grid grid-cols-2 gap-3">
                   <Button
                     type="button"
                     variant={formData.status === 'served' ? 'default' : 'outline'}
-                    onClick={() => setFormData(prev => ({ ...prev, status: 'served', service_type_detail: serviceTypeSettings.successful[0]?.label || '' }))} // Default to first successful option
-                    className={`flex-1 h-12 gap-2 ${
+                    onClick={() => setFormData(prev => ({ ...prev, status: 'served', service_type_detail: serviceTypeSettings.successful[0]?.label || '' }))}
+                    className={`h-16 gap-2 ${
                       formData.status === 'served'
-                        ? 'bg-green-600 hover:bg-green-700 text-white'
-                        : 'border-green-200 text-green-700 hover:bg-green-50'
+                        ? 'bg-green-600 hover:bg-green-700 text-white shadow-md'
+                        : 'border-2 border-slate-200 hover:border-green-200 hover:bg-green-50'
                     }`}
                   >
-                    <CheckCircle className="w-4 h-4" />
-                    Successfully Served
+                    <CheckCircle className="w-5 h-5" />
+                    <span className="font-semibold">Successfully Served</span>
                   </Button>
                   <Button
                     type="button"
                     variant={formData.status === 'not_served' ? 'default' : 'outline'}
-                    onClick={() => setFormData(prev => ({ ...prev, status: 'not_served', service_type_detail: serviceTypeSettings.unsuccessful[0]?.label || '' }))} // Default to first unsuccessful option
-                    className={`flex-1 h-12 gap-2 ${
+                    onClick={() => setFormData(prev => ({ ...prev, status: 'not_served', service_type_detail: serviceTypeSettings.unsuccessful[0]?.label || '' }))}
+                    className={`h-16 gap-2 ${
                       formData.status === 'not_served'
-                        ? 'bg-red-600 hover:bg-red-700 text-white'
-                        : 'border-red-200 text-red-700 hover:bg-red-50'
+                        ? 'bg-red-600 hover:bg-red-700 text-white shadow-md'
+                        : 'border-2 border-slate-200 hover:border-red-200 hover:bg-red-50'
                     }`}
                   >
-                    <XCircle className="w-4 h-4" />
-                    Not Served
+                    <XCircle className="w-5 h-5" />
+                    <span className="font-semibold">Not Served</span>
                   </Button>
                 </div>
               </div>
 
-              {/* Service Type Detail Select/Input */}
+              {/* Service Type Detail */}
               <div>
-                <Label htmlFor="service-type-detail">Service Type Detail</Label>
+                <Label htmlFor="service-type-detail" className="text-sm font-medium">
+                  {formData.status === 'served' ? 'Service Type' : 'Reason Not Served'}
+                </Label>
                 <Select
                   id="service-type-detail"
                   name="service_type_detail"
                   value={formData.service_type_detail}
                   onChange={handleInputChange}
                   required={formData.status === 'served'}
-                  className="w-full h-12 mt-1"
+                  className="w-full mt-1.5"
                 >
                   <SelectItem value="">
-                    {formData.status === 'served' ? "Select service type..." : "Select reason for not served..."}
+                    {formData.status === 'served' ? "Select service type..." : "Select reason..."}
                   </SelectItem>
                   {(formData.status === 'served'
                     ? serviceTypeSettings.successful
@@ -945,183 +987,313 @@ export default function LogAttemptPage() {
                     </SelectItem>
                   ))}
                 </Select>
-                {formData.service_type_detail === 'Other' && (
-                  <Input
-                    className="mt-2 h-12"
-                    placeholder="Please specify other service type detail..."
-                    value={formData.service_type_detail === 'Other' ? '' : formData.service_type_detail} // Clear if "Other" is the only value
-                    onChange={handleInputChange}
-                    name="service_type_detail"
-                    required={true}
-                  />
-                )}
               </div>
+
+              {/* Compact 3-column grid for server, date, time */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
+                  <Label htmlFor="server" className="text-sm font-medium">Process Server</Label>
+                  <Select
+                    id="server"
+                    value={formData.server_id}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFormData(prev => ({ ...prev, server_id: value }));
+                      if (value !== 'manual') {
+                        setFormData(prev => ({ ...prev, server_name_manual: '' }));
+                      }
+                    }}
+                    className="w-full mt-1.5"
+                  >
+                    {employees.map(employee => (
+                      <SelectItem key={employee.id} value={String(employee.id)}>
+                        {employee.first_name} {employee.last_name}
+                      </SelectItem>
+                    ))}
+                    <SelectSeparator />
+                    <SelectItem value="manual">Manual Entry</SelectItem>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="attempt_date" className="text-sm font-medium">Date</Label>
+                    <Input
+                      id="attempt_date"
+                      type="date"
+                      name="attempt_date"
+                      value={formData.attempt_date}
+                      onChange={handleInputChange}
+                      className="w-full mt-1.5"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="attempt_time" className="text-sm font-medium">Time</Label>
+                    <Input
+                      id="attempt_time"
+                      type="time"
+                      name="attempt_time"
+                      value={formData.attempt_time}
+                      onChange={handleInputChange}
+                      className="w-full mt-1.5"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Manual Server Name Input (if manual is selected) */}
+              {formData.server_id === 'manual' && (
+                <div>
+                  <Label htmlFor="server_name_manual" className="text-sm font-medium">Server Name</Label>
+                  <Input
+                    id="server_name_manual"
+                    type="text"
+                    name="server_name_manual"
+                    placeholder="Enter server's full name"
+                    value={formData.server_name_manual}
+                    onChange={handleInputChange}
+                    required
+                    className="mt-1.5"
+                  />
+                </div>
+              )}
 
               {/* Served Person Details - Only show when status is 'served' */}
               {formData.status === 'served' && (
-                <Card className="bg-green-50 border-green-200">
-                  <CardHeader>
-                    <CardTitle className="text-lg text-green-800">Person Served Details</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Person Served Name */}
+                <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4 space-y-3">
+                  <h3 className="text-base font-bold text-green-800 flex items-center gap-2">
+                    <UserIcon className="w-4 h-4" />
+                    Person Served
+                  </h3>
+
+                  {/* Compact 2-column layout */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
-                      <Label htmlFor="person-served-name">Full Name of Person Served *</Label>
+                      <Label htmlFor="person-served-name" className="text-sm font-medium text-green-800">
+                        Full Name *
+                      </Label>
                       <Input
                         id="person-served-name"
                         name="person_served_name"
                         value={formData.person_served_name}
                         onChange={handleInputChange}
-                        placeholder="Enter the full name of the person served"
+                        placeholder="Full name"
                         required
-                        className="mt-1"
+                        className="mt-1.5 bg-white"
                       />
                     </div>
 
                     {/* Relationship (only show for non-personal service) */}
                     {!formData.service_type_detail.toLowerCase().includes('personal') && !formData.service_type_detail.toLowerCase().includes('individual') && (
                       <div>
-                        <Label htmlFor="relationship">Relationship to Recipient *</Label>
-                        <Input
+                        <Label htmlFor="relationship" className="text-sm font-medium text-green-800">
+                          Relationship to Recipient *
+                        </Label>
+                        <Select
                           id="relationship"
                           name="relationship_to_recipient"
                           value={formData.relationship_to_recipient}
                           onChange={handleInputChange}
-                          placeholder="e.g., Spouse, Employee, Authorized Agent, etc."
-                          required={formData.status === 'served'}
-                          className="mt-1"
-                        />
-                      </div>
-                    )}
-
-                    {/* Physical Description Fields - Grid Layout */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
-                      <div>
-                        <Label htmlFor="person-age">Approximate Age</Label>
-                        <Input
-                          id="person-age"
-                          name="person_served_age"
-                          value={formData.person_served_age}
-                          onChange={handleInputChange}
-                          placeholder="e.g., 35-40"
-                          className="mt-1"
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="person-height">Height</Label>
-                        <Input
-                          id="person-height"
-                          name="person_served_height"
-                          value={formData.person_served_height}
-                          onChange={handleInputChange}
-                          placeholder="e.g., 5 feet 8 inches"
-                          className="mt-1"
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="person-weight">Weight</Label>
-                        <Input
-                          id="person-weight"
-                          name="person_served_weight"
-                          value={formData.person_served_weight}
-                          onChange={handleInputChange}
-                          placeholder="e.g., 150-160 lbs"
-                          className="mt-1"
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="person-hair">Hair Color</Label>
-                        <Input
-                          id="person-hair"
-                          name="person_served_hair_color"
-                          value={formData.person_served_hair_color}
-                          onChange={handleInputChange}
-                          placeholder="e.g., Brown, Blonde, Black"
-                          className="mt-1"
-                        />
-                      </div>
-
-                      <div>
-                        <Label htmlFor="person-sex">Sex</Label>
-                        <Select
-                          id="person-sex"
-                          name="person_served_sex"
-                          value={formData.person_served_sex}
-                          onChange={handleInputChange}
-                          className="w-full h-12 mt-1"
+                          className="w-full mt-1.5 bg-white"
                         >
                           <SelectItem value="">Select...</SelectItem>
-                          <SelectItem value="Male">Male</SelectItem>
-                          <SelectItem value="Female">Female</SelectItem>
-                          <SelectItem value="Non-binary">Non-binary</SelectItem>
+                          <SelectItem value="Spouse">Spouse</SelectItem>
+                          <SelectItem value="Parent">Parent</SelectItem>
+                          <SelectItem value="Child">Child</SelectItem>
+                          <SelectItem value="Sibling">Sibling</SelectItem>
+                          <SelectItem value="Employee">Employee</SelectItem>
+                          <SelectItem value="Manager/Supervisor">Manager/Supervisor</SelectItem>
+                          <SelectItem value="Business Partner">Business Partner</SelectItem>
+                          <SelectItem value="Receptionist">Receptionist</SelectItem>
+                          <SelectItem value="Secretary">Secretary</SelectItem>
+                          <SelectItem value="Authorized Agent">Authorized Agent</SelectItem>
+                          <SelectItem value="Resident">Resident</SelectItem>
+                          <SelectItem value="Co-occupant">Co-occupant</SelectItem>
+                          <SelectItem value="Family Member">Family Member</SelectItem>
                           <SelectItem value="Other">Other</SelectItem>
                         </Select>
                       </div>
-                    </div>
+                    )}
+                  </div>
 
-                    {/* Additional Physical Description */}
-                    <div>
-                      <Label htmlFor="person-description">Additional Physical Description</Label>
-                      <Textarea
-                        id="person-description"
-                        name="person_served_description"
-                        value={formData.person_served_description}
-                        onChange={handleInputChange}
-                        rows={3}
-                        className="mt-1 resize-none"
-                        placeholder="Additional distinguishing features, clothing description, etc."
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
+                  {/* Collapsible Physical Description */}
+                  <div className="border-t border-green-200 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowPhysicalDescription(!showPhysicalDescription)}
+                      className="flex items-center justify-between w-full text-sm font-semibold text-green-800 hover:text-green-900 transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <UserIcon className="w-4 h-4" />
+                        Physical Description (Optional)
+                      </span>
+                      {showPhysicalDescription ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+
+                    {showPhysicalDescription && (
+                      <div className="mt-3 space-y-3">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          <div>
+                            <Label htmlFor="person-age" className="text-xs font-medium text-green-800">Age</Label>
+                            <Select
+                              id="person-age"
+                              name="person_served_age"
+                              value={formData.person_served_age}
+                              onChange={handleInputChange}
+                              className="w-full mt-1 bg-white text-sm"
+                            >
+                              <SelectItem value="">Select...</SelectItem>
+                              <SelectItem value="18-25">18-25</SelectItem>
+                              <SelectItem value="26-35">26-35</SelectItem>
+                              <SelectItem value="36-45">36-45</SelectItem>
+                              <SelectItem value="46-55">46-55</SelectItem>
+                              <SelectItem value="56-65">56-65</SelectItem>
+                              <SelectItem value="66-75">66-75</SelectItem>
+                              <SelectItem value="76+">76+</SelectItem>
+                            </Select>
+                          </div>
+
+                          <div>
+                            <Label htmlFor="person-height" className="text-xs font-medium text-green-800">Height</Label>
+                            <Select
+                              id="person-height"
+                              name="person_served_height"
+                              value={formData.person_served_height}
+                              onChange={handleInputChange}
+                              className="w-full mt-1 bg-white text-sm"
+                            >
+                              <SelectItem value="">Select...</SelectItem>
+                              <SelectItem value="Under 5'">Under 5'</SelectItem>
+                              <SelectItem value="5'0-5'4">5'0"-5'4"</SelectItem>
+                              <SelectItem value="5'5-5'9">5'5"-5'9"</SelectItem>
+                              <SelectItem value="5'10-6'2">5'10"-6'2"</SelectItem>
+                              <SelectItem value="6'3-6'6">6'3"-6'6"</SelectItem>
+                              <SelectItem value="Over 6'6">Over 6'6"</SelectItem>
+                            </Select>
+                          </div>
+
+                          <div>
+                            <Label htmlFor="person-weight" className="text-xs font-medium text-green-800">Weight</Label>
+                            <Select
+                              id="person-weight"
+                              name="person_served_weight"
+                              value={formData.person_served_weight}
+                              onChange={handleInputChange}
+                              className="w-full mt-1 bg-white text-sm"
+                            >
+                              <SelectItem value="">Select...</SelectItem>
+                              <SelectItem value="Under 100 lbs">Under 100</SelectItem>
+                              <SelectItem value="100-120 lbs">100-120</SelectItem>
+                              <SelectItem value="121-140 lbs">121-140</SelectItem>
+                              <SelectItem value="141-160 lbs">141-160</SelectItem>
+                              <SelectItem value="161-180 lbs">161-180</SelectItem>
+                              <SelectItem value="181-200 lbs">181-200</SelectItem>
+                              <SelectItem value="201-220 lbs">201-220</SelectItem>
+                              <SelectItem value="221-240 lbs">221-240</SelectItem>
+                              <SelectItem value="Over 240 lbs">Over 240</SelectItem>
+                            </Select>
+                          </div>
+
+                          <div>
+                            <Label htmlFor="person-hair" className="text-xs font-medium text-green-800">Hair Color</Label>
+                            <Select
+                              id="person-hair"
+                              name="person_served_hair_color"
+                              value={formData.person_served_hair_color}
+                              onChange={handleInputChange}
+                              className="w-full mt-1 bg-white text-sm"
+                            >
+                              <SelectItem value="">Select...</SelectItem>
+                              <SelectItem value="Black">Black</SelectItem>
+                              <SelectItem value="Brown">Brown</SelectItem>
+                              <SelectItem value="Blonde">Blonde</SelectItem>
+                              <SelectItem value="Red">Red</SelectItem>
+                              <SelectItem value="Gray">Gray</SelectItem>
+                              <SelectItem value="White">White</SelectItem>
+                              <SelectItem value="Salt & Pepper">Salt & Pepper</SelectItem>
+                              <SelectItem value="Bald/No Hair">Bald</SelectItem>
+                              <SelectItem value="Other">Other</SelectItem>
+                            </Select>
+                          </div>
+
+                          <div>
+                            <Label htmlFor="person-sex" className="text-xs font-medium text-green-800">Sex</Label>
+                            <Select
+                              id="person-sex"
+                              name="person_served_sex"
+                              value={formData.person_served_sex}
+                              onChange={handleInputChange}
+                              className="w-full mt-1 bg-white text-sm"
+                            >
+                              <SelectItem value="">Select...</SelectItem>
+                              <SelectItem value="Male">Male</SelectItem>
+                              <SelectItem value="Female">Female</SelectItem>
+                            </Select>
+                          </div>
+                        </div>
+
+                        <div>
+                          <Label htmlFor="person-description" className="text-xs font-medium text-green-800">
+                            Additional Description
+                          </Label>
+                          <Textarea
+                            id="person-description"
+                            name="person_served_description"
+                            value={formData.person_served_description}
+                            onChange={handleInputChange}
+                            rows={2}
+                            className="mt-1 resize-none bg-white text-sm"
+                            placeholder="Distinguishing features, clothing, etc."
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
 
-              {/* NEW: Enhanced Address Selection */}
+              {/* Address Selection - Compact */}
               <div>
-                <Label htmlFor="address-selection">Address of Attempt</Label>
+                <Label htmlFor="address-selection" className="text-sm font-medium">Address of Attempt</Label>
                 <Select
                   id="address-selection"
                   value={selectedAddressType}
                   onChange={(e) => handleAddressSelection(e.target.value)}
-                  className="w-full h-12 mt-1"
+                  className="w-full mt-1.5"
                 >
                   <SelectItem value="">Select an address...</SelectItem>
                   {existingAddresses.map((address, index) => (
                     <SelectItem key={address.address1 + address.postal_code + index} value={address.address1}>
-                      {address.label || `Address ${index + 1}`} - {address.address1}, {address.city}, {address.state} {address.postal_code}
+                      {address.label || `Address ${index + 1}`} - {address.address1}, {address.city}
                     </SelectItem>
                   ))}
                   <SelectSeparator />
-                  <SelectItem value="new">Add New Address / Manual Entry</SelectItem>
+                  <SelectItem value="new">+ Add New Address</SelectItem>
                 </Select>
 
                 {/* Show new address form when "Add New Address" is selected */}
                 {showNewAddressForm && (
-                  <Card className="mt-4 border-blue-200 bg-blue-50">
-                    <CardHeader>
-                      <CardTitle className="text-lg text-blue-800">Add New Address</CardTitle>
-                      <CardDescription>
-                        This address will be saved to the job for future attempts.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
+                  <div className="mt-3 border-2 border-blue-200 bg-blue-50 rounded-lg p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-blue-800">Add New Address</h4>
+                      <span className="text-xs text-blue-600">Will be saved to job</span>
+                    </div>
+
+                    <div className="space-y-3">
                       <div>
-                        <Label htmlFor="address-label">Address Label</Label>
+                        <Label htmlFor="address-label" className="text-xs font-medium">Label</Label>
                         <Input
                           id="address-label"
                           value={newAddressData.label}
                           onChange={handleNewAddressLabelChange}
-                          placeholder="e.g., Work Address, Secondary Address"
-                          className="mt-1"
+                          placeholder="e.g., Work Address"
+                          className="mt-1 bg-white text-sm"
                         />
                       </div>
 
                       {!addressSelected && (
                         <div>
-                          <Label htmlFor="new-address-street">Street Address</Label>
+                          <Label htmlFor="new-address-street" className="text-xs font-medium">Street Address</Label>
                           <AddressAutocomplete
                             value={newAddressInput}
                             onChange={(val) => {
@@ -1130,94 +1302,83 @@ export default function LogAttemptPage() {
                             }}
                             onAddressSelect={(addressDetails) => {
                               handleNewAddressSelect(addressDetails);
-                              // Auto-hide detailed fields and hide autocomplete after successful selection
                               if (addressDetails.city && addressDetails.state && addressDetails.postal_code) {
                                 setShowAddressDetails(false);
                                 setAddressSelected(true);
                               }
                             }}
                             onLoadingChange={setIsAddressLoading}
-                            placeholder="Start typing the street address..."
-                            className="mt-1 h-12"
+                            placeholder="Start typing address..."
+                            className="mt-1 bg-white"
                           />
                         </div>
                       )}
 
-                      {/* Show address preview with Edit button when address is selected */}
                       {addressSelected && formData.address_of_attempt && !showAddressDetails && (
-                        <div className="p-3 bg-white border border-blue-200 rounded-lg">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1">
-                              <p className="font-medium text-blue-800 text-sm">Selected Address:</p>
-                              <p className="text-sm text-slate-700 mt-1">{formData.address_of_attempt}</p>
-                              {newAddressData.county && (
-                                <p className="text-xs text-slate-600 mt-1">County: {newAddressData.county}</p>
-                              )}
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setShowAddressDetails(true);
-                                setAddressSelected(false); // Show autocomplete again
-                              }}
-                              className="gap-1"
-                            >
-                              <Pencil className="w-3 h-3" />
-                              Edit
-                            </Button>
+                        <div className="p-2 bg-white border border-blue-300 rounded flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-blue-800">Selected:</p>
+                            <p className="text-sm text-slate-700 mt-0.5 truncate">{formData.address_of_attempt}</p>
                           </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setShowAddressDetails(true);
+                              setAddressSelected(false);
+                            }}
+                            className="shrink-0 h-7 px-2"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </Button>
                         </div>
                       )}
 
-                      {/* Show detailed fields when showAddressDetails is true OR when address is incomplete */}
                       {(showAddressDetails || !newAddressData.city) && (
                         <>
-                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <div className="md:col-span-3">
-                              <Label htmlFor="new-address-suite">Suite/Apt</Label>
-                              <Input
-                                id="new-address-suite"
-                                value={newAddressData.address2}
-                                onChange={(e) => handleNewAddressFieldChange('address2', e.target.value)}
-                                placeholder="Suite, Apt, etc."
-                                className="mt-1"
-                              />
-                            </div>
+                          <div>
+                            <Label htmlFor="new-address-suite" className="text-xs font-medium">Suite/Apt</Label>
+                            <Input
+                              id="new-address-suite"
+                              value={newAddressData.address2}
+                              onChange={(e) => handleNewAddressFieldChange('address2', e.target.value)}
+                              placeholder="Suite, Apt, etc."
+                              className="mt-1 bg-white text-sm"
+                            />
                           </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="grid grid-cols-3 gap-2">
                             <div>
-                              <Label htmlFor="new-address-city">City</Label>
+                              <Label htmlFor="new-address-city" className="text-xs font-medium">City</Label>
                               <Input
                                 id="new-address-city"
                                 value={newAddressData.city}
                                 onChange={(e) => handleNewAddressFieldChange('city', e.target.value)}
                                 placeholder="City"
-                                className="mt-1"
+                                className="mt-1 bg-white text-sm"
                                 disabled={isAddressLoading}
                               />
                             </div>
                             <div>
-                              <Label htmlFor="new-address-state">State</Label>
+                              <Label htmlFor="new-address-state" className="text-xs font-medium">State</Label>
                               <Input
                                 id="new-address-state"
                                 value={newAddressData.state}
                                 onChange={(e) => handleNewAddressFieldChange('state', e.target.value)}
                                 placeholder="State"
-                                className="mt-1"
+                                className="mt-1 bg-white text-sm"
                                 disabled={isAddressLoading}
                               />
                             </div>
                             <div>
-                              <Label htmlFor="new-address-zip">ZIP Code</Label>
+                              <Label htmlFor="new-address-zip" className="text-xs font-medium">ZIP</Label>
                               <Input
                                 id="new-address-zip"
                                 value={newAddressData.postal_code}
                                 onChange={(e) => handleNewAddressFieldChange('postal_code', e.target.value)}
-                                placeholder="ZIP Code"
-                                className="mt-1"
+                                placeholder="ZIP"
+                                className="mt-1 bg-white text-sm"
                                 disabled={isAddressLoading}
                               />
                             </div>
@@ -1229,161 +1390,172 @@ export default function LogAttemptPage() {
                               variant="outline"
                               size="sm"
                               onClick={() => setShowAddressDetails(false)}
-                              className="w-full"
+                              className="w-full h-8 text-xs"
                             >
                               Done Editing
                             </Button>
                           )}
                         </>
                       )}
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </div>
                 )}
 
-                {/* Display selected existing address if applicable and not 'new' */}
                 {selectedAddressType !== "new" && formData.address_of_attempt && (
-                    <div className="mt-2 p-3 bg-slate-100 border border-slate-200 rounded-lg">
-                        <p className="text-sm text-slate-700">{formData.address_of_attempt}</p>
-                    </div>
+                  <div className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded">
+                    <p className="text-sm text-slate-700">{formData.address_of_attempt}</p>
+                  </div>
                 )}
               </div>
 
-              {/* Notes */}
+              {/* Notes - Compact */}
               <div>
-                <Label htmlFor="notes">Detailed Notes</Label>
+                <Label htmlFor="notes" className="text-sm font-medium flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Detailed Notes
+                </Label>
                 <Textarea
                   id="notes"
                   name="notes"
                   value={formData.notes}
                   onChange={handleInputChange}
-                  rows={6}
-                  className="mt-1 resize-none"
-                  placeholder="Provide detailed notes about the attempt including:
-• Description of person served (if applicable)
-• What happened during the attempt
-• Any conversations that took place
-• Physical descriptions
-• Other relevant details..."
+                  rows={4}
+                  className="mt-1.5 resize-none text-sm"
+                  placeholder="Describe what happened during the attempt, conversations, observations, etc."
                 />
               </div>
 
-              {/* Enhanced GPS Location Section */}
-              <div>
-                <Label>GPS Location (Recommended)</Label>
-                <div className="mt-2">
-                  <div className="flex items-center gap-4 mb-3">
-                    <Button
+              {/* GPS Location - Compact with Collapsible Details */}
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-sm font-medium flex items-center gap-2">
+                    <MapPin className="w-4 h-4" />
+                    GPS Location {formData.gps_lat && <span className="text-xs text-green-600 font-normal">(Captured)</span>}
+                  </Label>
+                  {formData.gps_lat && (
+                    <button
                       type="button"
-                      variant="outline"
-                      onClick={handleGetLocation}
-                      disabled={isLoading}
-                      className="gap-2"
+                      onClick={() => setShowGPSDetails(!showGPSDetails)}
+                      className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
                     >
-                      {isLoading ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <MapPin className="w-4 h-4" />
-                      )}
-                      {isLoading ? 'Getting Location...' : 'Capture Current Location'}
-                    </Button>
-                    
-                    {formData.gps_lat && formData.gps_lon && (
-                      <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded-lg flex items-center gap-2">
-                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                        <span className="font-medium">Location captured</span>
-                      </div>
-                    )}
-                  </div>
+                      {showGPSDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      {showGPSDetails ? 'Hide' : 'Show'} Details
+                    </button>
+                  )}
+                </div>
 
-                  {formData.gps_lat && formData.gps_lon && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-slate-700">GPS Coordinates</span>
-                        <span className="font-mono text-xs text-slate-500">
-                          {formData.gps_lat.toFixed(6)}, {formData.gps_lon.toFixed(6)}
-                        </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleGetLocation}
+                  disabled={isCapturingGPS}
+                  className="w-full gap-2 h-10"
+                >
+                  {isCapturingGPS ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Getting Location...
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="w-4 h-4" />
+                      {formData.gps_lat ? 'Recapture Location' : 'Capture Current Location'}
+                    </>
+                  )}
+                </Button>
+
+                {formData.gps_lat && formData.gps_lon && showGPSDetails && (
+                  <div className="mt-2 bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="font-medium text-slate-600">Coordinates:</span>
+                        <p className="font-mono text-slate-800">{formData.gps_lat.toFixed(6)}, {formData.gps_lon.toFixed(6)}</p>
                       </div>
                       {formData.gps_accuracy && (
-                        <div className="flex items-center gap-2 mb-2">
-                          <Target className="w-3.5 h-3.5 text-blue-600" />
-                          <span className="text-xs text-slate-600">
-                            Accuracy: ±{Math.round(formData.gps_accuracy)}m
+                        <div>
+                          <span className="font-medium text-slate-600">Accuracy:</span>
+                          <p className="text-slate-800">
+                            ±{Math.round(formData.gps_accuracy)}m
                             {formData.gps_accuracy <= 20 && ' (Excellent)'}
                             {formData.gps_accuracy > 20 && formData.gps_accuracy <= 50 && ' (Good)'}
                             {formData.gps_accuracy > 50 && formData.gps_accuracy <= 100 && ' (Fair)'}
                             {formData.gps_accuracy > 100 && ' (Low)'}
-                          </span>
+                          </p>
                         </div>
                       )}
-                      {formData.gps_altitude && (
-                        <p className="text-xs text-slate-600 mb-2">
-                          Altitude: {Math.round(formData.gps_altitude)}m
-                        </p>
-                      )}
-                      <p className="text-xs text-slate-600">
-                        These coordinates will be saved with your attempt for location verification.
-                        GPS data helps establish proof of presence at the service location.
-                      </p>
                     </div>
-                  )}
+                    {formData.gps_altitude && (
+                      <p className="text-xs text-slate-600">Altitude: {Math.round(formData.gps_altitude)}m</p>
+                    )}
+                  </div>
+                )}
 
-                  {!formData.gps_lat && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <MapPin className="w-5 h-5 text-blue-600 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-blue-800 mb-1">
-                            GPS Location Recommended
-                          </p>
-                          <p className="text-xs text-blue-700">
-                            Capturing your current GPS location provides legal proof of your presence 
-                            at the service address and can be valuable evidence in affidavits.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {!formData.gps_lat && (
+                  <p className="mt-2 text-xs text-slate-600">
+                    GPS location provides legal proof of presence at the service address
+                  </p>
+                )}
               </div>
 
-              {/* File Upload Section - Using PhotoVideoUpload component */}
-              <div>
-                <Label>Photos & Videos</Label>
-                <CardDescription className="mb-3">Upload photos, videos, or other documentation from this attempt</CardDescription>
-                <PhotoVideoUpload
-                  jobId={job.id}
-                  onUploadSuccess={handleDocumentUploadSuccess}
-                  existingFiles={uploadedFiles}
-                  onRemoveFile={handleRemoveUploadedFile}
-                />
+              {/* Media Upload - Collapsible */}
+              <div className="border-t pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowMediaUpload(!showMediaUpload)}
+                  className="flex items-center justify-between w-full text-sm font-medium mb-2 hover:text-slate-700"
+                >
+                  <span className="flex items-center gap-2">
+                    <Camera className="w-4 h-4" />
+                    Photos & Videos {uploadedFiles.length > 0 && <span className="text-xs text-green-600 font-normal">({uploadedFiles.length} file{uploadedFiles.length !== 1 ? 's' : ''})</span>}
+                  </span>
+                  {showMediaUpload ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+
+                {showMediaUpload && (
+                  <div className="mt-2">
+                    <PhotoVideoUpload
+                      jobId={job.id}
+                      onUploadSuccess={handleDocumentUploadSuccess}
+                      existingFiles={uploadedFiles}
+                      onRemoveFile={handleRemoveUploadedFile}
+                    />
+                  </div>
+                )}
+
+                {!showMediaUpload && uploadedFiles.length === 0 && (
+                  <p className="text-xs text-slate-600">Click to add photos or videos</p>
+                )}
               </div>
             </CardContent>
           </Card>
 
-          {/* Form Actions */}
-          <div className="flex justify-end gap-3 pt-6 border-t">
-            <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`}>
-              <Button type="button" variant="outline" disabled={isSubmitting}>
-                Cancel
+          {/* Form Actions - Sticky Bottom Bar */}
+          <div className="sticky bottom-0 bg-white border-t border-slate-200 shadow-lg rounded-lg p-4">
+            <div className="flex items-center justify-between gap-3">
+              <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`}>
+                <Button type="button" variant="ghost" disabled={isSubmitting} size="sm">
+                  Cancel
+                </Button>
+              </Link>
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                size="lg"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-8 shadow-md"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {isEditMode ? 'Updating...' : 'Saving...'}
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 mr-2" />
+                    {isEditMode ? 'Update Attempt' : 'Save Attempt'}
+                  </>
+                )}
               </Button>
-            </Link>
-            <Button 
-              type="submit" 
-              disabled={isSubmitting}
-              className="bg-slate-900 hover:bg-slate-800" // Button styles from outline
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  {isEditMode ? 'Updating...' : 'Saving...'}
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  {isEditMode ? 'Update Attempt' : 'Save Attempt'}
-                </>
-              )}
-            </Button>
+            </div>
           </div>
         </form>
       </div>

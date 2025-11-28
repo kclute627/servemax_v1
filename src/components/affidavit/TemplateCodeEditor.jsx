@@ -4,6 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
+  Select,
+  SelectItem,
+} from '@/components/ui/select';
+import {
   ChevronLeft,
   ChevronRight,
   Code,
@@ -24,30 +28,29 @@ import {
   TooltipProvider
 } from '@/components/ui/tooltip';
 
-const SAMPLE_DATA = {
+// Base sample data shared across all scenarios
+const BASE_SAMPLE_DATA = {
   document_title: 'AFFIDAVIT OF SERVICE',
+  status: 'served',
+  include_notary: true,
   server_name: 'John Smith',
   server_license_number: 'IL-12345',
   case_number: '2025-CH-001234',
   court_name: 'Circuit Court of Cook County',
+  full_court_name: 'United States District Court For The Northern District Of Illinois',
   court_county: 'Cook County',
   court_state: 'IL',
   case_caption: 'Jane Doe v. John Doe',
-  plaintiff: 'Jane Doe',
-  defendant: 'John Doe',
+  plaintiff: 'Jane Doe, Mary Smith, Robert Johnson, Patricia Williams, Michael Brown, Jennifer Davis, William Miller, Elizabeth Wilson, David Moore, Susan Taylor, Joseph Anderson, Jessica Thomas, James Jackson, Barbara Martinez, Richard White, Linda Harris, Thomas Martin, Margaret Garcia, Charles Robinson, Dorothy Clark, George Rodriguez, Nancy Lewis, Kenneth Walker, Betty Hall, Edward Allen, Sandra Young, Ronald King, Deborah Wright, and Paul Lopez',
+  defendant: 'John Doe, Sarah White, Christopher Harris, Nancy Martin, Daniel Thompson, Karen Garcia, Matthew Martinez, Betty Robinson, Anthony Clark, Lisa Rodriguez, Mark Lewis, Donna Lee, Steven Walker, Carol Hall, Kevin Allen, Michelle Scott, Brian Green, Emily Adams, Jason Baker, Melissa Nelson, Andrew Carter, Amanda Mitchell, Joshua Perez, Stephanie Roberts, Justin Turner, Rebecca Phillips, Ryan Campbell, Laura Parker, Brandon Evans, Nicole Edwards, and Aaron Collins',
   service_date: '2025-01-15',
   service_time: '2:30 PM',
   service_address: '123 Main St, Chicago, IL 60601',
-  service_manner: 'personal',
-  recipient_name: 'John Doe',
-  person_served_name: 'John Doe',
-  person_sex: 'Male',
-  person_age: '42',
-  person_height: '5\'10"',
-  person_weight: '180 lbs',
-  person_hair: 'Brown',
-  person_relationship: 'Defendant',
-  person_description_other: 'Wearing blue jeans and gray t-shirt',
+  recipient_address: '123 Main St, Chicago, IL 60601',
+  job_created_date: '2025-01-10T08:45:00Z',
+  attempt_gps_lat: 41.878114,
+  attempt_gps_lon: -87.629798,
+  attempt_gps_accuracy: 5,
   documents_served: [
     { title: 'Summons' },
     { title: 'Complaint for Divorce' },
@@ -61,30 +64,85 @@ const SAMPLE_DATA = {
     zip: '60602',
     phone: '(312) 555-0100'
   },
-  attempts: [
+};
+
+// Personal Service Scenario
+const PERSONAL_SERVICE_DATA = {
+  ...BASE_SAMPLE_DATA,
+  service_manner: 'personal',
+  recipient_name: 'John Doe',
+  person_served_name: 'John Doe',
+  person_sex: 'Male',
+  person_age: '42',
+  person_height: '5\'10"',
+  person_weight: '180 lbs',
+  person_hair: 'Brown',
+  person_relationship: 'Defendant',
+  person_description_other: 'Wearing blue jeans and gray t-shirt',
+};
+
+// Substitute Service Scenario
+const SUBSTITUTE_SERVICE_DATA = {
+  ...BASE_SAMPLE_DATA,
+  service_manner: 'substitute',
+  mailing_date: '2025-01-15',
+  recipient_name: 'John Doe',
+  person_served_name: 'Jane Doe',
+  person_sex: 'Female',
+  person_age: '38',
+  person_height: '5\'6"',
+  person_weight: '140 lbs',
+  person_hair: 'Blonde',
+  person_relationship: 'Wife',
+  person_description_other: 'Wearing black slacks and white blouse',
+};
+
+// Corporate Service Scenario
+const CORPORATE_SERVICE_DATA = {
+  ...BASE_SAMPLE_DATA,
+  service_manner: 'registered_agent',
+  recipient_name: 'ABC Corporation',
+  person_served_name: 'Michael Anderson',
+  person_title: 'Registered Agent',
+  company_being_served: 'ABC Corporation',
+  person_sex: 'Male',
+  person_age: '45',
+  person_height: '6\'0"',
+  person_weight: '190 lbs',
+  person_hair: 'Gray',
+  person_relationship: 'Registered Agent',
+  person_description_other: 'Wearing business suit and tie',
+};
+
+// Non-Service Scenario
+const NON_SERVICE_DATA = {
+  ...BASE_SAMPLE_DATA,
+  status: 'attempted',
+  document_title: 'AFFIDAVIT OF DUE DILIGENCE',
+  recipient_name: 'John Doe',
+  recipient_address: '123 Main St, Chicago, IL 60601',
+  service_attempts: [
     {
-      attempt_date: '2025-01-12T09:30:00Z',
-      status: 'not_served',
-      address_of_attempt: '123 Main St, Chicago, IL 60601',
-      notes: 'No answer at door.',
-      service_type_detail: 'Personal Service Attempted',
+      date_time: 'January 15, 2025 at 8:30 AM',
+      address: '123 Main St, Chicago, IL 60601',
+      comments: 'No answer at door. Neighbors indicated resident works during day. Vehicle not present.'
     },
     {
-      attempt_date: '2025-01-13T18:45:00Z',
-      status: 'not_served',
-      address_of_attempt: '123 Main St, Chicago, IL 60601',
-      notes: 'Vehicle in driveway but no answer.',
-      service_type_detail: 'Personal Service Attempted',
+      date_time: 'January 16, 2025 at 6:45 PM',
+      address: '123 Main St, Chicago, IL 60601',
+      comments: 'No answer at door. Lights were on inside but no response to knocking. Left business card.'
     },
     {
-      attempt_date: '2025-01-15T14:30:00Z',
-      status: 'served',
-      address_of_attempt: '123 Main St, Chicago, IL 60601',
-      person_served_name: 'John Doe',
-      notes: 'Subject answered door and accepted service.',
-      service_type_detail: 'Personal Service',
+      date_time: 'January 18, 2025 at 7:15 AM',
+      address: '123 Main St, Chicago, IL 60601',
+      comments: 'Person at door refused to identify themselves or accept service. Appeared to match description of defendant.'
+    },
+    {
+      date_time: 'January 20, 2025 at 5:30 PM',
+      address: '123 Main St, Chicago, IL 60601',
+      comments: 'No answer at door. Neighbor stated resident has been avoiding process servers and may have moved out.'
     }
-  ],
+  ]
 };
 
 function TemplateCodeEditor({ value, onChange, className }) {
@@ -97,12 +155,24 @@ function TemplateCodeEditor({ value, onChange, className }) {
   const [editorWidth, setEditorWidth] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
   const [pages, setPages] = useState([]);
+  const [selectedScenario, setSelectedScenario] = useState('corporate');
 
   const editorRef = useRef(null);
   const debounceTimeout = useRef(null);
   const previewContainerRef = useRef(null);
   const containerRef = useRef(null);
   const pageRefs = useRef({});
+
+  // Get sample data based on selected scenario
+  const getSampleData = () => {
+    switch(selectedScenario) {
+      case 'personal': return PERSONAL_SERVICE_DATA;
+      case 'substitute': return SUBSTITUTE_SERVICE_DATA;
+      case 'corporate': return CORPORATE_SERVICE_DATA;
+      case 'nonservice': return NON_SERVICE_DATA;
+      default: return CORPORATE_SERVICE_DATA;
+    }
+  };
 
   // // Calculate exact page count based on actual rendered content
   // const getPageCount = (htmlContent) => {
@@ -126,25 +196,99 @@ function TemplateCodeEditor({ value, onChange, className }) {
   //   }
   // };
 
-  const getPageCount = (htmlContent) => {
-    if (!htmlContent) return 0;
+  // Paginate content respecting CSS page breaks (like Puppeteer does)
+  const paginateContent = (htmlContent) => {
+    if (!htmlContent) return [];
+
     try {
-      const temp = document.createElement('div');
-      temp.style.position = 'absolute';
-      temp.style.left = '-9999px';
-      temp.style.visibility = 'hidden';
-      temp.style.width = '816px'; // Match the preview page width
-      temp.innerHTML = htmlContent;
-      document.body.appendChild(temp);
-      
-      const height = temp.scrollHeight;
-      const pageHeight = 1056; // Letter height in pixels (not points)
-      const numPages = Math.ceil(height / pageHeight);
-      
-      document.body.removeChild(temp);
-      return Math.max(1, numPages);
+      // Create temporary container to measure content
+      const container = document.createElement('div');
+      container.style.position = 'absolute';
+      container.style.left = '-9999px';
+      container.style.visibility = 'hidden';
+      container.style.width = '816px'; // US Letter width at 96dpi (612pt)
+      container.innerHTML = htmlContent;
+      document.body.appendChild(container);
+
+      const PAGE_HEIGHT = 1056; // US Letter height at 96dpi (792pt)
+      const pages = [];
+      let currentPage = document.createElement('div');
+      let currentHeight = 0;
+
+      // Walk through all child elements of the main container
+      const mainContainer = container.querySelector('[style*="612pt"]') || container.firstElementChild;
+      if (!mainContainer) {
+        document.body.removeChild(container);
+        return [htmlContent];
+      }
+
+      const children = Array.from(mainContainer.children);
+
+      const containerStyle = mainContainer.getAttribute('style') || '';
+
+      children.forEach((child) => {
+        // Clone element to measure its height
+        const clone = child.cloneNode(true);
+        const tempDiv = document.createElement('div');
+        tempDiv.style.position = 'absolute';
+        tempDiv.style.left = '-9999px';
+        tempDiv.style.width = '816px';
+        tempDiv.appendChild(clone);
+        document.body.appendChild(tempDiv);
+
+        const elementHeight = tempDiv.offsetHeight;
+        document.body.removeChild(tempDiv);
+
+        // Check if element has page-break-inside: avoid or break-inside: avoid
+        const computedStyle = window.getComputedStyle(child);
+        const shouldKeepTogether = computedStyle.pageBreakInside === 'avoid' ||
+                                   computedStyle.breakInside === 'avoid' ||
+                                   child.style.pageBreakInside === 'avoid' ||
+                                   child.style.breakInside === 'avoid';
+
+        // If element would overflow page and should stay together, move to next page
+        if (shouldKeepTogether && currentHeight + elementHeight > PAGE_HEIGHT && currentHeight > 0) {
+          // Wrap current page content in container div
+          const pageWrapper = document.createElement('div');
+          pageWrapper.setAttribute('style', containerStyle);
+          pageWrapper.innerHTML = currentPage.innerHTML;
+          pages.push(pageWrapper.outerHTML);
+
+          currentPage = document.createElement('div');
+          currentHeight = 0;
+        }
+
+        // Add element to current page
+        currentPage.appendChild(child.cloneNode(true));
+        currentHeight += elementHeight;
+
+        // If current page is full, start new page
+        if (currentHeight >= PAGE_HEIGHT && !shouldKeepTogether) {
+          // Wrap current page content in container div
+          const pageWrapper = document.createElement('div');
+          pageWrapper.setAttribute('style', containerStyle);
+          pageWrapper.innerHTML = currentPage.innerHTML;
+          pages.push(pageWrapper.outerHTML);
+
+          currentPage = document.createElement('div');
+          currentHeight = 0;
+        }
+      });
+
+      // Add remaining content
+      if (currentPage.children.length > 0) {
+        const pageWrapper = document.createElement('div');
+        pageWrapper.setAttribute('style', containerStyle);
+        pageWrapper.innerHTML = currentPage.innerHTML;
+        pages.push(pageWrapper.outerHTML);
+      }
+
+      document.body.removeChild(container);
+
+      return pages.length > 0 ? pages : [htmlContent];
     } catch (error) {
-      return 1;
+      console.error('Pagination error:', error);
+      return [htmlContent];
     }
   };
 
@@ -162,15 +306,16 @@ function TemplateCodeEditor({ value, onChange, className }) {
           return;
         }
 
-        const rendered = renderHTMLTemplate(htmlCode, SAMPLE_DATA);
+        const rendered = renderHTMLTemplate(htmlCode, getSampleData());
 
         if (!rendered || typeof rendered !== 'string') {
           throw new Error('Template engine returned invalid result');
         }
 
-        setPreviewHtml(rendered);
-        const pageCount = getPageCount(rendered);
-        setPages([{ id: 0, content: rendered, pageCount }]);
+        // Paginate content respecting page breaks
+        const paginatedPages = paginateContent(rendered);
+        setPages(paginatedPages);
+        setPreviewHtml(rendered); // Keep for backwards compatibility
       } catch (error) {
         console.error('Render error:', error);
         const errorHtml = `<div style="color: #991b1b; padding: 20px; font-family: monospace; white-space: pre-wrap; border: 1px solid #fecaca; background: #fee2e2; border-radius: 4px;"><strong>Error:</strong> ${error?.message || 'Unknown error'}</div>`;
@@ -184,7 +329,7 @@ function TemplateCodeEditor({ value, onChange, className }) {
         clearTimeout(debounceTimeout.current);
       }
     };
-  }, [htmlCode]);
+  }, [htmlCode, selectedScenario]);
 
   // Notify parent of changes
   useEffect(() => {
@@ -400,8 +545,18 @@ function TemplateCodeEditor({ value, onChange, className }) {
           <div className="flex items-center justify-between p-3 bg-white border-b">
             <div className="flex items-center gap-2">
               <Eye className="w-4 h-4 text-slate-600" />
-              <Label className="text-sm font-medium">Live Preview (Sample Data)</Label>
+              <Label className="text-sm font-medium">Live Preview</Label>
             </div>
+            <Select
+              className="w-[180px]"
+              value={selectedScenario}
+              onChange={(e) => setSelectedScenario(e.target.value)}
+            >
+              <SelectItem value="personal">Personal Service</SelectItem>
+              <SelectItem value="substitute">Substitute Service</SelectItem>
+              <SelectItem value="corporate">Corporate Service</SelectItem>
+              <SelectItem value="nonservice">Non Service</SelectItem>
+            </Select>
           </div>
 
           <div className="flex-1 overflow-auto p-6 bg-slate-100" ref={previewContainerRef}>
@@ -446,19 +601,16 @@ function TemplateCodeEditor({ value, onChange, className }) {
               }
             `}} />
 
-            {previewHtml ? (
+            {pages.length > 0 ? (
               <div className="template-preview-container">
-                {Array.from({ length: pages[0]?.pageCount || 1 }).map((_, pageIndex) => (
+                {pages.map((pageContent, pageIndex) => (
                   <div key={pageIndex} className="template-preview-page">
                     <div
                       className="template-preview-page-content"
-                      style={{
-                        marginTop: pageIndex === 0 ? '0' : `-${pageIndex * 1056}px`
-                      }}
-                      dangerouslySetInnerHTML={{ __html: previewHtml }}
+                      dangerouslySetInnerHTML={{ __html: pageContent }}
                     />
                     <div className="template-preview-page-number">
-                      Page {pageIndex + 1} of {pages[0]?.pageCount || 1}
+                      Page {pageIndex + 1} of {pages.length}
                     </div>
                   </div>
                 ))}

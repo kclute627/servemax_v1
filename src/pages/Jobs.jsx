@@ -67,7 +67,8 @@ export default function JobsPage() {
     status: "open", // Default to 'open'
     priority: "all",
     assignedServer: "all",
-    needsAttention: false
+    needsAttention: false,
+    unsignedAffidavit: false
   });
   const [selectedJobs, setSelectedJobs] = useState([]);
   const [currentView, setCurrentView] = useState('list'); // Add view state
@@ -85,6 +86,7 @@ export default function JobsPage() {
     const status = params.get('status');
     const priority = params.get('priority');
     const attention = params.get('attention');
+    const unsignedAffidavit = params.get('unsigned_affidavit');
 
     const newFilters = {};
     if (status) {
@@ -95,6 +97,9 @@ export default function JobsPage() {
     }
     if (attention === 'true') {
       newFilters.needsAttention = true;
+    }
+    if (unsignedAffidavit === 'true') {
+      newFilters.unsignedAffidavit = true;
     }
 
     if (Object.keys(newFilters).length > 0) {
@@ -172,6 +177,15 @@ export default function JobsPage() {
     // Needs attention filter
     if (filters.needsAttention) {
       filtered = filtered.filter(job => StatsManager.jobNeedsAttention(job));
+    }
+
+    // Unsigned affidavit filter
+    if (filters.unsignedAffidavit) {
+      filtered = filtered.filter(job =>
+        (job.status === 'served' || job.status === 'non-served') &&
+        !job.is_closed &&
+        !job.has_signed_affidavit
+      );
     }
 
     console.log('[Jobs] Total jobs:', jobs.length);

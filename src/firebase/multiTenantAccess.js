@@ -737,7 +737,8 @@ export const SecureInvoiceAccess = {
 
 export const SecurePaymentAccess = {
   list: (queryOptions) => MultiTenantAccess.getPayments(queryOptions),
-  filter: (filterObj) => MultiTenantAccess.getPayments({ where: Object.entries(filterObj).map(([k, v]) => [k, '==', v]) })
+  filter: (filterObj) => MultiTenantAccess.getPayments({ where: Object.entries(filterObj).map(([k, v]) => [k, '==', v]) }),
+  create: (data) => entities.Payment.create(data)
 };
 
 export const SecureCourtAccess = {
@@ -750,4 +751,14 @@ export const SecureCaseAccess = {
   list: (queryOptions) => MultiTenantAccess.getCases(queryOptions),
   create: (data) => MultiTenantAccess.createCase(data),
   filter: (filterObj) => MultiTenantAccess.getCases({ where: Object.entries(filterObj).map(([k, v]) => [k, '==', v]) })
+};
+
+export const SecureDocumentAccess = {
+  list: (queryOptions) => MultiTenantAccess.getDocuments(queryOptions),
+  filter: (filterObj) => MultiTenantAccess.getDocuments({ where: Object.entries(filterObj).map(([k, v]) => [k, '==', v]) }),
+  findById: (id) => entities.Document.findById(id),
+  create: (data) => entities.Document.create(data),
+  update: (id, data) => entities.Document.update(id, data),
+  delete: (id) => entities.Document.delete(id),
+  bulkCreate: (dataArray) => entities.Document.bulkCreate(dataArray)
 };

@@ -19,6 +19,17 @@ service cloud.firestore {
               getUserCompanyId() == companyId);
     }
 
+    // Helper function to check if user is a super admin
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        // Check Firestore user document fields
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.is_super_admin == true ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin' ||
+        // Check email address directly from auth token
+        request.auth.token.email == 'kyclutter@gmail.comm'
+      );
+    }
+
     // Users collection - users can read/write their own data
     match /users/{userId} {
       allow read, write: if isAuthenticated() && request.auth.uid == userId;
@@ -29,29 +40,36 @@ service cloud.firestore {
     match /companies/{companyId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated(); // Allow company creation during registration
-      // Allow update if: 1) updating your own company, OR 2) updating a client you created
+      // Allow update if: 1) updating your own company, OR 2) updating a client you created, OR 3) super admin
       allow update, delete: if isAuthenticated() && (
         getUserCompanyId() == companyId ||
-        resource.data.created_by == getUserCompanyId()
+        resource.data.created_by == getUserCompanyId() ||
+        isSuperAdmin()
       );
     }
 
     // Stats collections - company members can read their company's stats
     match /company_stats/{docId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow write: if false; // Stats are written by server-side functions only
     }
 
     match /client_stats/{docId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow write: if false; // Stats are written by server-side functions only
     }
 
     match /server_stats/{docId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow write: if false; // Stats are written by server-side functions only
     }
 
@@ -114,14 +132,17 @@ service cloud.firestore {
 
       allow read: if isAuthenticated() && (
         resource.data.company_id == getUserCompanyId() ||
-        isInShareChain()
+        isInShareChain() ||
+        isSuperAdmin()
       );
 
       allow create: if isAuthenticated() &&
                       request.resource.data.company_id == getUserCompanyId();
 
-      allow update, delete: if isAuthenticated() &&
-                              hasCompanyAccess(resource.data.company_id);
+      allow update, delete: if isAuthenticated() && (
+        hasCompanyAccess(resource.data.company_id) ||
+        isSuperAdmin()
+      );
     }
 
     // Attempts - visible to all companies in the chain
@@ -157,12 +178,16 @@ service cloud.firestore {
 
     // Clients - users can read/write their company's clients
     match /clients/{clientId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow create: if isAuthenticated() &&
                       request.resource.data.company_id == getUserCompanyId();
-      allow update, delete: if isAuthenticated() &&
-                              resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
     }
 
     // Servers - users can read/write their company's servers
@@ -177,12 +202,16 @@ service cloud.firestore {
 
     // Documents - users can read/write their company's documents
     match /documents/{documentId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow create: if isAuthenticated() &&
                       request.resource.data.company_id == getUserCompanyId();
-      allow update, delete: if isAuthenticated() &&
-                              resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
     }
 
     // Templates - users can read/write their company's templates
@@ -197,22 +226,30 @@ service cloud.firestore {
 
     // Employees - users can read/write their company's employees
     match /employees/{employeeId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow create: if isAuthenticated() &&
                       request.resource.data.company_id == getUserCompanyId();
-      allow update, delete: if isAuthenticated() &&
-                              resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
     }
 
     // Court Cases - users can read/write their company's court cases
     match /court_cases/{caseId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.created_by == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.created_by == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow create: if isAuthenticated() &&
                       request.resource.data.created_by == getUserCompanyId();
-      allow update, delete: if isAuthenticated() &&
-                              resource.data.created_by == getUserCompanyId();
+      allow update, delete: if isAuthenticated() && (
+        resource.data.created_by == getUserCompanyId() ||
+        isSuperAdmin()
+      );
     }
 
     // Courts - users can read/write courts they created
@@ -227,42 +264,58 @@ service cloud.firestore {
 
     // Invoices - users can read/write their company's invoices
     match /invoices/{invoiceId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow create: if isAuthenticated() &&
                       request.resource.data.company_id == getUserCompanyId();
-      allow update, delete: if isAuthenticated() &&
-                              resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
     }
 
     // Payments - users can read/write their company's payments
     match /payments/{paymentId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow create: if isAuthenticated() &&
                       request.resource.data.company_id == getUserCompanyId();
-      allow update, delete: if isAuthenticated() &&
-                              resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
     }
 
     // Affidavits - users can read/write their company's affidavits
     match /affidavits/{affidavitId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow create: if isAuthenticated() &&
                       request.resource.data.company_id == getUserCompanyId();
-      allow update, delete: if isAuthenticated() &&
-                              resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
     }
 
     // Service Logs - users can read/write their company's service logs
     match /service_logs/{logId} {
-      allow read: if isAuthenticated() &&
-                    resource.data.company_id == getUserCompanyId();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
       allow create: if isAuthenticated() &&
                       request.resource.data.company_id == getUserCompanyId();
-      allow update, delete: if isAuthenticated() &&
-                              resource.data.company_id == getUserCompanyId();
+      allow update, delete: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
     }
 
     // Universal Courts - platform-wide shared court database
@@ -284,6 +337,63 @@ service cloud.firestore {
     match /counters/{counterId} {
       allow read: if isAuthenticated();
       allow write: if isAuthenticated(); // Allow creating and incrementing counters when creating jobs
+    }
+
+    // Affidavit Templates - DEPRECATED - consolidated into system_affidavit_templates
+    // match /affidavit_templates/{templateId} {
+    //   allow read: if isAuthenticated() && (
+    //     resource.data.company_id == getUserCompanyId() ||
+    //     isSuperAdmin()
+    //   );
+    //   allow create: if isAuthenticated() &&
+    //                   request.resource.data.company_id == getUserCompanyId();
+    //   allow update, delete: if isAuthenticated() && (
+    //     resource.data.company_id == getUserCompanyId() ||
+    //     isSuperAdmin()
+    //   );
+    // }
+
+    // System Affidavit Templates - all templates with visibility control via who_can_see field
+    match /system_affidavit_templates/{templateId} {
+      // Allow read if template is for everyone OR user's company is in the who_can_see array
+      // During migration, treat templates without who_can_see as system templates (visible to all)
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() ||
+        resource.data.who_can_see == "everyone" ||
+        (resource.data.who_can_see is list && getUserCompanyId() in resource.data.who_can_see) ||
+        !('who_can_see' in resource.data) // Migration: allow reading old templates without who_can_see
+      );
+
+      // Allow create for any authenticated user
+      allow create: if isAuthenticated();
+
+      // Allow update/delete if:
+      // 1. User is a super admin (can edit all templates including system templates), OR
+      // 2. User's company is in who_can_see list (for company-specific templates), OR
+      // 3. Template has no who_can_see field (migration support)
+      allow update, delete: if isAuthenticated() && (
+        isSuperAdmin() ||
+        (resource.data.who_can_see is list && getUserCompanyId() in resource.data.who_can_see) ||
+        !('who_can_see' in resource.data) // Migration: allow updating old templates
+      );
+    }
+
+    // Pricing Plans - platform-wide subscription/pricing configuration
+    match /pricing_plans/{planId} {
+      allow read: if isAuthenticated(); // All users can read pricing plans
+      allow write: if isSuperAdmin(); // Only super admins can create/update/delete pricing plans
+    }
+
+    // Subscriptions - platform subscription records
+    match /subscriptions/{subscriptionId} {
+      allow read, write: if isSuperAdmin(); // Only super admins can access subscription data
+    }
+
+    // Users collection - allow users to read their own document
+    // This is REQUIRED for isSuperAdmin() function to work
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if false; // Users are managed by Firebase Auth, not direct writes
     }
   }
 }

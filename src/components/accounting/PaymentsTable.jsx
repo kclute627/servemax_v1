@@ -100,10 +100,13 @@ export default function PaymentsTable({ payments, invoices, clients, isLoading }
                 <TableCell>{getInvoiceNumber(payment.invoice_id)}</TableCell>
                 <TableCell className="font-medium">${payment.amount.toFixed(2)}</TableCell>
                 <TableCell>
-                  {payment.payment_date
-                    ? format(new Date(payment.payment_date), "MMM d, yyyy h:mm a")
-                    : 'N/A'
-                  }
+                  {(() => {
+                    if (!payment.payment_date) return 'N/A';
+                    const date = new Date(payment.payment_date);
+                    return isNaN(date.getTime())
+                      ? 'Invalid Date'
+                      : format(date, "MMM d, yyyy h:mm a");
+                  })()}
                 </TableCell>
                 <TableCell className="capitalize">{payment.payment_method?.replace('_', ' ')}</TableCell>
                 <TableCell>

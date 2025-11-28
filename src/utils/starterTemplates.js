@@ -5,440 +5,223 @@
  */
 
 export const STARTER_TEMPLATES = {
-  blank: {
-    name: 'Blank Canvas',
-    description: 'Start from scratch with minimal structure',
-    service_status: 'both',
-    html: `<div style="width: {{CONST.PAPER_WIDTH}}; padding: {{CONST.PAGE_MARGIN}}; font-family: {{CONST.FONT_FAMILY}}; font-size: {{CONST.FONT_SIZE}}; line-height: {{CONST.LINE_HEIGHT}}; color: {{CONST.TEXT_COLOR}}; background-color: {{CONST.BG_COLOR}}; box-sizing: border-box;">
-  <!-- Your template content here -->
-  <h1 style="text-align: center; font-size: {{CONST.FONT_SIZE_TITLE}}; margin-bottom: {{CONST.SECTION_SPACING}};">
-    {{document_title}}
-  </h1>
-
-  <p>Start building your affidavit template here...</p>
-</div>`
-  },
-
   standard: {
     name: 'Standard Affidavit',
-    description: 'Basic affidavit with checkbox examples. Multi-page support: content flows automatically.',
+    description: 'Professional service affidavit - the best affidavit known to the legal industry. Multi-page support with precise formatting.',
     service_status: 'both',
-    html: `<div style="width: {{CONST.PAPER_WIDTH}}; padding: {{CONST.PAGE_MARGIN}}; font-family: {{CONST.FONT_FAMILY}}; font-size: {{CONST.FONT_SIZE}}; line-height: {{CONST.LINE_HEIGHT}}; color: {{CONST.TEXT_COLOR}}; background-color: {{CONST.BG_COLOR}}; box-sizing: border-box;">
+    is_active: true,
+    html: `<div style="width: 612pt; padding: 12pt 24pt; font-family: Times New Roman, Times, serif; font-size: 13pt; line-height: 1.5; color: #000000; background-color: #FFFFFF; box-sizing: border-box;">
 
-  <!-- Title -->
-  <h1 style="text-align: center; font-size: {{CONST.FONT_SIZE_TITLE}}; font-weight: bold; margin-bottom: {{CONST.SECTION_SPACING}};">
-    {{document_title}}
-  </h1>
+  <!-- Top Section: Court Name -->
+  <div style="text-align: center; margin-bottom: 50pt;">
+    <div style="font-weight: bold; font-size: 14pt; text-transform: capitalize; line-height: 1.3; max-width: 500pt; margin: 0 auto;">
+      {{full_court_name}}
+    </div>
+  </div>
 
-  <!-- Case Information Table -->
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: {{CONST.SECTION_SPACING}}; border: {{CONST.TABLE_BORDER}};">
+  <!-- Caption Section: Parties and Case Info -->
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 18pt; border: none;">
     <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; font-weight: bold; background-color: {{CONST.TABLE_HEADER_BG}}; font-size: {{CONST.FONT_SIZE_SMALL}};">
-        CASE NUMBER
+      <td style="width: 66.66%; vertical-align: top; padding-right: 24pt; border: none;">
+        <!-- Left Side: Party Names (2/3 width) -->
+        <div style="margin-left: 16pt; line-height: 1.5;">
+          <!-- Plaintiff -->
+          <div style="margin-bottom: 12pt;">
+            <div style="font-weight: bold; line-height: 1.4; word-wrap: break-word;">
+              {{truncateParties plaintiff 120}}
+            </div>
+            <div style="margin-left: 8pt; font-size: 11pt;">Plaintiff</div>
+          </div>
+
+          <!-- vs -->
+          <div style="margin-bottom: 12pt;">v.</div>
+
+          <!-- Defendant -->
+          <div style="margin-bottom: 20pt;">
+            <div style="font-weight: bold; line-height: 1.4; word-wrap: break-word;">
+              {{truncateParties defendant 120}}
+            </div>
+            <div style="margin-left: 8pt; font-size: 11pt;">Defendant</div>
+          </div>
+
+          <!-- Divider Line -->
+          <div style="width: 75%; height: 1pt; background-color: #000000;"></div>
+        </div>
       </td>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; font-weight: bold; background-color: {{CONST.TABLE_HEADER_BG}}; font-size: {{CONST.FONT_SIZE_SMALL}};">
-        COURT
-      </td>
-    </tr>
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        {{case_number}}
-      </td>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        {{court_name}}<br/>{{court_county}}
-      </td>
-    </tr>
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; font-weight: bold; background-color: {{CONST.TABLE_HEADER_BG}}; font-size: {{CONST.FONT_SIZE_SMALL}};">
-        PLAINTIFF / PETITIONER
-      </td>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; font-weight: bold; background-color: {{CONST.TABLE_HEADER_BG}}; font-size: {{CONST.FONT_SIZE_SMALL}};">
-        DEFENDANT / RESPONDENT
-      </td>
-    </tr>
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        {{plaintiff}}
-      </td>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        {{defendant}}
+      <td style="width: 33.33%; vertical-align: top; border: none;">
+        <!-- Right Side: Case Info (1/3 width) -->
+        <div style="text-align: center; line-height: 1.5;">
+          <!-- Case Number -->
+          <div style="font-weight: bold; margin-top: 10pt; margin-bottom: 18pt;">
+            Case No: {{case_number}}
+          </div>
+
+          <!-- Document Title - Conditional based on service status -->
+          <div style="font-weight: bold; font-size: 14pt; line-height: 1.3;">
+            {{#if (eq status "served")}}
+              AFFIDAVIT OF SERVICE
+            {{else}}
+              AFFIDAVIT OF DUE DILIGENCE
+            {{/if}}
+          </div>
+        </div>
       </td>
     </tr>
   </table>
 
-  <!-- Declaration -->
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}};">
-    I, {{server_name}}, being duly sworn, depose and say that I am over the age of 18 years and not a party to this action. On {{service_date}} at approximately {{service_time}}, I served the following documents upon {{person_served_name}} at {{service_address}}.
+  <!-- Opening Affidavit Paragraph -->
+  <p style="margin-top: 8pt; margin-bottom: 4pt; text-align: justify; line-height: 1.5;">
+    I, <strong>{{server_name}}</strong>, being duly sworn, depose and say: I am over the age of 18 years and not a party to this action{{#if (eq status "served")}}, and that within the boundaries of the state where service was effected, I was authorized by applicable law to make service of the documents and informed said person of the contents herein{{else}}, and that I was authorized by applicable law to attempt service of the documents{{/if}}
   </p>
 
-  <!-- Documents Served -->
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: {{CONST.SECTION_SPACING}}; border: {{CONST.TABLE_BORDER}};">
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; font-weight: bold; background-color: {{CONST.TABLE_HEADER_BG}}; font-size: {{CONST.FONT_SIZE_SMALL}};">
-        DOCUMENTS SERVED
-      </td>
-    </tr>
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; white-space: pre-wrap;">{{documents_served}}</td>
-    </tr>
-  </table>
+  <!-- Second Paragraph: Documents Received -->
+  <p style="margin-bottom: 4pt; text-align: justify; line-height: 1.5;">
+    I received the documents on <strong>{{default (formatDate job_created_date "MMMM d, yyyy 'at' h:mm a") "[Date documents received]"}}</strong>; they were directed to <strong>{{#if (or (eq service_manner "registered_agent") (eq service_manner "authorized_representative") (eq service_manner "corporate_officer") (eq service_manner "business"))}}{{default company_being_served "[Company name]"}}{{else}}{{default recipient_name "[Recipient name]"}}{{/if}}</strong> at <strong>{{default recipient_address "[Service address]"}}</strong>.
+  </p>
 
-  <!-- Service Status (Checkbox with Conditional Content) -->
-  <div style="margin-bottom: {{CONST.SECTION_SPACING}}; avoid-break;">
-    <p style="font-weight: bold; margin-bottom: 8pt; font-size: {{CONST.FONT_SIZE}};">SERVICE STATUS:</p>
-    <div style="display: flex; flex-direction: column; gap: 6pt;">
-      <div style="display: flex; align-items: center; gap: 8pt;">
-        <span style="font-size: {{CONST.CHECKBOX_SIZE}}; font-family: Arial, sans-serif;">{{#if (eq status "served")}}{{CONST.CHECKBOX_CHECKED}}{{else}}{{CONST.CHECKBOX_UNCHECKED}}{{/if}}</span>
-        <span style="font-weight: {{#if (eq status "served")}}bold{{else}}normal{{/if}};">✓ Service Successfully Completed</span>
-      </div>
-      <div style="display: flex; align-items: center; gap: 8pt;">
-        <span style="font-size: {{CONST.CHECKBOX_SIZE}}; font-family: Arial, sans-serif;">{{#if (eq status "not_served")}}{{CONST.CHECKBOX_CHECKED}}{{else}}{{CONST.CHECKBOX_UNCHECKED}}{{/if}}</span>
-        <span style="font-weight: {{#if (eq status "not_served")}}bold{{else}}normal{{/if}};">✓ Service Not Completed / Due Diligence</span>
-      </div>
-    </div>
-  </div>
+  <!-- Documents Section -->
+  <p style="margin-bottom: 4pt; text-align: justify; line-height: 1.5;">
+    <strong>Documents served:</strong> {{#if documents_served.length}}{{#each documents_served}}{{this.title}}{{#unless @last}}, {{/unless}}{{/each}}{{else}}[No documents marked for service]{{/if}}
+  </p>
 
-  <!-- Conditional Content Based on Service Status -->
+  <!-- Service Type Section -->
+  <p style="margin-bottom: 4pt; text-align: justify; line-height: 1.5;">
+    <strong>Type of service:</strong> {{#if (eq status "served")}}{{#if (eq service_manner "substitute")}}Served - Sub-service{{else}}Served - {{formatServiceManner service_manner}}{{/if}}{{else}}Non Service{{/if}}
+  </p>
+
+  <!-- Date/Time of Service (only for served status) -->
   {{#if (eq status "served")}}
-  <!-- SERVED SECTION -->
-  <div style="margin-bottom: {{CONST.SECTION_SPACING}}; avoid-break;">
-    <p style="font-weight: bold; margin-bottom: 8pt; font-size: {{CONST.FONT_SIZE}};">SERVICE METHOD:</p>
-    <div style="display: flex; flex-direction: column; gap: 6pt;">
-      <div style="display: flex; align-items: center; gap: 8pt;">
-        <span style="font-size: {{CONST.CHECKBOX_SIZE}}; font-family: Arial, sans-serif;">{{CONST.CHECKBOX_UNCHECKED}}</span>
-        <span>Personal Service - Served personally upon the individual named above</span>
-      </div>
-      <div style="display: flex; align-items: center; gap: 8pt;">
-        <span style="font-size: {{CONST.CHECKBOX_SIZE}}; font-family: Arial, sans-serif;">{{CONST.CHECKBOX_UNCHECKED}}</span>
-        <span>Substitute Service - Left with a person of suitable age at the residence/business</span>
-      </div>
-      <div style="display: flex; align-items: center; gap: 8pt;">
-        <span style="font-size: {{CONST.CHECKBOX_SIZE}}; font-family: Arial, sans-serif;">{{CONST.CHECKBOX_UNCHECKED}}</span>
-        <span>Corporate Agent - Served upon registered agent or authorized representative</span>
-      </div>
-    </div>
-  </div>
-  {{else}}
-  <!-- NOT SERVED SECTION -->
-  <div style="margin-bottom: {{CONST.SECTION_SPACING}}; avoid-break;">
-    <p style="font-weight: bold; margin-bottom: 8pt; font-size: {{CONST.FONT_SIZE}};">ATTEMPTS SUMMARY:</p>
-    <p style="margin-bottom: 8pt;">Total attempts made: {{attempts_count}}</p>
-    <p style="margin-bottom: 8pt;">Addresses attempted: {{attempts_list}}</p>
-  </div>
+    <p style="margin-bottom: 4pt; text-align: justify; line-height: 1.5;">
+      <strong>Date/Time of Service:</strong> {{formatDate service_date "MMMM d, yyyy"}} at {{service_time}}
+    </p>
   {{/if}}
 
-  <!-- Spacer -->
-  <div style="margin-top: 100pt;"></div>
+  <!-- Person Served / Address (only for served status) -->
+  {{#if (eq status "served")}}
+    <p style="margin-bottom: 4pt; text-align: justify; line-height: 1.5;">
+      <strong>Person Served / Address:</strong>
+      {{#if (eq service_manner "personal")}}
+        {{person_served_name}} at {{service_address}}
+      {{else if (or (eq service_manner "registered_agent") (eq service_manner "authorized_representative") (eq service_manner "corporate_officer") (eq service_manner "business"))}}
+        {{person_served_name}}, {{person_title}}, who is authorized to accept legal documents on behalf of {{company_being_served}} at {{service_address}}
+      {{else if (eq service_manner "substitute")}}
+        {{person_served_name}} ({{person_relationship}}) who lives at the address and confirmed residency of {{recipient_name}} - to comply with sub-service statute(s) I also mailed the documents via USPS on {{formatDate mailing_date "MMMM d, yyyy"}} to {{recipient_name}} at {{service_address}}.
+      {{else}}
+        {{person_served_name}} ({{person_relationship}}) at {{service_address}}
+      {{/if}}
+    </p>
+  {{/if}}
 
-  <!-- Footer Declaration -->
-  <p style="margin-bottom: 25pt;">
-    I declare under penalty of perjury that the foregoing is true and correct.
-  </p>
-
-  <!-- Signature Line -->
-  <div style="display: flex; justify-content: flex-end; gap: 60pt;">
-    <div style="text-align: center;">
-      <div style="border-bottom: 1pt solid {{CONST.BORDER_COLOR}}; width: 180pt; height: 40pt;"></div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}}; margin-top: 4pt;">{{server_name}}</div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}}; color: #666;">Process Server</div>
-    </div>
-    <div style="text-align: center;">
-      <div style="border-bottom: 1pt solid {{CONST.BORDER_COLOR}}; width: 100pt; height: 40pt;"></div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}}; margin-top: 4pt;">Date</div>
-    </div>
-  </div>
-</div>`
-  },
-
-  illinois: {
-    name: 'Illinois Circuit Court',
-    description: 'Illinois-specific affidavit format',
-    service_status: 'both',
-    html: `<div style="width: {{CONST.PAPER_WIDTH}}; padding: {{CONST.PAGE_MARGIN}}; font-family: {{CONST.FONT_FAMILY}}; font-size: {{CONST.FONT_SIZE}}; line-height: {{CONST.LINE_HEIGHT}}; color: {{CONST.TEXT_COLOR}}; background-color: {{CONST.BG_COLOR}}; box-sizing: border-box;">
-
-  <!-- Title -->
-  <h1 style="text-align: center; font-size: {{CONST.FONT_SIZE_TITLE}}; font-weight: bold; margin-bottom: {{CONST.SECTION_SPACING}}; text-transform: uppercase;">
-    Affidavit of Service
-  </h1>
-
-  <p style="text-align: center; margin-bottom: {{CONST.SECTION_SPACING}}; font-size: {{CONST.FONT_SIZE_SMALL}};">
-    State of Illinois, County of {{court_county}}
-  </p>
-
-  <!-- Case Info -->
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: {{CONST.SECTION_SPACING}}; border: {{CONST.TABLE_BORDER}};">
-    <tr>
-      <td colspan="2" style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; font-weight: bold; text-align: center; background-color: {{CONST.TABLE_HEADER_BG}};">
-        IN THE CIRCUIT COURT OF {{court_county}}, ILLINOIS
-      </td>
-    </tr>
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        <strong>Plaintiff:</strong> {{plaintiff}}
-      </td>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        <strong>Case No:</strong> {{case_number}}
-      </td>
-    </tr>
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        <strong>Defendant:</strong> {{defendant}}
-      </td>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        <strong>Court:</strong> {{court_name}}
-      </td>
-    </tr>
-  </table>
-
-  <!-- Affidavit Body -->
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}};">
-    I, {{server_name}}, being first duly sworn on oath, depose and state as follows:
-  </p>
-
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}}; margin-left: 30pt;">
-    1. I am over the age of eighteen (18) years and am not a party to this action.
-  </p>
-
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}}; margin-left: 30pt;">
-    2. On {{service_date}} at approximately {{service_time}}, I personally served the following documents on {{person_served_name}} at {{service_address}} in {{court_county}} County, Illinois:
-  </p>
-
-  <div style="margin-left: 60pt; margin-bottom: {{CONST.PARAGRAPH_SPACING}}; white-space: pre-wrap;">{{documents_served}}</div>
-
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}}; margin-left: 30pt;">
-    3. Service was made by delivering a true copy of said documents to the above-named individual.
-  </p>
-
-  <!-- Spacer -->
-  <div style="margin-top: 100pt;"></div>
-
-  <!-- Signature Section -->
-  <p style="margin-bottom: 30pt;">
-    <strong>FURTHER AFFIANT SAYETH NOT.</strong>
-  </p>
-
-  <div style="display: flex; justify-content: space-between;">
-    <div style="width: 45%;">
-      <div style="border-bottom: 1pt solid {{CONST.BORDER_COLOR}}; margin-bottom: 8pt; height: 40pt;"></div>
-      <div>{{server_name}}</div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}}; color: #666;">Process Server</div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}}; color: #666;">License No: {{server_license_number}}</div>
-    </div>
-  </div>
-
-  <div style="margin-top: 30pt;">
-    <p style="margin-bottom: 40pt;">
-      Subscribed and sworn to before me this _____ day of ______________, {{current_year}}.
+  <!-- Non-Service Section (only for non-served status) -->
+  {{#if (ne status "served")}}
+    <p style="margin-top: 8pt; margin-bottom: 6pt; text-align: center; font-weight: bold; font-size: 14pt;">
+      SERVICE WAS NOT EFFECTED
     </p>
 
-    <div>
-      <div style="border-bottom: 1pt solid {{CONST.BORDER_COLOR}}; width: 250pt; margin-bottom: 8pt; height: 40pt;"></div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}};">Notary Public</div>
-    </div>
-  </div>
-</div>`
-  },
+    <p style="margin-bottom: 8pt; text-align: justify; line-height: 1.4;">
+      After making diligent attempts, I was unable to serve <strong>{{default recipient_name "[Person being served]"}}</strong> at <strong>{{default recipient_address "[Address]"}}</strong>.
+    </p>
 
-  california: {
-    name: 'California Proof of Service',
-    description: 'California-specific proof of service format',
-    service_status: 'both',
-    html: `<div style="width: {{CONST.PAPER_WIDTH}}; padding: {{CONST.PAGE_MARGIN}}; font-family: {{CONST.FONT_FAMILY}}; font-size: {{CONST.FONT_SIZE}}; line-height: {{CONST.LINE_HEIGHT}}; color: {{CONST.TEXT_COLOR}}; background-color: {{CONST.BG_COLOR}}; box-sizing: border-box;">
+    <!-- Service Attempts Table -->
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 8pt; border: 1pt solid #000000; font-size: 12pt;">
+      <thead>
+        <tr style="background-color: #f0f0f0;">
+          <th style="border: 1pt solid #000000; padding: 4pt 6pt; text-align: left; font-weight: bold;">Date and Time</th>
+          <th style="border: 1pt solid #000000; padding: 4pt 6pt; text-align: left; font-weight: bold;">Address Attempted</th>
+          <th style="border: 1pt solid #000000; padding: 4pt 6pt; text-align: left; font-weight: bold;">Comments</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each service_attempts}}
+          <tr>
+            <td style="border: 1pt solid #000000; padding: 4pt 6pt; vertical-align: top;">{{this.date_time}}</td>
+            <td style="border: 1pt solid #000000; padding: 4pt 6pt; vertical-align: top;">{{this.address}}</td>
+            <td style="border: 1pt solid #000000; padding: 4pt 6pt; vertical-align: top;">{{this.comments}}</td>
+          </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  {{/if}}
 
-  <!-- Title -->
-  <h1 style="text-align: center; font-size: {{CONST.FONT_SIZE_TITLE}}; font-weight: bold; margin-bottom: {{CONST.SECTION_SPACING}}; text-transform: uppercase;">
-    Proof of Service
-  </h1>
+  <!-- Person Description (only for served status, if description exists) -->
+  {{#if (eq status "served")}}
+    {{#if (buildPersonDescription person_sex person_age person_height person_weight person_hair person_relationship person_description_other)}}
+      <p style="margin-bottom: 4pt; text-align: justify; line-height: 1.5;">
+        <strong>Description:</strong> {{buildPersonDescription person_sex person_age person_height person_weight person_hair person_relationship person_description_other}}
+      </p>
+    {{/if}}
+  {{/if}}
 
-  <!-- Case Header -->
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: {{CONST.SECTION_SPACING}}; border: {{CONST.TABLE_BORDER}};">
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; width: 70%;">
-        {{plaintiff}}<br/>
-        <span style="margin-left: 60pt;">Plaintiff,</span><br/>
-        vs.<br/>
-        {{defendant}}<br/>
-        <span style="margin-left: 60pt;">Defendant.</span>
-      </td>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; vertical-align: top;">
-        <strong>Case Number:</strong><br/>
-        {{case_number}}<br/><br/>
-        <strong>PROOF OF SERVICE</strong><br/>
-        (Personal Service)
-      </td>
-    </tr>
-  </table>
+  <!-- GPS Coordinates (only for served status, if GPS data exists) -->
+  {{#if (eq status "served")}}
+    {{#if attempt_gps_lat}}
+      <p style="margin-bottom: 4pt; text-align: justify; line-height: 1.5;">
+        <strong>GPS Coordinates:</strong> {{formatGPS attempt_gps_lat attempt_gps_lon attempt_gps_accuracy}}
+      </p>
+    {{/if}}
+  {{/if}}
 
-  <!-- Declaration -->
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}};">
-    I, {{server_name}}, declare:
-  </p>
-
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}}; margin-left: 30pt;">
-    1. At the time of service I was at least 18 years of age and not a party to this action.
-  </p>
-
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}}; margin-left: 30pt;">
-    2. On {{service_date}} at {{service_time}}, I served the following documents:
-  </p>
-
-  <div style="margin-left: 60pt; margin-bottom: {{CONST.PARAGRAPH_SPACING}}; white-space: pre-wrap;">{{documents_served}}</div>
-
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}}; margin-left: 30pt;">
-    3. The person served was: {{person_served_name}}
-  </p>
-
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}}; margin-left: 30pt;">
-    4. Address where served: {{service_address}}
-  </p>
-
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}}; margin-left: 30pt;">
-    5. Manner of service: By personally delivering copies to the person served.
-  </p>
-
-  <!-- Spacer -->
-  <div style="margin-top: 100pt;"></div>
-
-  <!-- Footer Declaration -->
-  <p style="margin-bottom: 30pt;">
-    I declare under penalty of perjury under the laws of the State of California that the foregoing is true and correct.
-  </p>
-
-  <!-- Signature Section -->
-  <div style="display: flex; justify-content: flex-end; gap: 60pt;">
-    <div style="text-align: center;">
-      <div style="border-bottom: 1pt solid {{CONST.BORDER_COLOR}}; width: 180pt; height: 40pt;"></div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}}; margin-top: 4pt;">{{server_name}}</div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}}; color: #666;">Signature of Server</div>
-    </div>
-    <div style="text-align: center;">
-      <div style="border-bottom: 1pt solid {{CONST.BORDER_COLOR}}; width: 100pt; height: 40pt;"></div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}}; margin-top: 4pt;">{{current_date}}</div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}}; color: #666;">Date</div>
-    </div>
-  </div>
-</div>`
-  },
-
-  due_diligence: {
-    name: 'Due Diligence with Attempts Table',
-    description: 'Shows all attempts in a table using Handlebars loops',
-    service_status: 'not_served',
-    html: `<div style="width: {{CONST.PAPER_WIDTH}}; padding: {{CONST.PAGE_MARGIN}}; font-family: {{CONST.FONT_FAMILY}}; font-size: {{CONST.FONT_SIZE}}; line-height: {{CONST.LINE_HEIGHT}}; color: {{CONST.TEXT_COLOR}}; background-color: {{CONST.BG_COLOR}}; box-sizing: border-box;">
-
-  <!-- Title -->
-  <h1 style="text-align: center; font-size: {{CONST.FONT_SIZE_TITLE}}; font-weight: bold; margin-bottom: {{CONST.SECTION_SPACING}}; text-transform: uppercase;">
-    {{document_title}}
-  </h1>
-
-  <!-- Case Information -->
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: {{CONST.SECTION_SPACING}}; border: {{CONST.TABLE_BORDER}};">
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; font-weight: bold; background-color: {{CONST.TABLE_HEADER_BG}};">
-        CASE NUMBER
-      </td>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        {{case_number}}
-      </td>
-    </tr>
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; font-weight: bold; background-color: {{CONST.TABLE_HEADER_BG}};">
-        COURT
-      </td>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        {{court_name}}, {{court_county}}
-      </td>
-    </tr>
-    <tr>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; font-weight: bold; background-color: {{CONST.TABLE_HEADER_BG}};">
-        CASE CAPTION
-      </td>
-      <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}};">
-        {{case_caption}}
-      </td>
-    </tr>
-  </table>
+  <!-- Template content will be built section by section -->
 
   <!-- Declaration -->
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}};">
-    I, {{server_name}}, being duly sworn, depose and state that I made the following attempts to serve {{recipient_name}}:
-  </p>
-
-  <!-- Attempts Table (Handlebars Loop) -->
-  <table style="width: 100%; border-collapse: collapse; margin-bottom: {{CONST.SECTION_SPACING}}; border: {{CONST.TABLE_BORDER}};">
-    <thead>
-      <tr>
-        <th style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; background-color: {{CONST.TABLE_HEADER_BG}}; font-weight: bold; text-align: left;">
-          #
-        </th>
-        <th style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; background-color: {{CONST.TABLE_HEADER_BG}}; font-weight: bold; text-align: left;">
-          Date & Time
-        </th>
-        <th style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; background-color: {{CONST.TABLE_HEADER_BG}}; font-weight: bold; text-align: left;">
-          Address
-        </th>
-        <th style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; background-color: {{CONST.TABLE_HEADER_BG}}; font-weight: bold; text-align: left;">
-          Result
-        </th>
-        <th style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; background-color: {{CONST.TABLE_HEADER_BG}}; font-weight: bold; text-align: left;">
-          Notes
-        </th>
-      </tr>
-    </thead>
-    <tbody>
-      {{#each attempts}}
-      <tr>
-        <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; vertical-align: top;">
-          {{@index}}
-        </td>
-        <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; vertical-align: top;">
-          {{formatDate this.attempt_date "MM/dd/yyyy"}}}<br/>
-          <span style="font-size: {{CONST.FONT_SIZE_SMALL}}; color: #666;">{{formatDate this.attempt_date "h:mm a"}}</span>
-        </td>
-        <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; vertical-align: top; font-size: {{CONST.FONT_SIZE_SMALL}};">
-          {{this.address_of_attempt}}
-        </td>
-        <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; vertical-align: top;">
-          {{#if (eq this.status "served")}}
-            <strong style="color: green;">✓ Served</strong>
-          {{else}}
-            <span style="color: #666;">Not Served</span>
-          {{/if}}
-        </td>
-        <td style="padding: {{CONST.TABLE_CELL_PADDING}}; border: {{CONST.TABLE_BORDER}}; vertical-align: top; font-size: {{CONST.FONT_SIZE_SMALL}};">
-          {{this.notes}}
-        </td>
-      </tr>
-      {{/each}}
-    </tbody>
-  </table>
-
-  <!-- Summary -->
-  <p style="margin-bottom: {{CONST.PARAGRAPH_SPACING}};">
-    <strong>Total Attempts:</strong> {{attempts_count}}<br/>
-    <strong>Successful Serves:</strong> {{successful_attempts_count}}
-  </p>
-
-  <!-- Spacer -->
-  <div style="margin-top: 100pt;"></div>
-
-  <!-- Footer Declaration -->
-  <p style="margin-bottom: 25pt;">
+  <p style="{{#if (ne status "served")}}margin-top: 8pt; margin-bottom: 12pt;{{else}}margin-top: 12pt; margin-bottom: 16pt;{{/if}} text-align: justify; line-height: 1.5;">
     I declare under penalty of perjury that the foregoing is true and correct.
   </p>
 
-  <!-- Signature Line -->
-  <div style="display: flex; justify-content: space-between;">
-    <div style="width: 45%;">
-      <div style="border-bottom: 1pt solid {{CONST.BORDER_COLOR}}; margin-bottom: 8pt; height: 40pt;"></div>
-      <div>{{server_name}}</div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}}; color: #666;">Process Server</div>
+  <!-- Signature Section with Optional Notary -->
+  {{#if include_notary}}
+    <!-- Two Column Layout: Notary Left, Signature Right -->
+    <div style="margin-top: 20pt; page-break-inside: avoid; break-inside: avoid;">
+      <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+          <td style="width: 50%; border: none; vertical-align: top; padding-right: 12pt;">
+            <!-- Notary Block -->
+            <div style="font-style: italic; margin-bottom: 4pt; font-size: 10pt; line-height: 1.3;">
+              Subscribed and sworn to before me by the affiant who is personally known to me.
+            </div>
+            <div style="border-bottom: 1pt solid #000000; width: 100%; margin-bottom: 4pt; height: 30pt;"></div>
+            <div style="margin-bottom: 4pt; font-weight: bold;">Notary Public</div>
+            <div style="display: flex; justify-content: space-between;">
+              <div style="width: 45%;">
+                <div style="border-bottom: 1pt solid #000000; margin-bottom: 4pt; height: 15pt;"></div>
+                <div style="font-size: 10pt;">Date</div>
+              </div>
+              <div style="width: 45%;">
+                <div style="border-bottom: 1pt solid #000000; margin-bottom: 4pt; height: 15pt;"></div>
+                <div style="font-size: 10pt;">Commission Expires</div>
+              </div>
+            </div>
+          </td>
+          <td style="width: 50%; border: none; vertical-align: top; padding-left: 12pt;">
+            <!-- Signature Block -->
+            <div style="border-bottom: 1pt solid #000000; width: 100%; margin-bottom: 4pt; height: 40pt;"></div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8pt;">
+              <div>{{server_name}}, License #{{server_license_number}}</div>
+              <div style="padding-right: 20pt;">Date</div>
+            </div>
+            <div style="margin-bottom: 2pt;">{{company_info.company_name}}</div>
+            <div style="font-size: 11pt;">{{company_info.address1}}</div>
+            <div style="font-size: 11pt;">{{company_info.city}}, {{company_info.state}} {{company_info.zip}}</div>
+          </td>
+        </tr>
+      </table>
     </div>
-    <div style="width: 30%;">
-      <div style="border-bottom: 1pt solid {{CONST.BORDER_COLOR}}; margin-bottom: 8pt; height: 40pt;"></div>
-      <div style="font-size: {{CONST.FONT_SIZE_SMALL}};">Date</div>
+  {{else}}
+    <!-- Single Column: Signature Only (Right Aligned) -->
+    <div style="margin-top: 20pt; page-break-inside: avoid; break-inside: avoid; display: flex; justify-content: flex-end;">
+      <div style="text-align: left; width: 300pt;">
+        <div style="border-bottom: 1pt solid #000000; width: 100%; margin-bottom: 4pt; height: 40pt;"></div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8pt;">
+          <div>{{server_name}}, License #{{server_license_number}}</div>
+          <div style="padding-right: 20pt;">Date</div>
+        </div>
+        <div style="margin-bottom: 2pt;">{{company_info.company_name}}</div>
+        <div style="font-size: 11pt;">{{company_info.address1}}</div>
+        <div style="font-size: 11pt;">{{company_info.city}}, {{company_info.state}} {{company_info.zip}}</div>
+      </div>
     </div>
-  </div>
+  {{/if}}
+
 </div>`
   },
 
@@ -446,6 +229,7 @@ export const STARTER_TEMPLATES = {
     name: 'AO 440 Federal Proof of Service',
     description: 'Official AO 440 (Rev. 06/12) Summons in a Civil Action - Proof of Service (Page 2). Pixel-perfect federal court format for both service and non-service scenarios.',
     service_status: 'both',
+    is_active: true,
     html: `<div style="width: 612pt; padding: 24pt 36pt; font-family: Times New Roman, Times, serif; font-size: 13pt; line-height: 1.5; color: #000000; background-color: #FFFFFF; box-sizing: border-box;">
 
   <!-- Header Line -->
@@ -593,5 +377,5 @@ export const getStarterTemplatesList = () => {
 };
 
 export const getStarterTemplate = (id) => {
-  return STARTER_TEMPLATES[id] || STARTER_TEMPLATES.blank;
+  return STARTER_TEMPLATES[id] || STARTER_TEMPLATES.standard;
 };

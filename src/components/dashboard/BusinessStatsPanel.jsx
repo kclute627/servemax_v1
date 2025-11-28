@@ -81,7 +81,18 @@ export default function BusinessStatsPanel() {
       setRealTimeJobCounts(realTimeCounts);
 
       const activityCounts = StatsManager.getJobActivityForTimePeriod(jobs, selectedPeriod);
-      setJobActivity(activityCounts);
+
+      // Calculate unsigned affidavits count
+      const unsignedAffidavitsCount = jobs.filter(job =>
+        (job.status === 'served' || job.status === 'non-served') &&
+        !job.is_closed &&
+        !job.has_signed_affidavit
+      ).length;
+
+      setJobActivity({
+        ...activityCounts,
+        unsignedAffidavits: unsignedAffidavitsCount
+      });
     }
   }, [jobs, selectedPeriod]);
 
@@ -156,11 +167,20 @@ export default function BusinessStatsPanel() {
       const cancelledJobs = jobsInPeriod.filter(j => j.status === 'cancelled').length;
 
       // Calculate financial metrics
-      const totalBilled = invoicesInPeriod.reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
+      const totalBilled = invoicesInPeriod.reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0);
       const totalCollected = invoicesInPeriod
-        .filter(inv => inv.status === 'paid')
-        .reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
-      const outstanding = totalBilled - totalCollected;
+        .filter(inv => inv.status?.toLowerCase() === 'paid')
+        .reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0);
+
+      // Calculate outstanding from ALL invoices (not period-filtered)
+      // Match the Accounting page calculation: exclude cancelled, use balance_due
+      const allActiveInvoices = invoices.filter(inv => inv.status?.toLowerCase() !== 'cancelled');
+      const outstandingInvoices = allActiveInvoices.filter(inv =>
+        ['issued', 'sent', 'overdue', 'partial', 'partially_paid'].includes(inv.status?.toLowerCase())
+      );
+      const outstanding = outstandingInvoices.reduce((sum, inv) =>
+        sum + (inv.balance_due || inv.amount_outstanding || inv.total_amount || inv.total || 0), 0
+      );
 
       // Calculate performance changes (simplified - just show 0 for now)
       const realTimeStats = {
@@ -594,10 +614,6 @@ export default function BusinessStatsPanel() {
                           className="text-2xl font-bold text-slate-900 mb-2"
                           delay={150}
                         />
-                        <AnimatedPercentage
-                          value={stats?.performance?.volume_change_mom || 0}
-                          delay={250}
-                        />
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -649,10 +665,6 @@ export default function BusinessStatsPanel() {
                           format="currency"
                           className="text-2xl font-bold text-slate-900 mb-2"
                           delay={500}
-                        />
-                        <AnimatedPercentage
-                          value={stats?.performance?.billing_change_mom || 0}
-                          delay={700}
                         />
                       </motion.div>
                     )}
@@ -706,24 +718,6 @@ export default function BusinessStatsPanel() {
                           className="text-2xl font-bold text-slate-900 mb-2"
                           delay={600}
                         />
-                        <motion.div
-                          className="flex items-center gap-1 text-slate-500"
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 0.8 }}
-                        >
-                          <Target className="w-3 h-3" />
-                          <span className="text-xs">
-                            <AnimatedNumber
-                              value={stats?.financial?.total_billed > 0 ?
-                                Math.round((stats.financial.total_collected / stats.financial.total_billed) * 100) :
-                                0
-                              }
-                              suffix="% of billed"
-                              delay={900}
-                            />
-                          </span>
-                        </motion.div>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -776,15 +770,6 @@ export default function BusinessStatsPanel() {
                           className="text-2xl font-bold text-slate-900 mb-2"
                           delay={700}
                         />
-                        <motion.div
-                          className="flex items-center gap-1 text-slate-500"
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 0.9 }}
-                        >
-                          <Clock className="w-3 h-3" />
-                          <span className="text-xs">Pending collection</span>
-                        </motion.div>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -808,7 +793,7 @@ export default function BusinessStatsPanel() {
         </CardHeader>
         <CardContent>
           <div className="h-20 relative overflow-hidden">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
               <div className="text-center p-4 bg-blue-50 rounded-lg transition-colors duration-200 hover:bg-blue-100">
                 <AnimatePresence mode="wait">
                   {isLoadingStats || !jobActivity ? (
@@ -864,6 +849,37 @@ export default function BusinessStatsPanel() {
                   )}
                 </AnimatePresence>
                 <p className="text-sm text-slate-600">Jobs Closed</p>
+              </div>
+              <div
+                className="text-center p-4 bg-amber-50 rounded-lg cursor-pointer transition-all hover:bg-amber-100 hover:shadow-md"
+                onClick={() => window.location.href = createPageUrl('Jobs?unsigned_affidavit=true')}
+              >
+                <AnimatePresence mode="wait">
+                  {isLoadingStats || !jobActivity ? (
+                    <motion.div
+                      key="loading-unsigned"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <Loader2 className="w-6 h-6 animate-spin text-amber-600 mx-auto mb-2" />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="content-unsigned"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                    >
+                      <AnimatedNumber
+                        value={jobActivity.unsignedAffidavits || 0}
+                        className="text-2xl font-bold text-amber-600 mb-2 block"
+                        delay={1300}
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <p className="text-sm text-slate-600">Unsigned Affidavits</p>
               </div>
             </div>
           </div>

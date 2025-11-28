@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import { User } from '@/api/entities';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,97 @@ import { Pencil } from 'lucide-react';
 import { replacePlaceholders, renderHTMLTemplate } from '@/utils/templateEngine';
 import AO440EditableFields from './AO440EditableFields';
 import AO440InteractiveForm from './AO440InteractiveForm';
+import StandardAffidavitInteractiveForm from './StandardAffidavitInteractiveForm';
+
+/**
+ * Intelligently paginate HTML content respecting CSS page breaks
+ * Same logic as in TemplateCodeEditor for consistent pagination
+ */
+const paginateContent = (htmlContent) => {
+  if (!htmlContent) return [];
+
+  try {
+    const container = document.createElement('div');
+    container.style.position = 'absolute';
+    container.style.left = '-9999px';
+    container.style.visibility = 'hidden';
+    container.style.width = '816px'; // US Letter width at 96dpi (612pt)
+    container.innerHTML = htmlContent;
+    document.body.appendChild(container);
+
+    const PAGE_HEIGHT = 1056; // US Letter height at 96dpi (792pt)
+    const pages = [];
+    let currentPage = document.createElement('div');
+    let currentHeight = 0;
+
+    const mainContainer = container.querySelector('[style*="612pt"]') || container.firstElementChild;
+    if (!mainContainer) {
+      document.body.removeChild(container);
+      return [htmlContent];
+    }
+
+    const children = Array.from(mainContainer.children);
+    const containerStyle = mainContainer.getAttribute('style') || '';
+
+    children.forEach((child) => {
+      // Measure element height
+      const clone = child.cloneNode(true);
+      const tempDiv = document.createElement('div');
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.left = '-9999px';
+      tempDiv.style.width = '816px';
+      tempDiv.appendChild(clone);
+      document.body.appendChild(tempDiv);
+      const elementHeight = tempDiv.offsetHeight;
+      document.body.removeChild(tempDiv);
+
+      // Check if element should stay together
+      const computedStyle = window.getComputedStyle(child);
+      const shouldKeepTogether = computedStyle.pageBreakInside === 'avoid' ||
+                                 computedStyle.breakInside === 'avoid' ||
+                                 child.style.pageBreakInside === 'avoid' ||
+                                 child.style.breakInside === 'avoid';
+
+      // If element would overflow page and should stay together, move to next page
+      if (shouldKeepTogether && currentHeight + elementHeight > PAGE_HEIGHT && currentHeight > 0) {
+        const pageWrapper = document.createElement('div');
+        pageWrapper.setAttribute('style', containerStyle);
+        pageWrapper.innerHTML = currentPage.innerHTML;
+        pages.push(pageWrapper.outerHTML);
+        currentPage = document.createElement('div');
+        currentHeight = 0;
+      }
+
+      // Add element to current page
+      currentPage.appendChild(child.cloneNode(true));
+      currentHeight += elementHeight;
+
+      // If current page is full, start new page
+      if (currentHeight >= PAGE_HEIGHT && !shouldKeepTogether) {
+        const pageWrapper = document.createElement('div');
+        pageWrapper.setAttribute('style', containerStyle);
+        pageWrapper.innerHTML = currentPage.innerHTML;
+        pages.push(pageWrapper.outerHTML);
+        currentPage = document.createElement('div');
+        currentHeight = 0;
+      }
+    });
+
+    // Add remaining content
+    if (currentPage.children.length > 0) {
+      const pageWrapper = document.createElement('div');
+      pageWrapper.setAttribute('style', containerStyle);
+      pageWrapper.innerHTML = currentPage.innerHTML;
+      pages.push(pageWrapper.outerHTML);
+    }
+
+    document.body.removeChild(container);
+    return pages.length > 0 ? pages : [htmlContent];
+  } catch (error) {
+    console.error('Pagination error:', error);
+    return [htmlContent];
+  }
+};
 
 const EditableField = ({ value, isEditing, onChange, as = 'input', className = '', ...props }) => {
     const Component = as;
@@ -43,6 +134,10 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
     const [isDragging, setIsDragging] = useState(false);
     const [signaturePosition, setSignaturePosition] = useState({ x: 0, y: 2 });
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+    const [paginatedPages, setPaginatedPages] = useState([]);
+    const pageRefs = useRef([]);
+    const wasEditingRef = useRef(isEditing);
+    const editSessionInitialized = useRef(false);
 
     const signatureRef = useRef(null);
     const signatureContainerRef = useRef(null);
@@ -65,6 +160,56 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
             setSignaturePosition(affidavitData.placed_signature.position);
         }
     }, [affidavitData]);
+
+    // Paginate HTML content when template or data changes
+    useEffect(() => {
+        if (template?.template_mode === 'html' && template?.html_content && affidavitData) {
+            // Skip pagination for edited content in view mode (will render directly)
+            if (affidavitData.html_content_edited && !isEditing) {
+                console.log('[AffidavitPreview] Skipping pagination for edited content in view mode');
+                console.log('[AffidavitPreview] html_content_edited length:', affidavitData.html_content_edited.length);
+                setPaginatedPages([]); // Clear pagination
+                return;
+            }
+
+            // Use edited HTML if available, otherwise render from template
+            const htmlToUse = affidavitData.html_content_edited || renderHTMLTemplate(template.html_content, affidavitData);
+            console.log('[AffidavitPreview] Paginating HTML, length:', htmlToUse.length);
+            const pages = paginateContent(htmlToUse);
+            console.log('[AffidavitPreview] Generated pages:', pages.length);
+            setPaginatedPages(pages);
+        }
+    }, [template, affidavitData, isEditing]);
+
+    // Set innerHTML on page refs when entering edit mode (avoid cursor jump)
+    useEffect(() => {
+        if (isEditing && paginatedPages.length > 0 && !editSessionInitialized.current) {
+            console.log('[AffidavitPreview] Initializing edit session, setting innerHTML on refs');
+            // Wait for refs to be available
+            setTimeout(() => {
+                paginatedPages.forEach((pageHTML, index) => {
+                    if (pageRefs.current[index]) {
+                        pageRefs.current[index].innerHTML = pageHTML;
+                        console.log(`[AffidavitPreview] Set innerHTML for page ${index}, length:`, pageHTML.length);
+                    }
+                });
+                editSessionInitialized.current = true;
+            }, 0);
+        } else if (!isEditing) {
+            // Reset initialization flag when exiting edit mode
+            editSessionInitialized.current = false;
+        }
+    }, [paginatedPages, isEditing]);
+
+    // Capture HTML when exiting edit mode (useLayoutEffect runs BEFORE DOM updates)
+    useLayoutEffect(() => {
+        // If we were editing and now we're not, capture the HTML
+        if (wasEditingRef.current && !isEditing) {
+            console.log('[AffidavitPreview] Exiting edit mode, capturing HTML...');
+            captureEditedHTML();
+        }
+        wasEditingRef.current = isEditing;
+    }, [isEditing]);
 
     useEffect(() => {
         const handleMouseMove = (e) => {
@@ -136,6 +281,37 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
         setPlacedSignature(signatureDataToPlace);
         onDataChange('placed_signature', signatureDataToPlace);
         setSignaturePosition({ x: 0, y: 2 });
+    };
+
+    const captureEditedHTML = () => {
+        console.log('[captureEditedHTML] Called');
+        console.log('[captureEditedHTML] Number of page refs:', pageRefs.current.length);
+
+        if (pageRefs.current.length > 0) {
+            const validRefs = pageRefs.current.filter(ref => ref !== null);
+            console.log('[captureEditedHTML] Valid refs:', validRefs.length);
+
+            // Join all page content
+            const allContent = validRefs
+                .map((ref, index) => {
+                    const html = ref.innerHTML;
+                    console.log(`[captureEditedHTML] Page ${index} HTML length:`, html.length);
+                    return html;
+                })
+                .join('');
+
+            // Reconstruct original container structure
+            // Use the standard container style from templates
+            const containerStyle = 'width: 612pt; padding: 12pt 24pt; font-family: Times New Roman, Times, serif; font-size: 13pt; line-height: 1.5; color: #000000; background-color: #FFFFFF; box-sizing: border-box;';
+
+            const fullHTML = `<div style="${containerStyle}">${allContent}</div>`;
+
+            console.log('[captureEditedHTML] Full HTML length:', fullHTML.length);
+            console.log('[captureEditedHTML] First 200 chars:', fullHTML.substring(0, 200));
+            onDataChange('html_content_edited', fullHTML);
+        } else {
+            console.log('[captureEditedHTML] No page refs found!');
+        }
     };
 
     const handleMouseDown = (e) => {
@@ -222,39 +398,118 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
             );
         }
 
-        // For other HTML templates, if not editing, just render static HTML
-        if (!isEditing) {
+        // Check if this is the Standard Affidavit template
+        const isStandardTemplate = template?.id === 'standard' ||
+                                   template?.name?.includes('Standard Affidavit');
+
+        // Standard Affidavit - use simple rendering component (no contentEditable complexity)
+        if (isStandardTemplate) {
+            console.log('[AffidavitPreview] Rendering Standard Affidavit with isEditing:', isEditing);
+
             return (
-                <div
-                    style={{
-                        width: '612pt',
-                        minHeight: '792pt',
-                        backgroundColor: '#FFFFFF'
-                    }}
-                    dangerouslySetInnerHTML={{ __html: renderedHTML }}
+                <StandardAffidavitInteractiveForm
+                    key={isEditing ? 'editing' : 'viewing'}
+                    affidavitData={affidavitData}
+                    template={template}
+                    isEditing={isEditing}
+                    onDataChange={onDataChange}
                 />
             );
         }
 
-        // Other HTML templates - Use generic contentEditable
+        // For other HTML templates, if not editing, render content
+        if (!isEditing) {
+            console.log('[AffidavitPreview] VIEW MODE');
+            console.log('[AffidavitPreview] Has html_content_edited?', !!affidavitData.html_content_edited);
+            console.log('[AffidavitPreview] paginatedPages length:', paginatedPages.length);
+
+            // If user has edited the content, render it directly without pagination
+            if (affidavitData.html_content_edited) {
+                console.log('[AffidavitPreview] Rendering edited HTML directly (no pagination)');
+                console.log('[AffidavitPreview] Edited HTML length:', affidavitData.html_content_edited.length);
+                console.log('[AffidavitPreview] First 300 chars:', affidavitData.html_content_edited.substring(0, 300));
+                return (
+                    <div
+                        style={{
+                            width: '612pt',
+                            minHeight: '792pt',
+                            backgroundColor: '#FFFFFF'
+                        }}
+                        dangerouslySetInnerHTML={{ __html: affidavitData.html_content_edited }}
+                    />
+                );
+            }
+
+            // Otherwise, render paginated fresh content
+            console.log('[AffidavitPreview] Rendering paginated content, pages:', paginatedPages.length);
+            if (paginatedPages.length === 0) {
+                console.log('[AffidavitPreview] WARNING: No paginated pages to render!');
+            }
+            return (
+                <>
+                    {paginatedPages.map((pageHTML, index) => (
+                        <React.Fragment key={index}>
+                            <div
+                                style={{
+                                    width: '612pt',
+                                    height: '792pt',
+                                    backgroundColor: '#FFFFFF'
+                                }}
+                                dangerouslySetInnerHTML={{ __html: pageHTML }}
+                            />
+                            {index < paginatedPages.length - 1 && (
+                                <div style={{ height: '20px', backgroundColor: '#E5E7EB' }} />
+                            )}
+                        </React.Fragment>
+                    ))}
+                </>
+            );
+        }
+
+        // Other HTML templates - Edit mode: show paginated view with page break indicators
         return (
-            <div
-                style={{
-                    width: '612pt',
-                    minHeight: '792pt',
-                    backgroundColor: '#FFFFFF'
-                }}
-                className="html-template-editable"
-                contentEditable={true}
-                suppressContentEditableWarning={true}
-                onInput={(e) => {
-                    // Capture changes to the HTML content
-                    if (onDataChange) {
-                        onDataChange('html_content_edited', e.currentTarget.innerHTML);
-                    }
-                }}
-                dangerouslySetInnerHTML={{ __html: renderedHTML }}
-            />
+            <>
+                {paginatedPages.map((pageHTML, index) => (
+                    <React.Fragment key={index}>
+                        <div
+                            ref={el => pageRefs.current[index] = el}
+                            style={{
+                                width: '612pt',
+                                minHeight: '792pt',
+                                backgroundColor: '#FFFFFF',
+                                position: 'relative',
+                                padding: '0',
+                                overflow: 'visible'
+                            }}
+                            className="html-template-editable"
+                            contentEditable={true}
+                            suppressContentEditableWarning={true}
+                            onBlur={captureEditedHTML}
+                        />
+                        {index < paginatedPages.length - 1 && (
+                            <div
+                                style={{
+                                    height: '60px',
+                                    backgroundColor: '#E5E7EB',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    borderTop: '3px dashed #6B7280',
+                                    borderBottom: '3px dashed #6B7280',
+                                    fontSize: '11pt',
+                                    fontFamily: 'system-ui, sans-serif',
+                                    color: '#374151',
+                                    fontWeight: '600',
+                                    letterSpacing: '0.1em',
+                                    textTransform: 'uppercase'
+                                }}
+                            >
+                                ━━━━ PAGE {index + 1} / PAGE {index + 2} ━━━━
+                            </div>
+                        )}
+                    </React.Fragment>
+                ))}
+            </>
         );
     }
 

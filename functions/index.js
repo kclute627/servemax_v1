@@ -12,6 +12,7 @@ const Handlebars = require("handlebars");
 const {format} = require("date-fns");
 const {DocumentProcessorServiceClient} = require("@google-cloud/documentai").v1;
 const Anthropic = require("@anthropic-ai/sdk");
+const axios = require("axios");
 
 admin.initializeApp();
 
@@ -1416,6 +1417,165 @@ async function generatePDFFromHTML(html, options = {}) {
 }
 
 /**
+ * Download photo data from URL
+ * @param {string} url - Photo URL to download
+ * @returns {Promise<ArrayBuffer>} - Photo data as ArrayBuffer
+ */
+async function downloadPhotoFromURL(url) {
+  try {
+    const response = await axios.get(url, {
+      responseType: "arraybuffer",
+      timeout: 30000, // 30 second timeout
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`Error downloading photo from ${url}:`, error.message);
+    throw new Error(`Failed to download photo: ${error.message}`);
+  }
+}
+
+/**
+ * Generate photo exhibit pages for affidavit
+ * @param {PDFDocument} pdfDoc - The PDF document to add pages to
+ * @param {Array} photos - Array of photo objects with file_url, attemptDate, address_of_attempt
+ * @returns {Promise<void>}
+ */
+async function generatePhotoExhibitPages(pdfDoc, photos) {
+  if (!photos || photos.length === 0) {
+    return;
+  }
+
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  // Page dimensions
+  const pageWidth = 612; // US Letter width in points
+  const pageHeight = 792; // US Letter height in points
+  const margin = 40;
+
+  // Grid layout (2x2)
+  const cols = 2;
+  const rows = 2;
+  const photosPerPage = cols * rows; // 4 photos per page
+
+  // Calculate dimensions for each photo cell
+  const availableWidth = pageWidth - (margin * 2);
+  const availableHeight = pageHeight - (margin * 2) - 60; // Reserve 60pt for footer
+  const cellWidth = availableWidth / cols;
+  const cellHeight = availableHeight / rows;
+  const photoSize = Math.min(cellWidth, cellHeight) - 40; // Leave space between photos and for metadata
+  const metadataHeight = 50; // Space for metadata text below photo
+
+  // Group photos into pages (4 per page)
+  const photoPages = [];
+  for (let i = 0; i < photos.length; i += photosPerPage) {
+    photoPages.push(photos.slice(i, i + photosPerPage));
+  }
+
+  // Generate each exhibit page
+  for (let pageIndex = 0; pageIndex < photoPages.length; pageIndex++) {
+    const pagePhotos = photoPages[pageIndex];
+    const exhibitNumber = pageIndex + 1;
+
+    // Add new page
+    const page = pdfDoc.addPage([pageWidth, pageHeight]);
+
+    // Process each photo on this page
+    for (let photoIndex = 0; photoIndex < pagePhotos.length; photoIndex++) {
+      const photo = pagePhotos[photoIndex];
+
+      try {
+        // Download photo data
+        const photoData = await downloadPhotoFromURL(photo.file_url);
+
+        // Determine image type and embed
+        let image;
+        const contentType = photo.content_type || '';
+        if (contentType.includes('png')) {
+          image = await pdfDoc.embedPng(photoData);
+        } else {
+          // Default to JPEG
+          image = await pdfDoc.embedJpg(photoData);
+        }
+
+        // Calculate position in grid
+        const col = photoIndex % cols;
+        const row = Math.floor(photoIndex / cols);
+
+        // Calculate photo position (centered in cell)
+        const cellX = margin + (col * cellWidth);
+        const cellY = pageHeight - margin - ((row + 1) * cellHeight);
+
+        // Center photo in cell
+        const photoX = cellX + (cellWidth - photoSize) / 2;
+        const photoY = cellY + cellHeight - photoSize - 10; // 10pt from top of cell
+
+        // Draw photo
+        const imageDims = image.scale(photoSize / Math.max(image.width, image.height));
+        page.drawImage(image, {
+          x: photoX,
+          y: photoY,
+          width: imageDims.width,
+          height: imageDims.height,
+        });
+
+        // Draw metadata below photo
+        const metadataY = photoY - 5;
+        const metadataX = cellX + 10;
+
+        // Format attempt date if available
+        if (photo.attemptDate) {
+          try {
+            const dateStr = format(new Date(photo.attemptDate), 'MMM d, yyyy h:mm a');
+            page.drawText(dateStr, {
+              x: metadataX,
+              y: metadataY,
+              size: 8,
+              font: font,
+              color: rgb(0.2, 0.2, 0.2),
+            });
+          } catch (e) {
+            console.warn('Error formatting date:', e);
+          }
+        }
+
+        // Draw location if available
+        if (photo.address_of_attempt) {
+          const addressText = photo.address_of_attempt.length > 35
+            ? photo.address_of_attempt.substring(0, 32) + '...'
+            : photo.address_of_attempt;
+
+          page.drawText(addressText, {
+            x: metadataX,
+            y: metadataY - 12,
+            size: 7,
+            font: font,
+            color: rgb(0.3, 0.3, 0.3),
+          });
+        }
+
+      } catch (error) {
+        console.error(`Error embedding photo ${photoIndex} on page ${pageIndex}:`, error);
+        // Continue with next photo if one fails
+      }
+    }
+
+    // Add "EXHIBIT N" footer at bottom center
+    const exhibitText = `EXHIBIT ${exhibitNumber}`;
+    const exhibitTextWidth = fontBold.widthOfTextAtSize(exhibitText, 14);
+    page.drawText(exhibitText, {
+      x: (pageWidth - exhibitTextWidth) / 2,
+      y: 30,
+      size: 14,
+      font: fontBold,
+      color: rgb(0, 0, 0),
+    });
+  }
+
+  console.log(`Generated ${photoPages.length} photo exhibit page(s) with ${photos.length} total photos`);
+}
+
+/**
  * Generate Affidavit PDF for a job
  * @param {Object} data - Affidavit data including template selection
  * @returns {Object} - { success: boolean, data: Buffer }
@@ -1498,8 +1658,15 @@ exports.generateAffidavit = onCall(
       // ========================================
       console.log("Using HTML template mode with Puppeteer");
 
-      // Render the HTML template with data
-      let renderedHTML = renderHTMLTemplate(template.html_content, data);
+      // Use edited HTML if available, otherwise render from template
+      let renderedHTML;
+      if (data.html_content_edited) {
+        console.log("Using user-edited HTML content");
+        renderedHTML = data.html_content_edited;
+      } else {
+        console.log("Rendering HTML from template");
+        renderedHTML = renderHTMLTemplate(template.html_content, data);
+      }
 
       // Inject signature if present
       if (data.placed_signature) {
@@ -1532,9 +1699,34 @@ exports.generateAffidavit = onCall(
       }
 
       // Generate PDF from HTML
-      const pdfBytes = await generatePDFFromHTML(renderedHTML, pdfOptions);
+      let pdfBytes = await generatePDFFromHTML(renderedHTML, pdfOptions);
 
       console.log(`HTML affidavit generated successfully, size: ${pdfBytes.byteLength} bytes`);
+
+      // Add photo exhibits if selected_photos exist
+      if (data.selected_photos && data.selected_photos.length > 0) {
+        console.log(`Adding ${data.selected_photos.length} photos as exhibits to HTML mode PDF`);
+        try {
+          // Load the PDF generated by Puppeteer
+          const pdfDoc = await PDFDocument.load(pdfBytes);
+
+          // Enrich photos with attempt data for metadata
+          const enrichedPhotos = data.selected_photos.map(photo => ({
+            ...photo,
+            address_of_attempt: photo.address_of_attempt || 'Unknown location',
+          }));
+
+          // Generate exhibit pages
+          await generatePhotoExhibitPages(pdfDoc, enrichedPhotos);
+
+          // Save the updated PDF
+          pdfBytes = await pdfDoc.save();
+          console.log(`Photo exhibits added successfully. New PDF size: ${pdfBytes.byteLength} bytes`);
+        } catch (error) {
+          console.error("Error adding photo exhibits to HTML PDF:", error);
+          // Continue without exhibits rather than failing entirely
+        }
+      }
 
       return {
         success: true,
@@ -1704,6 +1896,26 @@ exports.generateAffidavit = onCall(
         font: font,
         color: rgb(0, 0, 0),
       });
+    }
+
+    // Add photo exhibits if selected_photos exist
+    if (data.selected_photos && data.selected_photos.length > 0) {
+      console.log(`Adding ${data.selected_photos.length} photos as exhibits to simple mode PDF`);
+      try {
+        // Enrich photos with attempt data for metadata
+        const enrichedPhotos = data.selected_photos.map(photo => ({
+          ...photo,
+          address_of_attempt: photo.address_of_attempt || 'Unknown location',
+        }));
+
+        // Generate exhibit pages (pdfDoc is already a PDFDocument object)
+        await generatePhotoExhibitPages(pdfDoc, enrichedPhotos);
+
+        console.log(`Photo exhibits added successfully`);
+      } catch (error) {
+        console.error("Error adding photo exhibits to simple PDF:", error);
+        // Continue without exhibits rather than failing entirely
+      }
     }
 
     // Generate PDF bytes

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 // FIREBASE TRANSITION: You will replace these Base44 entity imports with your Firebase SDK/config and specific service imports (e.g., getFirestore, doc, getDoc, updateDoc, collection, query, where, getDocs).
 import { Job, Client, Employee, CourtCase, Document, Attempt, Invoice, CompanySettings, User } from '@/api/entities';
 import { Link, useLocation } from 'react-router-dom';
@@ -72,7 +72,9 @@ import {
   Weight, // New icon for weight
   Scissors, // New icon for hair color
   Target, // New icon for GPS accuracy
-  Combine // Icon for merge PDFs
+  Combine, // Icon for merge PDFs
+  Send, // Icon for invoice issued
+  CreditCard // Icon for payment applied
 } from 'lucide-react';
 import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
@@ -108,12 +110,15 @@ const eventTypeConfig = {
   attempt_logged: { color: 'bg-green-500', icon: Clock },
   job_reopened: { color: 'bg-green-500', icon: Unlock },
   invoice_generated: { color: 'bg-green-500', icon: Receipt },
+  invoice_issued: { color: 'bg-green-500', icon: Send },
+  payment_applied: { color: 'bg-green-500', icon: CreditCard },
   affidavit_generated: { color: 'bg-green-500', icon: FileText },
 
   job_closed: { color: 'bg-red-500', icon: Lock },
   document_deleted: { color: 'bg-red-500', icon: FileX },
 
   job_updated: { color: 'bg-slate-400', icon: Pencil },
+  invoice_updated: { color: 'bg-blue-500', icon: Receipt },
   notes_updated: { color: 'bg-slate-400', icon: StickyNote },
   case_info_updated: { color: 'bg-slate-400', icon: Scale }
 };
@@ -452,6 +457,9 @@ export default function JobDetailsPage() {
   // Get authenticated user
   const { user } = useAuth();
 
+  // Ref to track if job was pre-populated from context (to avoid showing skeleton)
+  const jobPrePopulatedRef = useRef(false);
+
   // Core data for the page
   const [job, setJob] = useState(null); // Holds the main job object.
   const [client, setClient] = useState(null); // Holds the associated client object.
@@ -463,6 +471,7 @@ export default function JobDetailsPage() {
 
   // UI and loading states
   const [isLoading, setIsLoading] = useState(true); // True while the initial data is being fetched.
+  const [isLoadingCourtCase, setIsLoadingCourtCase] = useState(false); // True while court case data is being fetched.
   const [error, setError] = useState(null); // Holds any error messages that occur during data fetching.
   const [currentUser, setCurrentUser] = useState(null); // Holds the currently logged-in user for activity logging.
 
@@ -500,7 +509,7 @@ export default function JobDetailsPage() {
   const [isUploadingSignedAffidavit, setIsUploadingSignedAffidavit] = useState(false); // Tracks if uploading a signed affidavit
 
   const location = useLocation();
-  const { companySettings, refreshData } = useGlobalData();
+  const { jobs: contextJobs, clients: contextClients, employees: contextEmployees, companySettings, refreshData } = useGlobalData();
 
   // --- "Dirty" State Checks ---
   // These useMemo hooks compare the original data with the data in the edit form
@@ -656,8 +665,11 @@ export default function JobDetailsPage() {
    * - `Employee.list()` becomes `getDocs(collection(db, 'employees'))`.
    * You'll use `Promise.all` in a similar way but with Firebase's async functions.
    */
-  const loadJobDetails = useCallback(async (jobId) => {
-    setIsLoading(true);
+  const loadJobDetails = useCallback(async (jobId, skipLoading = false) => {
+    // Only show loading skeleton if skipLoading is false (i.e., not pre-populated from context)
+    if (!skipLoading) {
+      setIsLoading(true);
+    }
     setError(null);
     try {
       // FIREBASE TRANSITION: Replace with `getDoc(doc(db, 'jobs', jobId))`
@@ -700,6 +712,7 @@ export default function JobDetailsPage() {
 
       setClient(clientData);
       setCourtCase(courtCaseData);
+      setIsLoadingCourtCase(false); // Clear loading state after court case is loaded
       setDocuments(Array.isArray(documentsData) ? documentsData : []);
 
       // Auto-sync: Check if job has signed affidavits but flag isn't set
@@ -811,6 +824,58 @@ export default function JobDetailsPage() {
   }, []);
 
   /**
+   * Pre-populate job data from GlobalDataContext for instant display.
+   * This eliminates the skeleton flash when navigating from the Jobs list.
+   */
+  useEffect(() => {
+    const urlParams = new URLSearchParams(location.search);
+    const jobId = urlParams.get('id');
+
+    if (jobId && contextJobs && contextJobs.length > 0) {
+      // Look for the job in the context
+      const jobFromContext = contextJobs.find(j => j.id === jobId);
+
+      if (jobFromContext) {
+        // Immediately set the job data to avoid skeleton flash
+        setJob(jobFromContext);
+        setJobNotes(jobFromContext.notes || '');
+
+        // Pre-populate client if available in context
+        if (jobFromContext.client_id && contextClients) {
+          const clientFromContext = contextClients.find(c => c.id === jobFromContext.client_id);
+          if (clientFromContext) {
+            setClient(clientFromContext);
+          }
+        }
+
+        // Pre-populate employees from context
+        if (contextEmployees && contextEmployees.length > 0) {
+          setAllEmployees(contextEmployees);
+        }
+
+        // Pre-populate attempts from job if available
+        if (Array.isArray(jobFromContext.attempts) && jobFromContext.attempts.length > 0) {
+          setAttempts(jobFromContext.attempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date)));
+        }
+
+        // Set loading state for court case if job has one (will be loaded async)
+        if (jobFromContext.court_case_id) {
+          setIsLoadingCourtCase(true);
+        }
+
+        // Hide loading since we have data to show
+        setIsLoading(false);
+
+        // Mark that we pre-populated from context
+        jobPrePopulatedRef.current = true;
+      }
+    } else {
+      // Reset the ref if we don't have context data
+      jobPrePopulatedRef.current = false;
+    }
+  }, [location.search, contextJobs, contextClients, contextEmployees]);
+
+  /**
    * This effect runs on component mount. It fetches the current user, gets the job ID from the URL,
    * and triggers the initial data load.
    * FIREBASE TRANSITION: Replace `User.me()` with Firebase Auth's `onAuthStateChanged` or `auth.currentUser`.
@@ -862,7 +927,10 @@ export default function JobDetailsPage() {
     if (jobId) {
       // Only load job details if user is available (for company_id filtering)
       if (user?.company_id) {
-        loadJobDetails(jobId);
+        // If job was pre-populated from context, skip showing loading skeleton
+        loadJobDetails(jobId, jobPrePopulatedRef.current);
+        // Reset the ref after using it
+        jobPrePopulatedRef.current = false;
       } else {
         // Wait for user to be loaded
         setIsLoading(true);
@@ -1132,6 +1200,28 @@ export default function JobDetailsPage() {
               received_at: new Date().toISOString()
             }));
             await Document.bulkCreate(documentsToCreate);
+          }
+
+          // Find documents to update (existing documents with changes)
+          const docsToUpdate = editedDocuments.filter(editedDoc => {
+            if (!editedDoc.id || editedDoc.id.startsWith('upload-') || editedDoc.id.startsWith('manual-')) {
+              return false; // Skip new documents
+            }
+            // Find the original version
+            const originalDoc = originalDocs.find(od => od.id === editedDoc.id);
+            if (!originalDoc) return false;
+
+            // Check if affidavit_text or title changed
+            return editedDoc.affidavit_text !== originalDoc.affidavit_text ||
+                   editedDoc.title !== originalDoc.title;
+          });
+
+          // Update modified documents
+          for (const doc of docsToUpdate) {
+            await Document.update(doc.id, {
+              affidavit_text: doc.affidavit_text,
+              title: doc.title
+            });
           }
 
           // Reload job details to refresh documents
@@ -2021,7 +2111,16 @@ export default function JobDetailsPage() {
                       <Label className="text-xs text-slate-500">Client</Label>
                       <p className="font-semibold flex items-center gap-2">
                         <Building2 className="w-4 h-4"/>
-                        {client?.company_name || 'N/A'}
+                        {client?.id ? (
+                          <Link
+                            to={createPageUrl(`ClientDetails?id=${client.id}`)}
+                            className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                          >
+                            {client.company_name}
+                          </Link>
+                        ) : (
+                          'N/A'
+                        )}
                       </p>
 
                       <div className="mt-3">
@@ -2915,24 +3014,61 @@ export default function JobDetailsPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-start">
-                      <span className="text-slate-600 text-sm">Case Number:</span>
-                      <span className="font-medium text-sm text-right">{courtCase?.case_number || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between items-start">
-                      <span className="text-slate-600 text-sm">Court:</span>
-                      <span className="font-medium text-sm text-right">{courtCase?.court_name || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between items-start">
-                      <span className="text-slate-600 text-sm">Plaintiff:</span>
-                      <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.plaintiff || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between items-start">
-                      <span className="text-slate-600 text-sm">Defendant:</span>
-                      <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.defendant || 'N/A'}</span>
-                    </div>
-                  </div>
+                  <AnimatePresence mode="wait">
+                    {isLoadingCourtCase ? (
+                      <motion.div
+                        key="skeleton"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="space-y-3"
+                      >
+                        <div className="flex justify-between items-start">
+                          <Skeleton className="h-4 w-24" />
+                          <Skeleton className="h-4 w-32" />
+                        </div>
+                        <div className="flex justify-between items-start">
+                          <Skeleton className="h-4 w-20" />
+                          <Skeleton className="h-4 w-40" />
+                        </div>
+                        <div className="flex justify-between items-start">
+                          <Skeleton className="h-4 w-20" />
+                          <Skeleton className="h-4 w-36" />
+                        </div>
+                        <div className="flex justify-between items-start">
+                          <Skeleton className="h-4 w-24" />
+                          <Skeleton className="h-4 w-36" />
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="content"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.3 }}
+                        className="space-y-3"
+                      >
+                        <div className="flex justify-between items-start">
+                          <span className="text-slate-600 text-sm">Case Number:</span>
+                          <span className="font-medium text-sm text-right">{courtCase?.case_number || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between items-start">
+                          <span className="text-slate-600 text-sm">Court:</span>
+                          <span className="font-medium text-sm text-right">{courtCase?.court_name || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between items-start">
+                          <span className="text-slate-600 text-sm">Plaintiff:</span>
+                          <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.plaintiff || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between items-start">
+                          <span className="text-slate-600 text-sm">Defendant:</span>
+                          <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.defendant || 'N/A'}</span>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 )}
               </CardContent>
             </Card>
@@ -3008,7 +3144,12 @@ export default function JobDetailsPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="space-y-3">
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.3 }}
+                    className="space-y-3"
+                  >
                     <div className="flex justify-between items-center">
                       <span className="text-slate-600 text-sm">Priority:</span>
                       <Badge className={priorityConfig[job.priority]?.color || "bg-slate-100"}>
@@ -3033,7 +3174,7 @@ export default function JobDetailsPage() {
                         <p className="text-sm text-slate-700 mt-1">{job.first_attempt_instructions}</p>
                       </div>
                     )}
-                  </div>
+                  </motion.div>
                 )}
               </CardContent>
             </Card>

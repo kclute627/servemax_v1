@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { AffidavitTemplate, SystemAffidavitTemplate } from "@/api/entities";
+import { SystemAffidavitTemplate } from "@/api/entities";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useGlobalData } from "@/components/GlobalDataContext";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,9 @@ import { Plus, Trash2, Edit, Copy, FileText, Globe, Building, HelpCircle } from 
 import { useToast } from "@/components/ui/use-toast";
 import { isSuperAdmin } from "@/utils/permissions";
 import { getAvailablePlaceholders } from "@/utils/templateEngine";
+import { STARTER_TEMPLATES } from "@/utils/starterTemplates";
+import { db } from "@/firebase/config";
+import { setDoc, doc, getDoc } from "firebase/firestore";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,31 +34,110 @@ export default function AffidavitTemplatesPanel() {
   const { companyData } = useGlobalData();
   const { toast } = useToast();
 
-  const [systemTemplates, setSystemTemplates] = useState([]);
-  const [companyTemplates, setCompanyTemplates] = useState([]);
+  const [allTemplates, setAllTemplates] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [viewSystemTemplates, setViewSystemTemplates] = useState(false);
   const [templateToDelete, setTemplateToDelete] = useState(null);
+  const [viewTemplate, setViewTemplate] = useState(null);
 
   // Check if user is super admin
   const isUserSuperAdmin = isSuperAdmin(user);
 
   useEffect(() => {
     loadTemplates();
-  }, [companyData, viewSystemTemplates]);
+  }, [companyData]);
+
+  const seedSystemTemplates = async () => {
+    console.log("Seeding system templates from starter templates...");
+    try {
+      const templateKeys = Object.keys(STARTER_TEMPLATES);
+      let createdCount = 0;
+      let skippedCount = 0;
+
+      for (const key of templateKeys) {
+        // Check if template already exists
+        const templateRef = doc(db, 'system_affidavit_templates', key);
+        const existingTemplate = await getDoc(templateRef);
+
+        const templateData = {
+          name: STARTER_TEMPLATES[key].name,
+          description: STARTER_TEMPLATES[key].description,
+          service_status: STARTER_TEMPLATES[key].service_status,
+          template_mode: 'html',
+          html_content: STARTER_TEMPLATES[key].html,
+          jurisdiction: key === 'illinois' ? 'Illinois' :
+                        key === 'california' ? 'California' :
+                        key === 'ao440_federal' ? 'Federal' :
+                        'General',
+          who_can_see: 'everyone', // System templates visible to all
+          is_active: STARTER_TEMPLATES[key].is_active !== undefined ? STARTER_TEMPLATES[key].is_active : true,
+          updated_at: new Date().toISOString()
+        };
+
+        if (existingTemplate.exists()) {
+          // Update existing template (preserves created_at)
+          await setDoc(templateRef, templateData, { merge: true });
+          console.log(`Updated system template: ${templateData.name} with ID: ${key}`);
+          skippedCount++;
+        } else {
+          // Create new template
+          templateData.created_at = new Date().toISOString();
+          await setDoc(templateRef, templateData);
+          console.log(`Created system template: ${templateData.name} with ID: ${key}`);
+          createdCount++;
+        }
+      }
+
+      toast({
+        title: "System Templates Seeded",
+        description: `Created ${createdCount} new template(s), updated ${skippedCount} existing template(s)`,
+      });
+
+      return true;
+    } catch (error) {
+      console.error("Error seeding system templates:", error);
+      toast({
+        title: "Error",
+        description: "Failed to seed system templates",
+        variant: "destructive",
+      });
+      return false;
+    }
+  };
 
   const loadTemplates = async () => {
     setIsLoading(true);
     try {
-      // Load system templates
-      const systemTmpl = await SystemAffidavitTemplate.list();
-      setSystemTemplates(systemTmpl || []);
+      // Load all templates from system_affidavit_templates
+      // Firestore rules will filter based on who_can_see
+      const templates = await SystemAffidavitTemplate.list();
 
-      // Load company-specific templates if not viewing system templates
-      if (!viewSystemTemplates && companyData?.id) {
-        const companyTmpl = await AffidavitTemplate.filter({ company_id: companyData.id });
-        setCompanyTemplates(companyTmpl || []);
+      console.log('=== LOAD TEMPLATES DEBUG ===');
+      console.log('Templates count:', templates?.length || 0);
+      console.log('Templates:', templates?.map(t => ({ id: t.id, name: t.name, who_can_see: t.who_can_see })) || []);
+      console.log('========================');
+
+      // Auto-seed system templates if none exist and user is super admin
+      if ((!templates || templates.length === 0) && isUserSuperAdmin) {
+        console.log("No templates found, seeding...");
+        const seeded = await seedSystemTemplates();
+        if (seeded) {
+          // Reload templates after seeding
+          const reloadedTemplates = await SystemAffidavitTemplate.list();
+          console.log('Reloaded templates after seeding:', reloadedTemplates?.map(t => ({ id: t.id, name: t.name, who_can_see: t.who_can_see })) || []);
+          setAllTemplates(reloadedTemplates || []);
+        }
+      } else {
+        // Client-side filter for extra safety (though Firestore rules handle this)
+        const filteredTemplates = templates?.filter(template => {
+          if (template.who_can_see === 'everyone') return true;
+          if (Array.isArray(template.who_can_see) && companyData?.id) {
+            return template.who_can_see.includes(companyData.id);
+          }
+          return false;
+        }) || [];
+
+        setAllTemplates(filteredTemplates);
       }
     } catch (error) {
       console.error("Error loading templates:", error);
@@ -74,7 +156,17 @@ export default function AffidavitTemplatesPanel() {
   };
 
   const handleEdit = (template) => {
+    console.log('=== EDIT TEMPLATE DEBUG ===');
+    console.log('Template object:', template);
+    console.log('Template ID:', template.id);
+    console.log('Navigate URL:', `/settings/templates/edit/${template.id}`);
+    console.log('========================');
     navigate(`/settings/templates/edit/${template.id}`);
+  };
+
+  const handleView = (template) => {
+    console.log('Viewing template:', template);
+    setViewTemplate(template);
   };
 
   const handleDuplicate = async (template) => {
@@ -89,14 +181,16 @@ export default function AffidavitTemplatesPanel() {
         description: template.description || '',
         template_mode: template.template_mode || 'simple',
         html_content: template.html_content || '',
+        service_status: template.service_status || 'both',
         include_notary_default: template.include_notary_default || false,
         include_company_info_default: template.include_company_info_default || false,
-        company_id: companyData?.id,
+        who_can_see: companyData?.id ? [companyData.id] : [], // Company-specific duplicate
+        is_active: true,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
 
-      await AffidavitTemplate.create(templateData);
+      await SystemAffidavitTemplate.create(templateData);
 
       toast({
         title: "Success",
@@ -118,8 +212,7 @@ export default function AffidavitTemplatesPanel() {
     if (!templateToDelete) return;
 
     try {
-      const entity = templateToDelete.isSystem ? SystemAffidavitTemplate : AffidavitTemplate;
-      await entity.delete(templateToDelete.id);
+      await SystemAffidavitTemplate.delete(templateToDelete.id);
 
       toast({
         title: "Success",
@@ -139,26 +232,47 @@ export default function AffidavitTemplatesPanel() {
     }
   };
 
-  const handleDelete = (template, isSystem = false) => {
-    setTemplateToDelete({ ...template, isSystem });
+  const handleDelete = (template) => {
+    // Check if user has permission to delete
+    const canDelete = isUserSuperAdmin ||
+                     (Array.isArray(template.who_can_see) &&
+                      template.who_can_see.includes(companyData?.id));
+
+    if (!canDelete) {
+      toast({
+        title: "Permission Denied",
+        description: "You don't have permission to delete this template",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setTemplateToDelete(template);
     setDeleteDialogOpen(true);
   };
 
-  const TemplateCard = ({ template, isSystem = false }) => (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <CardTitle className="text-lg">{template.name}</CardTitle>
-              <Badge variant={isSystem ? "default" : "secondary"}>
-                {isSystem ? (
-                  <><Globe className="w-3 h-3 mr-1" />System</>
-                ) : (
-                  <><Building className="w-3 h-3 mr-1" />Custom</>
-                )}
-              </Badge>
-            </div>
+  const TemplateCard = ({ template }) => {
+    const isSystemTemplate = template.who_can_see === 'everyone';
+    const canEdit = isSystemTemplate ? isUserSuperAdmin : true;
+    const canDelete = isSystemTemplate ? isUserSuperAdmin :
+                     (Array.isArray(template.who_can_see) &&
+                      template.who_can_see.includes(companyData?.id));
+
+    return (
+      <Card className="hover:shadow-md transition-shadow">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <CardTitle className="text-lg">{template.name}</CardTitle>
+                <Badge variant={isSystemTemplate ? "default" : "secondary"}>
+                  {isSystemTemplate ? (
+                    <><Globe className="w-3 h-3 mr-1" />System</>
+                  ) : (
+                    <><Building className="w-3 h-3 mr-1" />Custom</>
+                  )}
+                </Badge>
+              </div>
             <div className="flex items-center gap-2 text-sm text-slate-600">
               <Badge variant="outline" className="font-mono">
                 {template.jurisdiction}
@@ -180,7 +294,16 @@ export default function AffidavitTemplatesPanel() {
           )}
         </div>
         <div className="flex gap-2">
-          {!isSystem && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleView(template)}
+            className="gap-1"
+          >
+            <FileText className="w-3 h-3" />
+            View
+          </Button>
+          {canEdit && (
             <Button
               variant="outline"
               size="sm"
@@ -200,45 +323,26 @@ export default function AffidavitTemplatesPanel() {
             <Copy className="w-3 h-3" />
             Duplicate
           </Button>
-          {!isSystem && (
+          {canDelete && (
             <Button
               variant="outline"
               size="sm"
-              onClick={() => handleDelete(template, false)}
+              onClick={() => handleDelete(template)}
               className="gap-1 text-red-600 hover:text-red-700"
             >
               <Trash2 className="w-3 h-3" />
               Delete
             </Button>
           )}
-          {isSystem && isUserSuperAdmin && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleEdit(template)}
-                className="gap-1"
-              >
-                <Edit className="w-3 h-3" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDelete(template, true)}
-                className="gap-1 text-red-600 hover:text-red-700"
-              >
-                <Trash2 className="w-3 h-3" />
-                Delete
-              </Button>
-            </>
-          )}
         </div>
       </CardContent>
     </Card>
-  );
+    );
+  };
 
-  const templatesToDisplay = viewSystemTemplates ? systemTemplates : companyTemplates;
+  // Separate templates into system and custom for display
+  const systemTemplates = allTemplates.filter(t => t.who_can_see === 'everyone');
+  const customTemplates = allTemplates.filter(t => t.who_can_see !== 'everyone');
 
   return (
     <div className="space-y-6">
@@ -247,23 +351,23 @@ export default function AffidavitTemplatesPanel() {
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Affidavit Templates</h2>
           <p className="text-slate-600 mt-1">
-            {viewSystemTemplates
-              ? "Manage system-wide default templates available to all companies"
-              : "Manage custom templates for your company"}
+            Manage system-wide and custom templates for generating affidavits
           </p>
         </div>
         <div className="flex items-center gap-3">
           {isUserSuperAdmin && (
-            <div className="flex items-center gap-2">
-              <Switch
-                id="system-templates"
-                checked={viewSystemTemplates}
-                onCheckedChange={setViewSystemTemplates}
-              />
-              <Label htmlFor="system-templates" className="cursor-pointer">
-                System Templates
-              </Label>
-            </div>
+            <Button
+              onClick={async () => {
+                const seeded = await seedSystemTemplates();
+                if (seeded) {
+                  loadTemplates();
+                }
+              }}
+              variant="outline"
+              className="gap-2"
+            >
+              Seed Templates
+            </Button>
           )}
           <Button onClick={handleCreate} className="gap-2">
             <Plus className="w-4 h-4" />
@@ -300,14 +404,14 @@ export default function AffidavitTemplatesPanel() {
       {/* Templates Grid */}
       {isLoading ? (
         <div className="text-center py-12 text-slate-500">Loading templates...</div>
-      ) : templatesToDisplay.length === 0 ? (
+      ) : allTemplates.length === 0 ? (
         <Card className="py-12">
           <CardContent className="text-center">
             <FileText className="w-12 h-12 mx-auto text-slate-400 mb-4" />
             <h3 className="text-lg font-semibold text-slate-900 mb-2">No Templates Yet</h3>
             <p className="text-slate-600 mb-4">
-              {viewSystemTemplates
-                ? "Create system templates that will be available to all companies"
+              {isUserSuperAdmin
+                ? "Click 'Seed Templates' to create system templates, or create custom templates"
                 : "Create custom templates or duplicate system templates to get started"}
             </p>
             <Button onClick={handleCreate} className="gap-2">
@@ -318,7 +422,7 @@ export default function AffidavitTemplatesPanel() {
         </Card>
       ) : (
         <>
-          {!viewSystemTemplates && systemTemplates.length > 0 && (
+          {systemTemplates.length > 0 && (
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-slate-700 flex items-center gap-2">
                 <Globe className="w-5 h-5" />
@@ -326,31 +430,23 @@ export default function AffidavitTemplatesPanel() {
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {systemTemplates.map((template) => (
-                  <TemplateCard key={template.id} template={template} isSystem={true} />
+                  <TemplateCard key={template.id} template={template} />
                 ))}
               </div>
             </div>
           )}
 
-          {!viewSystemTemplates && companyTemplates.length > 0 && (
+          {customTemplates.length > 0 && (
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-slate-700 flex items-center gap-2">
                 <Building className="w-5 h-5" />
                 My Company Templates
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {companyTemplates.map((template) => (
-                  <TemplateCard key={template.id} template={template} isSystem={false} />
+                {customTemplates.map((template) => (
+                  <TemplateCard key={template.id} template={template} />
                 ))}
               </div>
-            </div>
-          )}
-
-          {viewSystemTemplates && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {systemTemplates.map((template) => (
-                <TemplateCard key={template.id} template={template} isSystem={true} />
-              ))}
             </div>
           )}
         </>
@@ -370,6 +466,40 @@ export default function AffidavitTemplatesPanel() {
             <AlertDialogAction onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700">
               Delete
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* View Template Dialog */}
+      <AlertDialog open={!!viewTemplate} onOpenChange={() => setViewTemplate(null)}>
+        <AlertDialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{viewTemplate?.name}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {viewTemplate?.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-sm font-semibold">Jurisdiction</Label>
+              <p className="text-sm text-slate-600">{viewTemplate?.jurisdiction || 'N/A'}</p>
+            </div>
+            <div>
+              <Label className="text-sm font-semibold">Template Mode</Label>
+              <p className="text-sm text-slate-600">{viewTemplate?.template_mode || 'html'}</p>
+            </div>
+            <div>
+              <Label className="text-sm font-semibold">HTML Content</Label>
+              <Textarea
+                value={viewTemplate?.html_content || ''}
+                readOnly
+                rows={20}
+                className="font-mono text-xs"
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

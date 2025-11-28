@@ -72,6 +72,15 @@ export default function GenerateAffidavitPage() {
       ]);
 
       console.log('[LoadData] Final attempts array:', attemptsData);
+      console.log('[LoadData] Documents loaded:', documentsData);
+      console.log('[LoadData] Documents count:', documentsData?.length || 0);
+      if (documentsData && documentsData.length > 0) {
+        console.log('[LoadData] Document categories:', documentsData.map(d => ({
+          title: d.title,
+          category: d.document_category,
+          affidavit_text: d.affidavit_text
+        })));
+      }
 
       setJob(jobData);
       setClient(clientData);
@@ -141,32 +150,27 @@ export default function GenerateAffidavitPage() {
         isSystem: false
       }));
 
-      // Merge both lists
-      const allTemplates = [...systemTemplatesWithFlag, ...companyTemplatesWithFlag];
+      // Merge both lists and filter by is_active
+      const allTemplates = [...systemTemplatesWithFlag, ...companyTemplatesWithFlag]
+        .filter(t => t.is_active !== false); // Show templates where is_active is true or undefined
 
       if (allTemplates.length > 0) {
         setAffidavitTemplates(allTemplates);
       } else {
-        // Fallback: use a few defaults if no templates exist
+        // Fallback: use only active templates if no templates exist
         const fallbackTemplates = [
           { id: 'standard', name: 'Standard Affidavit Template', jurisdiction: 'General', isSystem: true },
           { id: 'ao440_federal', name: 'AO 440 Federal Proof of Service', jurisdiction: 'Federal', isSystem: true },
-          { id: 'illinois', name: 'Illinois – Circuit Court Affidavit', jurisdiction: 'IL', isSystem: true },
-          { id: 'california', name: 'California Proof of Service', jurisdiction: 'CA', isSystem: true },
-          { id: 'due_diligence', name: 'Due Diligence with Attempts Table', jurisdiction: 'General', isSystem: true },
         ].map(enrichFallbackTemplate);
 
         setAffidavitTemplates(fallbackTemplates);
       }
     } catch (err) {
       console.error("Error loading affidavit templates:", err);
-      // Fallback: use a few defaults
+      // Fallback: use only active templates
       const fallbackTemplates = [
         { id: 'standard', name: 'Standard Affidavit Template', jurisdiction: 'General', isSystem: true },
         { id: 'ao440_federal', name: 'AO 440 Federal Proof of Service', jurisdiction: 'Federal', isSystem: true },
-        { id: 'illinois', name: 'Illinois – Circuit Court Affidavit', jurisdiction: 'IL', isSystem: true },
-        { id: 'california', name: 'California Proof of Service', jurisdiction: 'CA', isSystem: true },
-        { id: 'due_diligence', name: 'Due Diligence with Attempts Table', jurisdiction: 'General', isSystem: true },
       ].map(enrichFallbackTemplate);
 
       setAffidavitTemplates(fallbackTemplates);
@@ -209,7 +213,11 @@ export default function GenerateAffidavitPage() {
     console.log('Company Info from state:', companyInfo);
     console.log('Company Data from context:', companyData);
 
+    console.log('[GenerateAffidavit] All documents before filtering:', documents);
+    console.log('[GenerateAffidavit] Documents count:', documents?.length || 0);
     const serviceDocuments = documents.filter(doc => doc.document_category === 'to_be_served');
+    console.log('[GenerateAffidavit] Service documents after filtering:', serviceDocuments);
+    console.log('[GenerateAffidavit] Service documents count:', serviceDocuments.length);
 
     let serverName = 'ServeMax Agent';
     let serverLicense = '';
@@ -269,15 +277,24 @@ export default function GenerateAffidavitPage() {
       status: job.status,
       document_title: defaultTitle,
       recipient_name: job.recipient?.name || '',
-      court_name: courtCase?.court_name || '',
-      court_county: courtCase?.court_county || '',
-      court_state: 'CA',
-      case_caption: courtCase ? `${courtCase.plaintiff} v. ${courtCase.defendant}` : '',
-      case_number: courtCase?.case_number || '',
-      documents_served: serviceDocuments.map(doc => ({ title: doc.affidavit_text || doc.title })),
+      // Court-related fields - prioritize job-level, then courtCase reference
+      court_name: job.court_name || courtCase?.court_name || '',
+      full_court_name: job.full_court_name || job.court_name || courtCase?.court_name || '',
+      court_county: job.court_county || courtCase?.court_county || '',
+      court_state: job.court_state || courtCase?.court_state || 'CA',
+      case_number: job.case_number || courtCase?.case_number || '',
+      // Direct plaintiff/defendant fields - prioritize job-level, then courtCase, then extract from caption
+      plaintiff: job.plaintiff || courtCase?.plaintiff || '',
+      defendant: job.defendant || courtCase?.defendant || '',
+      case_caption: `${job.plaintiff || courtCase?.plaintiff || ''} v. ${job.defendant || courtCase?.defendant || ''}`,
+      documents_served: serviceDocuments.map(doc => ({ title: doc.affidavit_text || doc.title || 'Untitled Document' })),
       service_date: latestServedAttempt?.attempt_date || '',
       service_time: latestServedAttempt?.attempt_date ? format(new Date(latestServedAttempt.attempt_date), 'h:mm a') : '',
       service_address: latestServedAttempt?.address_of_attempt || (job.addresses && job.addresses[0] ? `${job.addresses[0].address1}, ${job.addresses[0].city}, ${job.addresses[0].state} ${job.addresses[0].postal_code}` : ''),
+      // Date when job was created (documents received)
+      job_created_date: job.created_at || '',
+      // Primary service address (where documents were directed)
+      recipient_address: job.addresses && job.addresses[0] ? `${job.addresses[0].address1}, ${job.addresses[0].city}, ${job.addresses[0].state} ${job.addresses[0].postal_code}` : '',
       service_manner: latestServedAttempt?.service_type_detail ? (latestServedAttempt.service_type_detail.toLowerCase().includes('personal') ? 'personal' : latestServedAttempt.service_type_detail.toLowerCase().includes('substitute') ? 'substitute_abode' : latestServedAttempt.service_type_detail.toLowerCase().includes('corporate') ? 'corporate_agent' : 'other') : (job.status === 'served' ? 'personal' : 'non_service'),
       person_served_name: latestServedAttempt?.person_served_name || '',
       person_relationship: latestServedAttempt?.relationship_to_recipient || '',
@@ -361,6 +378,7 @@ export default function GenerateAffidavitPage() {
         ...data,
         // Preserve user-added data that should never be overwritten
         placed_signature: prev?.placed_signature || data.placed_signature,
+        html_content_edited: prev?.html_content_edited, // Preserve user edits
       };
 
       console.log('[GenerateAffidavit] affidavitData UPDATE:');

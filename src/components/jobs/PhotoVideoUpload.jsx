@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { UploadFile } from "@/api/integrations";
 import { Document } from "@/api/entities";
+import { FirebaseAuth } from "@/firebase/auth";
 import { Button } from "@/components/ui/button";
 import {
   Upload,
@@ -58,6 +59,12 @@ export default function PhotoVideoUpload({ jobId, existingFiles = [], onUploadSu
     setIsUploading(true);
 
     try {
+      // Get current user's company_id for document creation
+      const currentUser = await FirebaseAuth.me();
+      if (!currentUser?.company_id) {
+        throw new Error('No company associated with user');
+      }
+
       const uploadPromises = validFiles.map(async (file) => {
         // Extract comprehensive metadata from the file
         console.log(`Extracting metadata from ${file.name}...`);
@@ -71,6 +78,7 @@ export default function PhotoVideoUpload({ jobId, existingFiles = [], onUploadSu
         // Create a document record in Firestore with full metadata
         const documentData = {
           job_id: jobId,
+          company_id: currentUser.company_id,
           title: file.name,
           file_url: url,
           file_size: file.size,

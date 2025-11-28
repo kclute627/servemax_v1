@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,12 +18,12 @@ import { getStarterTemplatesList, getStarterTemplate } from '@/utils/starterTemp
 import { db } from '@/firebase/config';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useGlobalData } from '@/components/GlobalDataContext';
+import { isSuperAdmin } from '@/utils/permissions';
 
 export default function TemplateEditor() {
   const navigate = useNavigate();
   const { templateId } = useParams();
-  const [searchParams] = useSearchParams();
-  const { companyData } = useGlobalData();
+  const { companyData, user } = useGlobalData();
   const isEditMode = !!templateId;
 
   const [formData, setFormData] = useState({
@@ -37,7 +37,7 @@ export default function TemplateEditor() {
     body: '',
     footer_text: '',
     service_status: 'both',
-    is_system_template: false,
+    who_can_see: companyData?.id ? [companyData.id] : 'everyone', // Default to company-specific
     is_active: true,
   });
 
@@ -54,18 +54,26 @@ export default function TemplateEditor() {
   const loadTemplate = async () => {
     setLoading(true);
     try {
-      const templateRef = doc(db, 'affidavit_templates', templateId);
+      console.log('=== LOAD TEMPLATE DEBUG ===');
+      console.log('Template ID from URL:', templateId);
+      console.log('Collection: system_affidavit_templates');
+      console.log('Document Path:', `system_affidavit_templates/${templateId}`);
+      console.log('=========================');
+
+      const templateRef = doc(db, 'system_affidavit_templates', templateId);
       const templateSnap = await getDoc(templateRef);
 
+      console.log('Template exists:', templateSnap.exists());
       if (templateSnap.exists()) {
+        console.log('Template data:', templateSnap.data());
         setFormData({
           ...templateSnap.data(),
-          is_system_template: templateSnap.data().is_system_template || false,
           is_active: templateSnap.data().is_active !== false,
         });
       } else {
+        console.error('Template NOT FOUND at path:', `system_affidavit_templates/${templateId}`);
         alert('Template not found');
-        navigate('/settings');
+        navigate('/Settings');
       }
     } catch (error) {
       console.error('Error loading template:', error);
@@ -96,24 +104,32 @@ export default function TemplateEditor() {
     try {
       const templateData = {
         ...formData,
-        company_id: companyData?.id || null,
         updated_at: serverTimestamp(),
       };
 
+      // Ensure who_can_see is set properly for new templates
+      if (!isEditMode) {
+        // For new templates, check if super admin is creating a system template
+        // or if it's a company-specific template
+        if (!templateData.who_can_see) {
+          templateData.who_can_see = companyData?.id ? [companyData.id] : 'everyone';
+        }
+      }
+
       if (isEditMode) {
         // Update existing template
-        const templateRef = doc(db, 'affidavit_templates', templateId);
+        const templateRef = doc(db, 'system_affidavit_templates', templateId);
         await updateDoc(templateRef, templateData);
       } else {
         // Create new template
-        const templateRef = doc(db, 'affidavit_templates');
+        const templateRef = doc(db, 'system_affidavit_templates');
         await setDoc(templateRef, {
           ...templateData,
           created_at: serverTimestamp(),
         });
       }
 
-      navigate('/settings');
+      navigate('/Settings');
     } catch (error) {
       console.error('Error saving template:', error);
       alert('Failed to save template');
@@ -124,7 +140,7 @@ export default function TemplateEditor() {
 
   const handleCancel = () => {
     if (confirm('Are you sure you want to cancel? Unsaved changes will be lost.')) {
-      navigate('/settings');
+      navigate('/Settings');
     }
   };
 
@@ -163,7 +179,7 @@ export default function TemplateEditor() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate('/settings')}
+            onClick={() => navigate('/Settings')}
             className="gap-2"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -418,16 +434,21 @@ export default function TemplateEditor() {
                 </Label>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="is_system_template"
-                  checked={formData.is_system_template}
-                  onCheckedChange={(checked) => setFormData({ ...formData, is_system_template: checked })}
-                />
-                <Label htmlFor="is_system_template" className="font-normal cursor-pointer">
-                  System Template (available to all companies)
-                </Label>
-              </div>
+              {isSuperAdmin(user) && (
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="is_system_template"
+                    checked={formData.who_can_see === 'everyone'}
+                    onCheckedChange={(checked) => setFormData({
+                      ...formData,
+                      who_can_see: checked ? 'everyone' : (companyData?.id ? [companyData.id] : [])
+                    })}
+                  />
+                  <Label htmlFor="is_system_template" className="font-normal cursor-pointer">
+                    System Template (available to all companies)
+                  </Label>
+                </div>
+              )}
             </div>
           </div>
         </div>

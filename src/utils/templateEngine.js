@@ -59,6 +59,70 @@ Handlebars.registerHelper('lowercase', function(str) {
   return str.toLowerCase();
 });
 
+/**
+ * Format service manner for display
+ * Converts snake_case to Title Case (e.g., 'personal' -> 'Personal', 'sub_service' -> 'Sub-Service')
+ * Usage: {{formatServiceManner service_manner}}
+ */
+Handlebars.registerHelper('formatServiceManner', function(manner) {
+  if (!manner) return '';
+  if (manner === 'other') return '';
+
+  // Convert snake_case to Title Case
+  return manner
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, l => l.toUpperCase());
+});
+
+/**
+ * Build person description from available fields
+ * Includes: sex, age, height, weight, hair, relationship, custom description
+ * Only includes fields that have values
+ * Usage: {{buildPersonDescription person_sex person_age person_height person_weight person_hair person_relationship person_description_other}}
+ */
+Handlebars.registerHelper('buildPersonDescription', function(sex, age, height, weight, hair, relationship, description) {
+  const parts = [];
+
+  if (sex) parts.push(sex);
+  if (age) parts.push(`${age} years old`);
+  if (height) parts.push(height);
+  if (weight) parts.push(weight);
+  if (hair) parts.push(`${hair} hair`);
+  if (relationship) parts.push(relationship);
+  if (description) parts.push(description);
+
+  return parts.join(', ');
+});
+
+/**
+ * Smart truncation for party names (plaintiff/defendant)
+ * Truncates to maxLength but ensures complete names only
+ * Adds 'et al.' when truncated
+ * Usage: {{truncateParties plaintiff 300}}
+ */
+Handlebars.registerHelper('truncateParties', function(text, maxLength = 300) {
+  if (!text) return '';
+
+  // If under limit, return as-is
+  if (text.length <= maxLength) return text;
+
+  // Find last complete name (assume comma, semicolon, or 'and' separation)
+  let truncated = text.substring(0, maxLength);
+
+  // Find last comma, semicolon, or ' and ' before the cutoff
+  const lastComma = truncated.lastIndexOf(',');
+  const lastSemicolon = truncated.lastIndexOf(';');
+  const lastAnd = truncated.lastIndexOf(' and ');
+
+  const lastSeparator = Math.max(lastComma, lastSemicolon, lastAnd);
+
+  if (lastSeparator > 0) {
+    truncated = text.substring(0, lastSeparator);
+  }
+
+  return truncated.trim() + ' et al.';
+});
+
 // Advanced Formatting Helpers
 
 /**
@@ -230,15 +294,17 @@ export const replacePlaceholders = (template, data) => {
     '{{document_title}}': data.document_title || 'AFFIDAVIT OF SERVICE',
     '{{server_name}}': data.server_name || '',
     '{{server_license_number}}': data.server_license_number || '',
+    '{{include_notary}}': data.include_notary || false,
 
     // Court/Case info
     '{{case_number}}': data.case_number || '',
     '{{court_name}}': data.court_name || '',
+    '{{full_court_name}}': data.full_court_name || data.court_name || '',
     '{{court_county}}': data.court_county || '',
     '{{court_state}}': data.court_state || '',
     '{{case_caption}}': data.case_caption || '',
-    '{{plaintiff}}': data.case_caption ? data.case_caption.split('v.')[0]?.trim() : '',
-    '{{defendant}}': data.case_caption ? data.case_caption.split('v.')[1]?.trim() : '',
+    '{{plaintiff}}': data.plaintiff || (data.case_caption ? data.case_caption.split('v.')[0]?.trim() : ''),
+    '{{defendant}}': data.defendant || (data.case_caption ? data.case_caption.split('v.')[1]?.trim() : ''),
 
     // Service details
     '{{service_date}}': data.service_date ? formatServiceDate(data.service_date) : '',
@@ -247,11 +313,16 @@ export const replacePlaceholders = (template, data) => {
     '{{service_address}}': data.service_address || '',
     '{{service_manner}}': formatServiceManner(data.service_manner),
     '{{service_manner_raw}}': data.service_manner || '',
+    '{{mailing_date}}': data.mailing_date ? formatServiceDate(data.mailing_date) : '',
 
     // Recipient info
     '{{recipient_name}}': data.recipient_name || '',
+    '{{recipient_address}}': data.recipient_address || data.service_address || '',
     '{{person_served_name}}': data.person_served_name || '',
     '{{person_relationship}}': data.person_relationship || '',
+    '{{person_title}}': data.person_title || '',
+    '{{company_being_served}}': data.company_being_served || '',
+    '{{service_attempts}}': data.service_attempts || [],
     '{{person_sex}}': data.person_sex || '',
     '{{person_age}}': data.person_age || '',
     '{{person_height}}': data.person_height || '',
@@ -273,6 +344,9 @@ export const replacePlaceholders = (template, data) => {
     '{{current_date}}': format(new Date(), 'MMMM d, yyyy'),
     '{{current_date_short}}': format(new Date(), 'MM/dd/yyyy'),
     '{{current_year}}': new Date().getFullYear().toString(),
+
+    // Job/Document dates
+    '{{job_created_date}}': data.job_created_date ? format(new Date(data.job_created_date), 'MMMM d, yyyy \'at\' h:mm a') : data.created_at ? format(new Date(data.created_at), 'MMMM d, yyyy \'at\' h:mm a') : '',
 
     // Attempts data
     '{{attempts}}': JSON.stringify(data.attempts || []), // Full array for custom processing
@@ -479,8 +553,10 @@ export const getAvailablePlaceholders = () => {
     { placeholder: '{{document_title}}', description: 'Document title (e.g., AFFIDAVIT OF SERVICE)' },
     { placeholder: '{{server_name}}', description: 'Process server\'s name' },
     { placeholder: '{{server_license_number}}', description: 'Server\'s license number' },
+    { placeholder: '{{include_notary}}', description: 'Boolean flag to show/hide notary block (true/false)' },
     { placeholder: '{{case_number}}', description: 'Court case number' },
     { placeholder: '{{court_name}}', description: 'Name of the court' },
+    { placeholder: '{{full_court_name}}', description: 'Full formal name of the court' },
     { placeholder: '{{court_county}}', description: 'County of the court' },
     { placeholder: '{{court_state}}', description: 'State of the court' },
     { placeholder: '{{case_caption}}', description: 'Full case caption (Plaintiff v. Defendant)' },
@@ -491,9 +567,14 @@ export const getAvailablePlaceholders = () => {
     { placeholder: '{{service_time}}', description: 'Time of service' },
     { placeholder: '{{service_address}}', description: 'Address where service occurred' },
     { placeholder: '{{service_manner}}', description: 'Manner of service (formatted)' },
+    { placeholder: '{{mailing_date}}', description: 'Date documents were mailed (for substitute service)' },
     { placeholder: '{{recipient_name}}', description: 'Name of intended recipient' },
+    { placeholder: '{{recipient_address}}', description: 'Primary address where recipient should be served' },
     { placeholder: '{{person_served_name}}', description: 'Name of person actually served' },
     { placeholder: '{{person_relationship}}', description: 'Relationship to recipient' },
+    { placeholder: '{{person_title}}', description: 'Title/role of person served (for business serves: Registered Agent, CEO, etc.)' },
+    { placeholder: '{{company_being_served}}', description: 'Name of company/business being served (for business serves)' },
+    { placeholder: '{{service_attempts}}', description: 'Array of service attempt objects with date_time, address, and comments (for non-service affidavits)' },
     { placeholder: '{{person_sex}}', description: 'Sex of person served' },
     { placeholder: '{{person_age}}', description: 'Age of person served' },
     { placeholder: '{{person_height}}', description: 'Height of person served' },
@@ -509,6 +590,7 @@ export const getAvailablePlaceholders = () => {
     { placeholder: '{{current_date}}', description: 'Current date (long format)' },
     { placeholder: '{{current_date_short}}', description: 'Current date (short format)' },
     { placeholder: '{{current_year}}', description: 'Current year' },
+    { placeholder: '{{job_created_date}}', description: 'Date when job/documents were created/received (e.g., January 24, 2025 at 10:30 AM)' },
 
     // Attempts data
     { placeholder: '{{attempts}}', description: 'JSON array of all attempts (for custom processing)' },
@@ -554,6 +636,9 @@ export const getAvailablePlaceholders = () => {
     { placeholder: '{{capitalize str}}', description: 'Capitalize first letter' },
     { placeholder: '{{uppercase str}}', description: 'Convert to UPPERCASE' },
     { placeholder: '{{lowercase str}}', description: 'Convert to lowercase' },
+    { placeholder: '{{formatServiceManner service_manner}}', description: 'Format service type: personal -> Personal, sub_service -> Sub-Service' },
+    { placeholder: '{{buildPersonDescription person_sex person_age person_height person_weight person_hair person_relationship person_description_other}}', description: 'Build comma-separated person description from available fields' },
+    { placeholder: '{{truncateParties text maxLength}}', description: 'Smart truncate party names, adds "et al." (e.g., {{truncateParties plaintiff 300}})' },
 
     // Handlebars Helpers - Math
     { placeholder: '{{add a b}}', description: 'Add two numbers' },

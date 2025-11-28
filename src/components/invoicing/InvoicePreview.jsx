@@ -397,32 +397,45 @@ export default function InvoicePreview({
       </div>
 
       {/* Bill To Section */}
-      <div className="bill-to-section">
+      <div className="bill-to-section" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         {client ? (
           <>
-            <p><strong>{client.company_name}</strong></p>
-            {(() => {
-              // Find primary address or use first address from addresses array
-              const primaryAddress = client.addresses?.find(addr => addr.primary) || client.addresses?.[0];
-              if (primaryAddress) {
-                return (
-                  <>
-                    <p>{primaryAddress.address1}</p>
-                    {primaryAddress.address2 && <p>{primaryAddress.address2}</p>}
-                    <p>
-                      {primaryAddress.city}, {primaryAddress.state}{' '}
-                      {primaryAddress.postal_code}
-                    </p>
-                  </>
-                );
-              }
-              return null;
-            })()}
+            <div style={{ flex: 1 }}>
+              <p><strong>{client.company_name}</strong></p>
+              {(() => {
+                // Find primary address or use first address from addresses array
+                const primaryAddress = client.addresses?.find(addr => addr.primary) || client.addresses?.[0];
+                if (primaryAddress) {
+                  return (
+                    <>
+                      <p>{primaryAddress.address1}</p>
+                      {primaryAddress.address2 && <p>{primaryAddress.address2}</p>}
+                      <p>
+                        {primaryAddress.city}, {primaryAddress.state}{' '}
+                        {primaryAddress.postal_code}
+                      </p>
+                    </>
+                  );
+                }
+                return null;
+              })()}
+            </div>
             {(() => {
               // Find the contact from client.contacts using job.contact_id
               const contact = client.contacts?.find(c => c.id === job?.contact_id);
-              if (contact?.name) {
-                return <p><strong>Attn:</strong> {contact.name}</p>;
+
+              if (contact) {
+                // Construct full name from first_name and last_name
+                const fullName = `${contact.first_name || ''} ${contact.last_name || ''}`.trim();
+
+                if (fullName) {
+                  return (
+                    <div style={{ textAlign: 'right' }}>
+                      <p><strong>Attn:</strong> {fullName}</p>
+                      {contact.email && <p>{contact.email}</p>}
+                    </div>
+                  );
+                }
               }
               return null;
             })()}

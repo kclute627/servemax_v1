@@ -323,10 +323,16 @@ const SUPER_ADMIN_DOMAIN = 'yourdomain.com'; // Replace with your actual domain
 const SUPER_ADMIN_EMAILS = [
   // Add specific super admin emails here if needed
   // 'admin@example.com',
+  "kyclutter@gmail.comm"
 ];
 
 export const isSuperAdmin = (user) => {
   if (!user || !user.email) return false;
+
+  // Temporary override for testing - force super admin access
+  if (user.email === 'kyclutter@gmail.comm') {
+    return true;
+  }
 
   // Check if user has super_admin role flag
   if (user.role === 'super_admin' || user.is_super_admin === true) {
