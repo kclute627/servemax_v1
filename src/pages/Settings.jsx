@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign, Users } from "lucide-react";
+import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign, Users, Star } from "lucide-react";
 import { User } from "@/api/entities";
 import { isSuperAdmin } from "@/utils/permissions";
 import CompanySettingsPanel from "../components/settings/CompanySettingsPanel";
@@ -11,6 +11,7 @@ import ServiceSettingsPanel from "../components/settings/ServiceSettingsPanel";
 import InvoiceSettingsPanel from "../components/settings/InvoiceSettingsPanel";
 import AgentsSettingsPanel from "../components/settings/AgentsSettingsPanel";
 import PricingConfigPanel from "../components/settings/PricingConfigPanel";
+import ServerRatingSettingsPanel from "../components/settings/ServerRatingSettingsPanel";
 import { PartnerManagement, PartnershipDirectory, PartnershipRequests } from "@/components/JobSharing";
 
 export default function SettingsPage() {
@@ -83,6 +84,7 @@ export default function SettingsPage() {
                 )}
                 {isAdmin && !isSuperAdminUser && (
                   <>
+                    <TabButton tabName="server-rating" label="Server Rating" icon={Star} />
                     <TabButton tabName="agents" label="Agents" icon={Bot} />
                     <TabButton tabName="billing" label="Billing" icon={CreditCard} />
                   </>
@@ -123,6 +125,7 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
+            {activeTab === 'server-rating' && isAdmin && !isSuperAdminUser && <ServerRatingSettingsPanel />}
             {activeTab === 'agents' && isAdmin && !isSuperAdminUser && <AgentsSettingsPanel />}
             {activeTab === 'billing' && isAdmin && !isSuperAdminUser && <BillingPanel />}
             {activeTab === 'pricing' && isSuperAdminUser && <PricingConfigPanel />}

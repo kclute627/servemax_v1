@@ -81,12 +81,8 @@ export class FirebaseFunctions {
       return result.data;
     } catch (error) {
       console.error('Generate affidavit error:', error);
-      // Mock response for development
-      return {
-        success: true,
-        url: 'mock://affidavit.pdf',
-        message: 'Affidavit generated (mock)'
-      };
+      // Re-throw the error so the frontend can handle it properly
+      throw error;
     }
   }
 
@@ -252,6 +248,56 @@ export class FirebaseFunctions {
       return result.data;
     } catch (error) {
       console.error('Find court address with AI error:', error);
+      throw error;
+    }
+  }
+
+  // Sign external PDF
+  static async signExternalPDF(data) {
+    try {
+      const signExternalPDF = httpsCallable(functions, 'signExternalPDF');
+      const result = await signExternalPDF(data);
+      return result.data;
+    } catch (error) {
+      console.error('Sign external PDF error:', error);
+      throw error;
+    }
+  }
+
+  // === Client Portal Functions ===
+
+  // Invite a client user to the portal
+  static async inviteClientUser(data) {
+    try {
+      const inviteClientUser = httpsCallable(functions, 'inviteClientUser');
+      const result = await inviteClientUser(data);
+      return result.data;
+    } catch (error) {
+      console.error('Invite client user error:', error);
+      throw error;
+    }
+  }
+
+  // Accept a client portal invitation
+  static async acceptClientInvitation(token) {
+    try {
+      const acceptClientInvitation = httpsCallable(functions, 'acceptClientInvitation');
+      const result = await acceptClientInvitation({ token });
+      return result.data;
+    } catch (error) {
+      console.error('Accept client invitation error:', error);
+      throw error;
+    }
+  }
+
+  // Get client portal data for authenticated client user
+  static async getClientPortalData() {
+    try {
+      const getClientPortalData = httpsCallable(functions, 'getClientPortalData');
+      const result = await getClientPortalData({});
+      return result.data;
+    } catch (error) {
+      console.error('Get client portal data error:', error);
       throw error;
     }
   }

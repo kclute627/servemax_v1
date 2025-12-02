@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectItem } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { User } from '@/api/entities';
 import { Trash2, Save, PenTool, Type, Loader2, CheckCircle } from 'lucide-react';
@@ -78,7 +78,8 @@ export default function ESignatureSection({ user, onUserUpdate }) {
     const styles = {
       script: 'font-family: "Brush Script MT", cursive; font-size: 32px;',
       cursive: 'font-family: "Lucida Handwriting", cursive; font-size: 28px;',
-      elegant: 'font-family: "Edwardian Script ITC", cursive; font-size: 36px;'
+      elegant: 'font-family: "Edwardian Script ITC", cursive; font-size: 36px;',
+      formal: 'font-family: "Times New Roman", serif; font-size: 24px; font-style: italic;'
     };
     return styles[style] || styles.script;
   };
@@ -99,14 +100,16 @@ export default function ESignatureSection({ user, onUserUpdate }) {
     ctx.textBaseline = 'middle';
     
     // Set font based on style
-    const fontSizes = { script: 32, cursive: 28, elegant: 36 };
+    const fontSizes = { script: 32, cursive: 28, elegant: 36, formal: 24 };
     const fontFamilies = {
       script: 'Brush Script MT, cursive',
       cursive: 'Lucida Handwriting, cursive',
-      elegant: 'Edwardian Script ITC, cursive'
+      elegant: 'Edwardian Script ITC, cursive',
+      formal: 'Times New Roman, serif'
     };
-    
-    ctx.font = `${fontSizes[textStyle]}px ${fontFamilies[textStyle]}`;
+
+    const isItalic = textStyle === 'formal' ? 'italic ' : '';
+    ctx.font = `${isItalic}${fontSizes[textStyle]}px ${fontFamilies[textStyle]}`;
     ctx.fillText(textSignature, canvas.width / 2, canvas.height / 2);
     
     return canvas.toDataURL('image/png');
@@ -214,14 +217,19 @@ export default function ESignatureSection({ user, onUserUpdate }) {
         <div className="space-y-4">
           <div>
             <Label>Signature Color</Label>
-            <Select value={signatureColor} onValueChange={setSignatureColor}>
-              <SelectTrigger className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="black">Black</SelectItem>
-                <SelectItem value="blue">Blue</SelectItem>
-              </SelectContent>
+            <Select
+              value={signatureColor}
+              onChange={(e) => setSignatureColor(e.target.value)}
+              className="w-48"
+            >
+              <SelectItem value="black">Black</SelectItem>
+              <SelectItem value="#1a1a2e">Dark Black</SelectItem>
+              <SelectItem value="#0066cc">Blue</SelectItem>
+              <SelectItem value="#003366">Navy Blue</SelectItem>
+              <SelectItem value="#1e3a5f">Dark Blue</SelectItem>
+              <SelectItem value="#000080">Midnight Blue</SelectItem>
+              <SelectItem value="#8b0000">Dark Red</SelectItem>
+              <SelectItem value="#660000">Burgundy</SelectItem>
             </Select>
           </div>
 
@@ -275,15 +283,15 @@ export default function ESignatureSection({ user, onUserUpdate }) {
 
               <div>
                 <Label>Text Style</Label>
-                <Select value={textStyle} onValueChange={setTextStyle}>
-                  <SelectTrigger className="w-48">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="script">Script</SelectItem>
-                    <SelectItem value="cursive">Cursive</SelectItem>
-                    <SelectItem value="elegant">Elegant</SelectItem>
-                  </SelectContent>
+                <Select
+                  value={textStyle}
+                  onChange={(e) => setTextStyle(e.target.value)}
+                  className="w-48"
+                >
+                  <SelectItem value="script">Script</SelectItem>
+                  <SelectItem value="cursive">Cursive</SelectItem>
+                  <SelectItem value="elegant">Elegant</SelectItem>
+                  <SelectItem value="formal">Formal</SelectItem>
                 </Select>
               </div>
 

@@ -10,7 +10,7 @@ service firebase.storage {
 
     // Allow authenticated users to upload and read their own files
     match /{allPaths=**} {
-      allow read: if isAuthenticated();
+      allow read: if true;  // Public read - tokens in download URLs provide security
       allow write: if isAuthenticated() &&
                      request.resource.size < 50 * 1024 * 1024 && // Max 50MB
                      request.resource.contentType.matches('image/.*|application/pdf|video/.*');

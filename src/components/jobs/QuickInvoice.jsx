@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { X, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { X, Plus, ChevronDown, ChevronUp, Mail } from 'lucide-react';
 
 export default function QuickInvoice({
   documents = [],
@@ -24,46 +25,49 @@ export default function QuickInvoice({
     quantity: 1,
     unit_price: ''
   });
+  const [emailOnCreate, setEmailOnCreate] = useState(false);
 
-  // Initialize with default fees
+  // Initialize with default preset items (starred in settings)
   useEffect(() => {
     const defaultItems = [];
 
     if (invoiceSettings) {
-      // Add service fee with auto-populated description
-      if (invoiceSettings.service_fee > 0) {
-        // Build a nice description with available job details
+      // Add starred/default presets from invoice settings
+      const defaultPresets = invoiceSettings.invoice_presets?.filter(p => p.is_default) || [];
+
+      defaultPresets.forEach((preset, index) => {
+        // Build description with job details for the first item
         let description = '';
-        const descParts = [];
-
-        if (recipientName) {
-          descParts.push(`Serving: ${recipientName}`);
-        }
-        if (serviceAddress) {
-          descParts.push(`At: ${serviceAddress}`);
-        }
-
-        if (descParts.length > 0) {
-          description = descParts.join(' | ');
+        if (index === 0) {
+          const descParts = [];
+          if (recipientName) {
+            descParts.push(`Serving: ${recipientName}`);
+          }
+          if (serviceAddress) {
+            descParts.push(`At: ${serviceAddress}`);
+          }
+          if (descParts.length > 0) {
+            description = descParts.join(' | ');
+          }
         }
 
         defaultItems.push({
-          id: `item_${Date.now()}_1`,
-          type: 'service_fee',
-          item_name: 'Service Fee',
+          id: `preset_${Date.now()}_${index}`,
+          type: 'preset',
+          item_name: preset.description,
           description: description,
           quantity: 1,
-          unit_price: invoiceSettings.service_fee,
-          total: invoiceSettings.service_fee,
+          unit_price: preset.default_amount,
+          total: preset.default_amount,
           is_editable: true,
           is_auto: false
         });
-      }
+      });
 
       // Add rush/emergency fee based on priority
       if (priority === 'rush' && invoiceSettings.rush_fee > 0) {
         defaultItems.push({
-          id: `item_${Date.now()}_2`,
+          id: `item_${Date.now()}_rush`,
           type: 'rush_fee',
           item_name: 'Rush Fee',
           description: '',
@@ -75,7 +79,7 @@ export default function QuickInvoice({
         });
       } else if (priority === 'emergency' && invoiceSettings.emergency_fee > 0) {
         defaultItems.push({
-          id: `item_${Date.now()}_3`,
+          id: `item_${Date.now()}_emergency`,
           type: 'emergency_fee',
           item_name: 'Emergency Fee',
           description: '',
@@ -88,12 +92,12 @@ export default function QuickInvoice({
       }
     }
 
-    // Always show at least one item to indicate users can add items
+    // If no default items, start with an empty editable row
     if (defaultItems.length === 0) {
       defaultItems.push({
         id: `item_${Date.now()}_default`,
-        type: 'service_fee',
-        item_name: 'Service Fee',
+        type: 'custom',
+        item_name: '',
         description: '',
         quantity: 1,
         unit_price: 0,
@@ -104,7 +108,7 @@ export default function QuickInvoice({
     }
 
     setLineItems(defaultItems);
-  }, [invoiceSettings, recipientName, serviceAddress]);
+  }, [invoiceSettings, recipientName, serviceAddress, priority]);
 
   // Auto-calculate copy charges when documents change
   useEffect(() => {
@@ -165,10 +169,11 @@ export default function QuickInvoice({
         subtotal,
         tax_rate: invoiceSettings?.tax_on_invoice ? invoiceSettings.tax_rate : 0,
         tax_amount: taxAmount,
-        total
+        total,
+        emailOnCreate
       });
     }
-  }, [lineItems, subtotal, taxAmount, total]);
+  }, [lineItems, subtotal, taxAmount, total, emailOnCreate]);
 
   const handleItemNameChange = (itemId, newItemName) => {
     setLineItems(prevItems =>
@@ -602,6 +607,21 @@ export default function QuickInvoice({
       </div>
       </>
       )}
+
+      {/* Email Invoice Toggle */}
+      <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+        <div className="flex items-center gap-2">
+          <Mail className="w-4 h-4 text-slate-500" />
+          <div>
+            <Label className="text-sm font-medium text-slate-700">Email invoice when job is created</Label>
+            <p className="text-xs text-slate-500">Invoice will be issued and sent to client immediately</p>
+          </div>
+        </div>
+        <Switch
+          checked={emailOnCreate}
+          onCheckedChange={setEmailOnCreate}
+        />
+      </div>
     </div>
   );
 }

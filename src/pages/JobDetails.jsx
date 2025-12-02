@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 // FIREBASE TRANSITION: You will replace these Base44 entity imports with your Firebase SDK/config and specific service imports (e.g., getFirestore, doc, getDoc, updateDoc, collection, query, where, getDocs).
 import { Job, Client, Employee, CourtCase, Document, Attempt, Invoice, CompanySettings, User } from '@/api/entities';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { useGlobalData } from '@/components/GlobalDataContext';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -88,6 +88,8 @@ import { UploadFile } from "@/api/integrations";
 import { motion, AnimatePresence } from 'framer-motion';
 import AttemptTimeIndicator from '../components/jobs/AttemptTimeIndicator';
 import { JobShareChain } from '@/components/JobSharing';
+import { useToast } from '@/components/ui/use-toast';
+import { InvoiceManager } from '@/firebase/invoiceManager';
 
 // --- Configuration Objects ---
 // These are UI-specific and will likely remain unchanged during migration.
@@ -507,8 +509,13 @@ export default function JobDetailsPage() {
   const [expandedAttemptId, setExpandedAttemptId] = useState(null); // Tracks which attempt's details are expanded in the UI. THIS STATE IS NO LONGER USED, AS AttemptWithMap MANAGES ITS OWN EXPANSION
   const [isMergingServiceDocs, setIsMergingServiceDocs] = useState(false); // Tracks status of merging service documents
   const [isUploadingSignedAffidavit, setIsUploadingSignedAffidavit] = useState(false); // Tracks if uploading a signed affidavit
+  const [isUploadingExternalAffidavit, setIsUploadingExternalAffidavit] = useState(false); // Tracks if uploading an external affidavit for signing
+  const [isIssuingInvoice, setIsIssuingInvoice] = useState(false); // Tracks if invoice is being issued
+  const [isEmailingInvoice, setIsEmailingInvoice] = useState(false); // Tracks if invoice email is being sent
 
   const location = useLocation();
+  const navigate = useNavigate();
+  const { toast } = useToast();
   const { jobs: contextJobs, clients: contextClients, employees: contextEmployees, companySettings, refreshData } = useGlobalData();
 
   // --- "Dirty" State Checks ---
@@ -940,6 +947,31 @@ export default function JobDetailsPage() {
       setIsLoading(false);
     }
   }, [location.search, loadJobDetails, user]);
+
+  // Refresh invoice data when returning from InvoiceDetail with refresh signal
+  useEffect(() => {
+    if (location.state?.refreshInvoice && job?.id) {
+      const refreshInvoiceData = async () => {
+        try {
+          // Re-fetch just the invoice data
+          const invoiceData = job.job_invoice_id
+            ? await Invoice.findById(job.job_invoice_id).catch(() => null)
+            : await Invoice.filter({ job_ids: job.id }).then(invoices => invoices[0] || null).catch(() => null);
+
+          if (invoiceData) {
+            setInvoices([invoiceData]);
+          }
+        } catch (error) {
+          console.error('Error refreshing invoice data:', error);
+        }
+      };
+
+      refreshInvoiceData();
+
+      // Clear the state to prevent repeated refreshes
+      navigate(location.pathname + location.search, { replace: true, state: {} });
+    }
+  }, [location.state, job?.id, job?.job_invoice_id, navigate, location.pathname, location.search]);
 
   /**
    * Toggles the 'is_closed' status of the job.
@@ -1705,6 +1737,31 @@ export default function JobDetailsPage() {
     }
   };
 
+  const handleUploadExternalAffidavit = async (file) => {
+    setIsUploadingExternalAffidavit(true);
+    try {
+      console.log('[Upload External] Starting upload');
+      console.log('[Upload External] File:', file.name, file.size, 'bytes');
+
+      // Upload the PDF to Firebase Storage
+      const uploadResult = await UploadFile(file);
+      console.log('[Upload External] Upload successful:', uploadResult);
+
+      if (!uploadResult || !uploadResult.url) {
+        throw new Error('File upload failed - no URL returned');
+      }
+
+      // Navigate to the SignExternalAffidavit page
+      navigate(createPageUrl(`SignExternalAffidavit?jobId=${job.id}&fileUrl=${encodeURIComponent(uploadResult.url)}`));
+
+    } catch (error) {
+      console.error("Error uploading external affidavit:", error);
+      alert(`Failed to upload affidavit: ${error.message || 'Unknown error'}. Please try again.`);
+    } finally {
+      setIsUploadingExternalAffidavit(false);
+    }
+  };
+
   const handleMarkAffidavitSigned = async (documentId) => {
     try {
       console.log('[Mark Signed] Marking document as signed:', documentId);
@@ -1819,6 +1876,128 @@ export default function JobDetailsPage() {
       alert(`Failed to merge PDFs: ${error.message || 'Unknown error'}. Please try again.`);
     }
     setIsMergingServiceDocs(false);
+  };
+
+  // --- Invoice Action Handlers ---
+  const handleIssueInvoice = async (invoiceId) => {
+    setIsIssuingInvoice(true);
+    try {
+      await Invoice.update(invoiceId, {
+        status: 'Issued',
+        issued_on: new Date().toISOString(),
+        last_issued_at: new Date().toISOString()
+      });
+
+      // Add activity log entry
+      const newLogEntry = {
+        timestamp: new Date().toISOString(),
+        event_type: 'invoice_issued',
+        description: `Invoice issued`,
+        user_name: user?.full_name || user?.displayName || 'Unknown'
+      };
+      await Job.update(job.id, {
+        activity_log: [...(job.activity_log || []), newLogEntry]
+      });
+
+      // Refresh local invoice state immediately
+      setInvoices(prev => prev.map(inv =>
+        inv.id === invoiceId
+          ? { ...inv, status: 'Issued', issued_on: new Date().toISOString() }
+          : inv
+      ));
+
+      // Also update job activity log in local state
+      setJob(prev => ({
+        ...prev,
+        activity_log: [...(prev.activity_log || []), newLogEntry]
+      }));
+
+      toast({ title: 'Invoice Issued', description: 'Invoice has been issued successfully.' });
+    } catch (error) {
+      console.error('Error issuing invoice:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to issue invoice.' });
+    }
+    setIsIssuingInvoice(false);
+  };
+
+  const handleEmailInvoice = async (invoice) => {
+    // Get client email from contact or job
+    const clientEmail = job?.contact_email;
+
+    if (!clientEmail) {
+      toast({ variant: 'destructive', title: 'No Email', description: 'No client email address found for this job.' });
+      return;
+    }
+
+    setIsEmailingInvoice(true);
+    try {
+      await InvoiceManager.sendInvoiceEmail(invoice.id, clientEmail, {
+        invoice_number: invoice.invoice_number,
+        total: invoice.total,
+        due_date: invoice.due_date
+      });
+
+      toast({ title: 'Email Queued', description: `Invoice email queued for ${clientEmail}` });
+    } catch (error) {
+      console.error('Error emailing invoice:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to queue invoice email.' });
+    }
+    setIsEmailingInvoice(false);
+  };
+
+  const handleIssueAndEmailInvoice = async (invoice) => {
+    setIsIssuingInvoice(true);
+    setIsEmailingInvoice(true);
+    try {
+      // First issue the invoice
+      await Invoice.update(invoice.id, {
+        status: 'Issued',
+        issued_on: new Date().toISOString(),
+        last_issued_at: new Date().toISOString()
+      });
+
+      // Add activity log entry
+      const newLogEntry = {
+        timestamp: new Date().toISOString(),
+        event_type: 'invoice_issued',
+        description: `Invoice issued and emailed`,
+        user_name: user?.full_name || user?.displayName || 'Unknown'
+      };
+      await Job.update(job.id, {
+        activity_log: [...(job.activity_log || []), newLogEntry]
+      });
+
+      // Refresh local invoice state immediately
+      setInvoices(prev => prev.map(inv =>
+        inv.id === invoice.id
+          ? { ...inv, status: 'Issued', issued_on: new Date().toISOString() }
+          : inv
+      ));
+
+      // Also update job activity log in local state
+      setJob(prev => ({
+        ...prev,
+        activity_log: [...(prev.activity_log || []), newLogEntry]
+      }));
+
+      // Then send email
+      const clientEmail = job?.contact_email;
+      if (clientEmail) {
+        await InvoiceManager.sendInvoiceEmail(invoice.id, clientEmail, {
+          invoice_number: invoice.invoice_number,
+          total: invoice.total,
+          due_date: invoice.due_date
+        });
+        toast({ title: 'Invoice Issued & Email Queued', description: `Invoice issued and email queued for ${clientEmail}` });
+      } else {
+        toast({ title: 'Invoice Issued', description: 'Invoice issued but no email address found for client.' });
+      }
+    } catch (error) {
+      console.error('Error issuing and emailing invoice:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to issue and email invoice.' });
+    }
+    setIsIssuingInvoice(false);
+    setIsEmailingInvoice(false);
   };
 
   // --- Render Logic ---
@@ -2477,7 +2656,7 @@ export default function JobDetailsPage() {
                     variant="outline"
                     size="sm"
                     className="gap-2"
-                    disabled={isUploadingSignedAffidavit}
+                    disabled={isUploadingExternalAffidavit}
                     onClick={() => {
                       const input = document.createElement('input');
                       input.type = 'file';
@@ -2485,13 +2664,13 @@ export default function JobDetailsPage() {
                       input.onchange = async (e) => {
                         const file = e.target.files[0];
                         if (file) {
-                          await handleUploadSignedAffidavit(file);
+                          await handleUploadExternalAffidavit(file);
                         }
                       };
                       input.click();
                     }}
                   >
-                    {isUploadingSignedAffidavit ? (
+                    {isUploadingExternalAffidavit ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
                         Uploading...
@@ -2499,7 +2678,7 @@ export default function JobDetailsPage() {
                     ) : (
                       <>
                         <Upload className="w-4 h-4" />
-                        Upload Signed
+                        Upload
                       </>
                     )}
                   </Button>
@@ -2628,6 +2807,7 @@ export default function JobDetailsPage() {
 
                     const invoiceStatusConfig = { // Renamed to avoid conflict with global statusConfig
                       draft: { color: "bg-slate-100 text-slate-700", label: "Draft" },
+                      issued: { color: "bg-blue-100 text-blue-700", label: "Issued" },
                       sent: { color: "bg-blue-100 text-blue-700", label: "Sent" },
                       paid: { color: "bg-green-100 text-green-700", label: "Paid" },
                       overdue: { color: "bg-red-100 text-red-700", label: "Overdue" },
@@ -2645,14 +2825,69 @@ export default function JobDetailsPage() {
                 {(() => {
                   const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
                   if (jobInvoice) {
-                    // If invoice exists, show link to invoice page
+                    const isDraft = jobInvoice.status?.toLowerCase() === 'draft';
+                    const isIssued = ['issued', 'sent'].includes(jobInvoice.status?.toLowerCase());
+
                     return (
-                      <Link to={createPageUrl(`InvoiceDetail?id=${jobInvoice.id}&returnTo=JobDetails&jobId=${job.id}`)}>
-                        <Button variant="outline" size="sm" className="gap-2">
-                          <FileText className="w-4 h-4" />
-                          View Invoice
-                        </Button>
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        {/* View Invoice button - always show */}
+                        <Link to={createPageUrl(`InvoiceDetail?id=${jobInvoice.id}&returnTo=JobDetails&jobId=${job.id}`)}>
+                          <Button variant="outline" size="sm" className="gap-2">
+                            <FileText className="w-4 h-4" />
+                            View
+                          </Button>
+                        </Link>
+
+                        {/* Issue Invoice button - only show for draft */}
+                        {isDraft && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            onClick={() => handleIssueInvoice(jobInvoice.id)}
+                            disabled={isIssuingInvoice}
+                          >
+                            {isIssuingInvoice ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Send className="w-4 h-4" />
+                            )}
+                            Issue
+                          </Button>
+                        )}
+
+                        {/* Issue & Email button (for draft) or Email button (for issued) */}
+                        {isDraft ? (
+                          <Button
+                            size="sm"
+                            className="gap-2 bg-blue-600 hover:bg-blue-700"
+                            onClick={() => handleIssueAndEmailInvoice(jobInvoice)}
+                            disabled={isIssuingInvoice || isEmailingInvoice}
+                          >
+                            {(isIssuingInvoice || isEmailingInvoice) ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Mail className="w-4 h-4" />
+                            )}
+                            Issue & Email
+                          </Button>
+                        ) : isIssued && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            onClick={() => handleEmailInvoice(jobInvoice)}
+                            disabled={isEmailingInvoice}
+                          >
+                            {isEmailingInvoice ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Mail className="w-4 h-4" />
+                            )}
+                            Email
+                          </Button>
+                        )}
+                      </div>
                     );
                   } else {
                     // Legacy: If no invoice exists, show save button

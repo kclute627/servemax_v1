@@ -21,6 +21,7 @@ import {
   getAccessibleCompanies
 } from './schemas';
 import { entities } from './database';
+import { UsageTracker } from './usageTracker';
 
 export class FirebaseAuth {
   static currentUser = null;
@@ -194,6 +195,9 @@ export class FirebaseAuth {
 
       await entities.Employee.create(employeeData);
 
+      // Track platform-wide usage stats for new user registration
+      UsageTracker.trackUserAdded();
+
       // Force refresh the current user data to include the new Firestore data
       await this.refreshCurrentUser();
 
@@ -238,6 +242,9 @@ export class FirebaseAuth {
       }
 
       await setDoc(doc(db, 'users', user.uid), userSchema);
+
+      // Track platform-wide usage stats for new user registration
+      UsageTracker.trackUserAdded();
 
       return { user, invitation };
     } catch (error) {

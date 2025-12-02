@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
-import { Plus, X, Pencil, Save } from 'lucide-react';
+import { Plus, X, Pencil, Save, Star } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { CompanyManager } from '@/firebase/schemas';
 import { useGlobalData } from '@/components/GlobalDataContext';
@@ -85,6 +85,17 @@ export default function InvoiceSettingsPanel() {
     setInvoiceSettings(prev => ({
       ...prev,
       invoice_presets: prev.invoice_presets.filter(preset => preset.id !== presetId)
+    }));
+  };
+
+  const handleTogglePresetDefault = (presetId) => {
+    setInvoiceSettings(prev => ({
+      ...prev,
+      invoice_presets: prev.invoice_presets.map(preset =>
+        preset.id === presetId
+          ? { ...preset, is_default: !preset.is_default }
+          : preset
+      )
     }));
   };
 
@@ -181,7 +192,7 @@ export default function InvoiceSettingsPanel() {
           <div>
             <h3 className="text-base font-semibold mb-1">Invoice Presets</h3>
             <p className="text-sm text-slate-500">
-              Configure default line items for faster invoicing
+              Configure line items for invoicing. Star items to auto-add them to new job invoices.
             </p>
           </div>
 
@@ -189,6 +200,18 @@ export default function InvoiceSettingsPanel() {
           <div className="space-y-2">
             {invoiceSettings.invoice_presets?.map((preset) => (
               <div key={preset.id} className="flex items-center gap-2 p-3 border border-slate-200 rounded-lg">
+                {/* Star toggle for default */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleTogglePresetDefault(preset.id)}
+                  className={preset.is_default ? "text-yellow-500 hover:text-yellow-600" : "text-slate-300 hover:text-yellow-500"}
+                  title={preset.is_default ? "Remove from defaults" : "Add to defaults for new jobs"}
+                >
+                  <Star className={`w-4 h-4 ${preset.is_default ? 'fill-current' : ''}`} />
+                </Button>
+
                 {editingPreset === preset.id ? (
                   <>
                     <Input
@@ -215,9 +238,14 @@ export default function InvoiceSettingsPanel() {
                   </>
                 ) : (
                   <>
-                    <span className="flex-1 text-sm">{preset.description}</span>
+                    <span className="flex-1 text-sm">
+                      {preset.description}
+                      {preset.is_default && (
+                        <span className="ml-2 text-xs text-yellow-600 font-medium">(Default)</span>
+                      )}
+                    </span>
                     <span className="text-sm font-medium text-slate-900">
-                      ${preset.default_amount.toFixed(2)}
+                      ${preset.default_amount?.toFixed(2) || '0.00'}
                     </span>
                     <Button
                       type="button"

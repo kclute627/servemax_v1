@@ -10,6 +10,7 @@ import AffidavitPreview from '../components/affidavit/AffidavitPreview';
 import { generateAffidavit } from '@/api/functions';
 import { UploadFile } from '@/api/integrations';
 import PhotoModal from '../components/affidavit/PhotoModal';
+import SignatureButton from '../components/affidavit/SignatureButton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
@@ -19,7 +20,7 @@ import { STARTER_TEMPLATES } from '@/utils/starterTemplates';
 import { PDFDocument } from 'pdf-lib';
 
 export default function GenerateAffidavitPage() {
-  const { companyData } = useGlobalData();
+  const { companyData, refreshData } = useGlobalData();
   const navigate = useNavigate();
   const [job, setJob] = useState(null);
   const [client, setClient] = useState(null);
@@ -98,12 +99,23 @@ export default function GenerateAffidavitPage() {
 
   const loadCompanyInfo = async () => {
     try {
-      const companyInfoSettings = await CompanySettings.filter({ setting_key: "company_information" });
-      if (companyInfoSettings.length > 0 && companyInfoSettings[0].setting_value) {
-        const info = companyInfoSettings[0].setting_value;
+      if (companyData) {
+        // Get primary address from addresses array or fallback to legacy fields
+        const primaryAddress = companyData.addresses?.find(addr => addr.primary) || companyData.addresses?.[0];
+
+        const info = {
+          company_name: companyData.name || '',
+          address1: primaryAddress?.address1 || companyData.address || '',
+          address2: primaryAddress?.address2 || '',
+          city: primaryAddress?.city || companyData.city || '',
+          state: primaryAddress?.state || companyData.state || '',
+          postal_code: primaryAddress?.postal_code || companyData.zip || '',
+          phone: companyData.phone || '',
+          email: companyData.email || ''
+        };
+
         // Check if company info has meaningful data to display
-        if (info.company_name || info.address1 || info.city || info.state || info.zip) {
-          // Keep as object for the affidavit preview component
+        if (info.company_name || info.address1 || info.city || info.state || info.postal_code) {
           setCompanyInfo(info);
           setHasCompanyInfo(true);
         }
@@ -184,7 +196,6 @@ export default function GenerateAffidavitPage() {
       // Set loading to true explicitly before starting both loads
       setIsLoading(true);
       loadData(jobId);
-      loadCompanyInfo();
       loadAffidavitTemplates();
 
       // Load current user for server name fallback
@@ -194,6 +205,13 @@ export default function GenerateAffidavitPage() {
       setIsLoading(false);
     }
   }, [location.search, loadData]);
+
+  // Load company info when companyData becomes available
+  useEffect(() => {
+    if (companyData) {
+      loadCompanyInfo();
+    }
+  }, [companyData]);
 
   // Auto-generate affidavit data when dependencies are loaded
   useEffect(() => {
@@ -307,6 +325,12 @@ export default function GenerateAffidavitPage() {
       person_weight: latestServedAttempt?.person_served_weight || '',
       person_hair: latestServedAttempt?.person_served_hair_color || '',
       person_description_other: latestServedAttempt?.person_served_description || '',
+
+      // GPS coordinates from the attempt
+      attempt_gps_lat: latestServedAttempt?.gps_lat || null,
+      attempt_gps_lon: latestServedAttempt?.gps_lon || null,
+      attempt_gps_accuracy: latestServedAttempt?.gps_accuracy || null,
+
       include_notary: includeNotary,
       include_company_info: includeCompanyInfo,
       company_info: companyInfo, // Object with company_name, address1, address2, city, state, zip, phone
@@ -516,8 +540,24 @@ export default function GenerateAffidavitPage() {
       const response = await generateAffidavit(affidavitData);
       console.log('PDF Response:', response);
 
+      // Validate response structure
+      if (!response || !response.data) {
+        throw new Error('Invalid response from server: PDF data is missing. Please check the console for details.');
+      }
+
+      // Check if response indicates an error
+      if (response.success === false) {
+        throw new Error(response.message || 'PDF generation failed on the server');
+      }
+
       // Convert response.data object to Uint8Array
       const pdfData = response.data;
+
+      // Check if pdfData is valid
+      if (typeof pdfData !== 'object' || pdfData === null) {
+        throw new Error('Invalid PDF data format received from server');
+      }
+
       const uint8Array = new Uint8Array(Object.keys(pdfData).length);
       for (let i = 0; i < uint8Array.length; i++) {
         uint8Array[i] = pdfData[i];
@@ -526,6 +566,10 @@ export default function GenerateAffidavitPage() {
       const blob = new Blob([uint8Array], { type: 'application/pdf' });
       console.log('PDF Blob size:', blob.size, 'bytes');
       console.log('PDF Blob type:', blob.type);
+
+      if (blob.size === 0) {
+        throw new Error('Generated PDF is empty. Please check your template configuration.');
+      }
 
       const fileName = `affidavit_${job?.job_number || 'service'}_${selectedTemplateId}.pdf`;
 
@@ -540,7 +584,21 @@ export default function GenerateAffidavitPage() {
 
     } catch (error) {
       console.error("Failed to generate or print affidavit:", error);
-      alert("Error generating PDF: " + (error.message || "An unexpected error occurred."));
+
+      // Provide more detailed error message
+      let errorMessage = "Error generating PDF: ";
+
+      if (error.code === 'functions/unavailable') {
+        errorMessage += "The server is currently unavailable. Please try again in a moment.";
+      } else if (error.code === 'functions/deadline-exceeded') {
+        errorMessage += "The request took too long to complete. Please try again.";
+      } else if (error.code === 'functions/internal') {
+        errorMessage += "A server error occurred. Please check the browser console for details.";
+      } else {
+        errorMessage += error.message || "An unexpected error occurred. Please check the console for details.";
+      }
+
+      alert(errorMessage);
     }
     setIsGenerating(false);
   };
@@ -598,8 +656,19 @@ export default function GenerateAffidavitPage() {
       console.log('[Step 1] PDF generated successfully');
       console.log('Response structure:', { hasData: !!response.data, dataLength: response.data ? Object.keys(response.data).length : 0 });
 
+      // Validate response structure
       if (!response || !response.data) {
-        throw new Error('PDF generation failed - no data returned');
+        throw new Error('Invalid response from server: PDF data is missing. Please check the browser console for error details.');
+      }
+
+      // Check if response indicates an error
+      if (response.success === false) {
+        throw new Error(response.message || 'PDF generation failed on the server');
+      }
+
+      // Check if pdfData is valid
+      if (typeof response.data !== 'object' || response.data === null) {
+        throw new Error('Invalid PDF data format received from server');
       }
 
       // Convert response.data object to Uint8Array
@@ -646,7 +715,9 @@ export default function GenerateAffidavitPage() {
 
       // Step 5: Create Document record in database
       console.log('[Step 5] Creating Document record in Firestore...');
+      const isSigned = !!affidavitData.placed_signature;
       const documentData = {
+        company_id: job.company_id,
         job_id: job.id,
         title: `Affidavit - ${selectedTemplate?.name || 'Service Document'}`,
         file_url: uploadResult.url,
@@ -656,6 +727,7 @@ export default function GenerateAffidavitPage() {
         file_size: blob.size,
         received_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
+        is_signed: isSigned, // Top-level flag for easy querying
         metadata: {
           template_id: selectedTemplateId,
           template_name: selectedTemplate?.name || 'Standard',
@@ -663,9 +735,9 @@ export default function GenerateAffidavitPage() {
           includes_company_info: includeCompanyInfo,
           photo_count: selectedPhotos.length,
           // Signature metadata
-          has_signature: !!affidavitData.placed_signature,
+          has_signature: isSigned,
           signature_date: affidavitData.placed_signature?.signed_date || null,
-          server_signed: !!affidavitData.placed_signature,
+          server_signed: isSigned,
         }
       };
       console.log('Document data to save:', documentData);
@@ -674,16 +746,23 @@ export default function GenerateAffidavitPage() {
       console.log('[Step 5] Document saved successfully!');
       console.log('Saved document:', savedDocument);
 
-      // Step 6: Update job to mark it has a signed affidavit if it's signed
+      // Step 6: Update job to mark it has a signed affidavit (only if actually signed)
       console.log('[Step 6] Updating job flags...');
-      await Job.update(job.id, {
-        has_signed_affidavit: true
-      });
-      console.log('[Step 6] Job updated with has_signed_affidavit flag');
+      if (isSigned) {
+        await Job.update(job.id, {
+          has_signed_affidavit: true
+        });
+        console.log('[Step 6] Job updated with has_signed_affidavit: true');
+      } else {
+        console.log('[Step 6] Affidavit not signed, skipping job flag update');
+      }
 
       // Step 7: Show success message and navigate back
       console.log('=== Saving Affidavit - SUCCESS ===');
       setSaveSuccess(true);
+
+      // Refresh global data so dashboard updates immediately
+      refreshData();
 
       // Navigate back to JobDetails with a timestamp to force refresh
       setTimeout(() => {
@@ -694,7 +773,21 @@ export default function GenerateAffidavitPage() {
       console.error("=== Saving Affidavit - FAILED ===");
       console.error("Error details:", error);
       console.error("Error stack:", error.stack);
-      alert("Error saving affidavit: " + (error.message || "An unexpected error occurred. Check console for details."));
+
+      // Provide more detailed error message
+      let errorMessage = "Error saving affidavit: ";
+
+      if (error.code === 'functions/unavailable') {
+        errorMessage += "The server is currently unavailable. Please try again in a moment.";
+      } else if (error.code === 'functions/deadline-exceeded') {
+        errorMessage += "The request took too long to complete. Please try again.";
+      } else if (error.code === 'functions/internal') {
+        errorMessage += "A server error occurred while generating the PDF. Please check the browser console for details.";
+      } else {
+        errorMessage += error.message || "An unexpected error occurred. Check console for details.";
+      }
+
+      alert(errorMessage);
     } finally {
       setIsSaving(false);
     }
@@ -719,6 +812,26 @@ export default function GenerateAffidavitPage() {
         return updated;
       });
     }
+  };
+
+  // Handle signature placement from SignatureButton
+  const handleSignaturePlace = (signatureData) => {
+    console.log('[GenerateAffidavit] handleSignaturePlace CALLED');
+    console.log('  signatureData:', signatureData);
+
+    setAffidavitData(prev => ({
+      ...prev,
+      placed_signature: signatureData
+    }));
+  };
+
+  // Handle signature removal
+  const handleSignatureRemove = () => {
+    console.log('[GenerateAffidavit] handleSignatureRemove CALLED');
+    setAffidavitData(prev => ({
+      ...prev,
+      placed_signature: null
+    }));
   };
 
   // Validate AO 440 form before printing
@@ -823,6 +936,35 @@ export default function GenerateAffidavitPage() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-3">
+                {/* Signed Badge - shows when signature is placed */}
+                {affidavitData?.placed_signature && (
+                  <Badge variant="default" className="bg-green-600 hover:bg-green-700 gap-1">
+                    <Check className="w-3 h-3" />
+                    Signed {affidavitData.placed_signature.signed_date && format(new Date(affidavitData.placed_signature.signed_date), 'M/d/yyyy')}
+                  </Badge>
+                )}
+
+                {/* Remove Signature Button - shows when signed */}
+                {affidavitData?.placed_signature && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSignatureRemove}
+                    className="gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    Remove Signature
+                  </Button>
+                )}
+
+                {/* Sign Button - shows when not yet signed */}
+                {!affidavitData?.placed_signature && affidavitData && (
+                  <SignatureButton
+                    user={currentUser}
+                    onSignaturePlace={handleSignaturePlace}
+                    isEditing={isEditing}
+                  />
+                )}
+
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="inline-block">

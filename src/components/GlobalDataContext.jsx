@@ -6,12 +6,13 @@ import {
   SecureEmployeeAccess,
   SecureInvoiceAccess,
   SecurePaymentAccess,
+  SecureServerPayRecordAccess,
   MultiTenantAccess
 } from "@/firebase/multiTenantAccess";
 import { getDummyDataState, isDummyDataEnabled } from "@/hooks/useDummyData";
 import { dummyCompany } from "@/data/dummyData";
 import { entities } from "@/firebase/database";
-import { CompanySettings, ServerPayRecord } from "@/api/entities";
+import { CompanySettings } from "@/api/entities";
 import { DirectoryManager } from "@/firebase/schemas";
 
 const GlobalDataContext = createContext();
@@ -118,7 +119,7 @@ export const GlobalDataProvider = ({ children }) => {
         SecureJobAccess.list().catch(() => []),
         SecureInvoiceAccess.list().catch(() => []),
         SecurePaymentAccess.list().catch(() => []),
-        ServerPayRecord.list().catch(() => []),
+        SecureServerPayRecordAccess.list().catch(() => []),
         CompanySettings.filter({ setting_key: "job_priorities" }).catch(() => []),
         CompanySettings.filter({ setting_key: "job_sharing" }).catch(() => []),
         CompanySettings.filter({ setting_key: "kanban_board" }).catch(() => []),

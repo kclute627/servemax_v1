@@ -20,6 +20,65 @@ admin.initializeApp();
 const googleMapsApiKey = defineSecret("GOOGLE_MAPS_API_KEY");
 const anthropicApiKey = defineSecret("CLAUDE_API_KEY");
 
+// ============================================================================
+// Platform Usage Tracking Utilities
+// ============================================================================
+
+/**
+ * Get ISO week number for a date
+ */
+function getWeekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+/**
+ * Generate document IDs for all time buckets
+ */
+function getUsageDocIds() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const week = String(getWeekNumber(now)).padStart(2, "0");
+
+  return {
+    daily: `daily_${year}-${month}-${day}`,
+    weekly: `weekly_${year}-W${week}`,
+    monthly: `monthly_${year}-${month}`,
+    yearly: `yearly_${year}`,
+    allTime: "all_time",
+  };
+}
+
+/**
+ * Track platform usage by incrementing counters in Firestore
+ * @param {string} operation - The operation to track (e.g., 'affidavits_generated')
+ */
+async function trackPlatformUsage(operation) {
+  try {
+    const docIds = getUsageDocIds();
+    const batch = admin.firestore().batch();
+
+    Object.values(docIds).forEach((docId) => {
+      const ref = admin.firestore().collection("platform_usage").doc(docId);
+      batch.set(ref, {
+        [operation]: admin.firestore.FieldValue.increment(1),
+        last_updated: admin.firestore.FieldValue.serverTimestamp(),
+      }, {merge: true});
+    });
+
+    await batch.commit();
+    console.log(`[UsageTracker] Tracked ${operation}`);
+  } catch (err) {
+    console.error(`[UsageTracker] Error tracking ${operation}:`, err);
+    // Don't throw - tracking errors should not fail the main operation
+  }
+}
+
 /**
  * Merges multiple PDFs in the specified order
  * @param {Object} data - { file_urls: string[], merged_title: string }
@@ -118,6 +177,198 @@ exports.mergePDFs = onCall(async (request) => {
     throw new HttpsError(
         "internal",
         `Failed to merge PDFs: ${error.message}`,
+    );
+  }
+});
+
+/**
+ * Signs an external PDF by embedding a signature image and/or date at specified positions
+ * @param {Object} data - { pdfUrl, signatureData, position, size, page, dateData, renderedWidth, renderedHeight }
+ * @returns {Object} - { success: boolean, url: string }
+ */
+exports.signExternalPDF = onCall(async (request) => {
+  try {
+    const {pdfUrl, signatureData, position, size, page, dateData, renderedWidth, renderedHeight} = request.data;
+
+    // Validate input
+    if (!pdfUrl) {
+      throw new HttpsError("invalid-argument", "pdfUrl is required");
+    }
+    if (!signatureData && !dateData) {
+      throw new HttpsError("invalid-argument", "Either signatureData or dateData is required");
+    }
+
+    console.log("[signExternalPDF] Starting...");
+    console.log("[signExternalPDF] PDF URL:", pdfUrl);
+    console.log("[signExternalPDF] Signature Position:", position);
+    console.log("[signExternalPDF] Signature Size:", size);
+    console.log("[signExternalPDF] Signature Page:", page);
+    console.log("[signExternalPDF] Date Data:", dateData);
+    console.log("[signExternalPDF] Rendered dimensions:", renderedWidth, "x", renderedHeight);
+
+    // Download the original PDF
+    const response = await fetch(pdfUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download PDF: ${response.statusText}`);
+    }
+    const pdfBytes = await response.arrayBuffer();
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+
+    // Get the target page (0-indexed)
+    const pageIndex = (page || 1) - 1;
+    const pages = pdfDoc.getPages();
+    if (pageIndex < 0 || pageIndex >= pages.length) {
+      throw new HttpsError(
+          "invalid-argument",
+          `Invalid page number: ${page}. PDF has ${pages.length} pages.`,
+      );
+    }
+    const targetPage = pages[pageIndex];
+    const pageSize = targetPage.getSize();
+
+    console.log("[signExternalPDF] PDF page size:", pageSize);
+    console.log("[signExternalPDF] Rendered dimensions:", renderedWidth, "x", renderedHeight);
+
+    // Calculate scale factors between rendered dimensions and actual PDF dimensions
+    const scaleX = pageSize.width / (renderedWidth || 612);
+    const scaleY = pageSize.height / (renderedHeight || 792);
+
+    console.log("[signExternalPDF] Scale factors - X:", scaleX, "Y:", scaleY);
+
+    // Draw signature if provided
+    if (signatureData) {
+      // Extract the base64 image data
+      let imageBytes;
+      if (signatureData.startsWith("data:image/png")) {
+        const base64Data = signatureData.replace(/^data:image\/png;base64,/, "");
+        imageBytes = Buffer.from(base64Data, "base64");
+      } else if (signatureData.startsWith("data:image/jpeg") ||
+                 signatureData.startsWith("data:image/jpg")) {
+        const base64Data = signatureData.replace(/^data:image\/jpe?g;base64,/, "");
+        imageBytes = Buffer.from(base64Data, "base64");
+      } else {
+        // Assume it's raw base64
+        imageBytes = Buffer.from(signatureData, "base64");
+      }
+
+      // Embed the signature image
+      let embeddedImage;
+      try {
+        embeddedImage = await pdfDoc.embedPng(imageBytes);
+      } catch (pngError) {
+        console.log("[signExternalPDF] PNG embed failed, trying JPEG...");
+        try {
+          embeddedImage = await pdfDoc.embedJpg(imageBytes);
+        } catch (jpgError) {
+          throw new Error("Failed to embed signature image as PNG or JPEG");
+        }
+      }
+
+      // Calculate position in PDF coordinates
+      // PDF coordinates: origin at bottom-left, Y increases upward
+      // Screen coordinates: origin at top-left, Y increases downward
+      const sigWidth = (size?.width || 180) * scaleX;
+      const sigHeight = (size?.height || 50) * scaleY;
+      const sigX = (position?.x || 0) * scaleX;
+
+      // Convert Y coordinate: PDF Y = page height - screen Y - signature height
+      // Screen Y is distance from top, PDF Y is distance from bottom
+      const screenY = position?.y || 0;
+      const sigY = pageSize.height - (screenY * scaleY) - sigHeight;
+
+      console.log("[signExternalPDF] Drawing signature at PDF coordinates:");
+      console.log("  x:", sigX, "y:", sigY);
+      console.log("  width:", sigWidth, "height:", sigHeight);
+
+      // Draw the signature on the target page
+      const sigPageIndex = (page || 1) - 1;
+      const sigPage = pages[sigPageIndex] || targetPage;
+      sigPage.drawImage(embeddedImage, {
+        x: sigX,
+        y: sigY,
+        width: sigWidth,
+        height: sigHeight,
+      });
+    }
+
+    // Draw date if provided
+    if (dateData && dateData.text && dateData.position) {
+      const datePageIndex = (dateData.page || 1) - 1;
+      const datePage = pages[datePageIndex] || targetPage;
+      const datePageSize = datePage.getSize();
+
+      // Get scale factors for the date page (might be different if on different page)
+      const dateScaleX = datePageSize.width / (renderedWidth || 612);
+      const dateScaleY = datePageSize.height / (renderedHeight || 792);
+
+      // Calculate font size based on the element height
+      const dateHeight = (dateData.size?.height || 30) * dateScaleY;
+      const fontSize = Math.max(10, dateHeight * 0.7);
+
+      // Embed font
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+      // Calculate position
+      const dateX = (dateData.position.x || 0) * dateScaleX;
+      // For text, we position from baseline, so add some offset
+      const dateScreenY = dateData.position.y || 0;
+      const dateY = datePageSize.height - (dateScreenY * dateScaleY) - dateHeight + (fontSize * 0.3);
+
+      console.log("[signExternalPDF] Drawing date at PDF coordinates:");
+      console.log("  text:", dateData.text);
+      console.log("  x:", dateX, "y:", dateY);
+      console.log("  fontSize:", fontSize);
+
+      datePage.drawText(dateData.text, {
+        x: dateX,
+        y: dateY,
+        size: fontSize,
+        font: font,
+        color: rgb(0, 0, 0),
+      });
+    }
+
+    // Save the signed PDF
+    const signedPdfBytes = await pdfDoc.save();
+    console.log("[signExternalPDF] Signed PDF size:", signedPdfBytes.length);
+
+    // Upload to Firebase Storage
+    const bucket = admin.storage().bucket();
+    const fileName = `signed_affidavits/${Date.now()}_signed.pdf`;
+    const file = bucket.file(fileName);
+
+    await file.save(Buffer.from(signedPdfBytes), {
+      metadata: {
+        contentType: "application/pdf",
+        metadata: {
+          signedAt: new Date().toISOString(),
+          signaturePage: page?.toString() || "1",
+        },
+      },
+    });
+
+    // Make the file publicly readable
+    await file.makePublic();
+
+    // Get the public URL
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+    console.log("[signExternalPDF] Signed PDF uploaded:", publicUrl);
+
+    return {
+      success: true,
+      url: publicUrl,
+      message: "PDF signed successfully",
+    };
+  } catch (error) {
+    console.error("[signExternalPDF] Error:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError(
+        "internal",
+        `Failed to sign PDF: ${error.message}`,
     );
   }
 });
@@ -1176,6 +1427,163 @@ function registerHandlebarsHelpers() {
     if (!str) return "";
     return str.toLowerCase();
   });
+
+  Handlebars.registerHelper("truncateParties", function(text, maxLength = 300) {
+    if (!text) return "";
+
+    // If under limit, return as-is
+    if (text.length <= maxLength) return text;
+
+    // Find last complete name (assume comma, semicolon, or 'and' separation)
+    let truncated = text.substring(0, maxLength);
+
+    // Find last comma, semicolon, or ' and ' before the cutoff
+    const lastComma = truncated.lastIndexOf(",");
+    const lastSemicolon = truncated.lastIndexOf(";");
+    const lastAnd = truncated.lastIndexOf(" and ");
+
+    const lastSeparator = Math.max(lastComma, lastSemicolon, lastAnd);
+
+    if (lastSeparator > 0) {
+      truncated = text.substring(0, lastSeparator);
+    }
+
+    return truncated.trim() + " et al.";
+  });
+
+  Handlebars.registerHelper("titleCase", function(str) {
+    if (!str) return "";
+    return str
+        .toLowerCase()
+        .split(" ")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+  });
+
+  Handlebars.registerHelper("formatServiceManner", function(manner) {
+    if (!manner) return "";
+    if (manner === "other") return "";
+
+    // Convert snake_case to Title Case
+    return manner
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (l) => l.toUpperCase());
+  });
+
+  Handlebars.registerHelper("buildPersonDescription", function(sex, age, height, weight, hair, relationship, description) {
+    const parts = [];
+
+    if (sex) parts.push(sex);
+    if (age) parts.push(`${age} years old`);
+    if (height) parts.push(height);
+    if (weight) parts.push(weight);
+    if (hair) parts.push(`${hair} hair`);
+    if (relationship) parts.push(relationship);
+    if (description) parts.push(description);
+
+    return parts.join(", ");
+  });
+
+  Handlebars.registerHelper("formatCurrency", function(value) {
+    if (!value && value !== 0) return "$0.00";
+    const num = parseFloat(value);
+    if (isNaN(num)) return "$0.00";
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    }).format(num);
+  });
+
+  Handlebars.registerHelper("formatPhone", function(phone) {
+    if (!phone) return "";
+    const cleaned = ("" + phone).replace(/\D/g, "");
+    if (cleaned.length === 10) {
+      return `(${cleaned.substring(0, 3)}) ${cleaned.substring(3, 6)}-${cleaned.substring(6)}`;
+    } else if (cleaned.length === 11 && cleaned[0] === "1") {
+      return `+1 (${cleaned.substring(1, 4)}) ${cleaned.substring(4, 7)}-${cleaned.substring(7)}`;
+    }
+    return phone; // Return as-is if format not recognized
+  });
+
+  Handlebars.registerHelper("formatAddress", function(address1, address2, city, state, zip) {
+    const parts = [];
+    if (address1) parts.push(address1);
+    if (address2) parts.push(address2);
+
+    const cityStateZip = [city, state, zip].filter(Boolean).join(", ");
+    if (cityStateZip) parts.push(cityStateZip);
+
+    return parts.join("<br/>");
+  });
+
+  Handlebars.registerHelper("pluralize", function(count, singular, plural) {
+    if (!count && count !== 0) return "";
+    const num = parseInt(count);
+    return `${num} ${num === 1 ? singular : plural}`;
+  });
+
+  Handlebars.registerHelper("ifContains", function(haystack, needle) {
+    if (!haystack) return false;
+    if (Array.isArray(haystack)) {
+      return haystack.some((item) => {
+        if (typeof item === "object") {
+          return Object.values(item).some((val) =>
+              String(val).toLowerCase().includes(String(needle).toLowerCase()),
+          );
+        }
+        return String(item).toLowerCase().includes(String(needle).toLowerCase());
+      });
+    }
+    return String(haystack).toLowerCase().includes(String(needle).toLowerCase());
+  });
+
+  Handlebars.registerHelper("length", function(value) {
+    if (!value) return 0;
+    if (Array.isArray(value)) return value.length;
+    if (typeof value === "string") return value.length;
+    if (typeof value === "object") return Object.keys(value).length;
+    return 0;
+  });
+
+  // Math operations
+  Handlebars.registerHelper("add", function(a, b) {
+    return parseFloat(a || 0) + parseFloat(b || 0);
+  });
+
+  Handlebars.registerHelper("subtract", function(a, b) {
+    return parseFloat(a || 0) - parseFloat(b || 0);
+  });
+
+  Handlebars.registerHelper("multiply", function(a, b) {
+    return parseFloat(a || 0) * parseFloat(b || 0);
+  });
+
+  Handlebars.registerHelper("divide", function(a, b) {
+    const divisor = parseFloat(b || 1);
+    if (divisor === 0) return 0;
+    return parseFloat(a || 0) / divisor;
+  });
+
+  // Greater than / Less than comparisons
+  Handlebars.registerHelper("gt", function(a, b) {
+    return parseFloat(a || 0) > parseFloat(b || 0);
+  });
+
+  Handlebars.registerHelper("gte", function(a, b) {
+    return parseFloat(a || 0) >= parseFloat(b || 0);
+  });
+
+  Handlebars.registerHelper("lt", function(a, b) {
+    return parseFloat(a || 0) < parseFloat(b || 0);
+  });
+
+  Handlebars.registerHelper("lte", function(a, b) {
+    return parseFloat(a || 0) <= parseFloat(b || 0);
+  });
+
+  Handlebars.registerHelper("json", function(value) {
+    return JSON.stringify(value, null, 2);
+  });
 }
 
 // Register helpers once at startup
@@ -1303,7 +1711,52 @@ function injectSignatureIntoHTML(html, signatureData) {
     html = html.replace(signatureLinePattern, signatureContainer);
     console.log("  Signature image injected successfully");
   } else {
-    console.log("  AO 440 signature line pattern not found, signature not injected");
+    // Fallback: Use percentage-based positioning for reliable placement
+    console.log("  Using percentage-based positioning");
+
+    // Get percentage position (fallback to sensible defaults if not provided)
+    const positionPercent = signatureData.positionPercent || { x: 0.5, y: 0.78 };
+
+    console.log(`  Position percent: x=${positionPercent.x}, y=${positionPercent.y}`);
+    console.log(`  Size: width=${size.width}, height=${size.height}`);
+
+    // PDF page dimensions (Standard template)
+    const pageWidth = 612; // pt
+    const pageHeight = 792; // pt
+    const padding = { top: 12, left: 24 }; // from template
+
+    // Calculate position in points using percentage
+    const contentWidth = pageWidth - (padding.left * 2);
+    const contentHeight = pageHeight - (padding.top * 2);
+
+    const scaledX = padding.left + (positionPercent.x * contentWidth);
+    const scaledY = padding.top + (positionPercent.y * contentHeight);
+
+    // Scale size
+    const scaleFactor = 0.75;
+    const scaledWidth = size.width * scaleFactor;
+    const scaledHeight = size.height * scaleFactor;
+
+    console.log(`  Calculated position: x=${scaledX}pt, y=${scaledY}pt`);
+
+    const signatureImg = `<img src="${signatureData.signature_data}"
+         alt="Signature"
+         style="position: absolute; left: ${scaledX}pt; top: ${scaledY}pt; width: ${scaledWidth}pt; height: ${scaledHeight}pt; object-fit: contain; z-index: 10;" />`;
+
+    // Ensure container has position: relative
+    const containerPattern = /(<div style="width: 612pt;[^>]*)(>)/;
+    if (html.match(containerPattern) && !html.match(/position:\s*relative/)) {
+      html = html.replace(containerPattern, '$1 position: relative;$2');
+      console.log("  Added position: relative to container");
+    }
+
+    const lastDivIndex = html.lastIndexOf('</div>');
+    if (lastDivIndex !== -1) {
+      html = html.slice(0, lastDivIndex) + signatureImg + html.slice(lastDivIndex);
+      console.log("  Signature image injected at absolute position successfully");
+    } else {
+      console.log("  Could not find insertion point for signature");
+    }
   }
 
   // Inject the date into the date field
@@ -1728,6 +2181,9 @@ exports.generateAffidavit = onCall(
         }
       }
 
+      // Track platform-wide usage stats for affidavit generation
+      await trackPlatformUsage("affidavits_generated");
+
       return {
         success: true,
         data: Buffer.from(pdfBytes),
@@ -1922,6 +2378,9 @@ exports.generateAffidavit = onCall(
     const pdfBytes = await pdfDoc.save();
 
     console.log(`Simple affidavit generated successfully, size: ${pdfBytes.byteLength} bytes`);
+
+    // Track platform-wide usage stats for affidavit generation
+    await trackPlatformUsage("affidavits_generated");
 
     // Return PDF as buffer
     return {
@@ -3697,5 +4156,336 @@ Return ONLY valid JSON (no markdown code blocks, no explanations):
         "internal",
         `Failed to find court address with AI: ${error.message}`,
     );
+  }
+});
+
+/**
+ * Invites a client user to the client portal
+ * Creates a Firebase Auth user and stores client_user record
+ * @param {Object} data - { email, name, role, client_company_id, parent_company_id }
+ * @returns {Object} - { success: boolean, client_user_id: string, portal_url: string }
+ */
+exports.inviteClientUser = onCall(async (request) => {
+  try {
+    const {email, name, role, client_company_id, parent_company_id} = request.data;
+
+    // Validate input
+    if (!email) {
+      throw new HttpsError("invalid-argument", "Email is required");
+    }
+    if (!name) {
+      throw new HttpsError("invalid-argument", "Name is required");
+    }
+    if (!client_company_id) {
+      throw new HttpsError("invalid-argument", "Client company ID is required");
+    }
+    if (!parent_company_id) {
+      throw new HttpsError("invalid-argument", "Parent company ID is required");
+    }
+
+    // Validate role
+    const validRoles = ["viewer", "manager", "admin"];
+    const userRole = role || "viewer";
+    if (!validRoles.includes(userRole)) {
+      throw new HttpsError("invalid-argument", `Invalid role. Must be one of: ${validRoles.join(", ")}`);
+    }
+
+    // Get the caller's UID for tracking who sent the invite
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated to invite client users");
+    }
+
+    console.log(`[inviteClientUser] Inviting ${email} to portal for company ${parent_company_id}`);
+
+    // Get the parent company to retrieve portal slug
+    const companyDoc = await admin.firestore().collection("companies").doc(parent_company_id).get();
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Parent company not found");
+    }
+    const companyData = companyDoc.data();
+    const portalSlug = companyData.portal_settings?.portal_slug;
+
+    if (!portalSlug) {
+      throw new HttpsError("failed-precondition", "Company portal is not configured. Please set a portal slug in company settings.");
+    }
+
+    // Generate invitation token
+    const invitationToken = require("crypto").randomBytes(32).toString("hex");
+
+    let firebaseUser;
+    let isNewUser = false;
+
+    // Check if user already exists in Firebase Auth
+    try {
+      firebaseUser = await admin.auth().getUserByEmail(email);
+      console.log(`[inviteClientUser] Found existing Firebase Auth user: ${firebaseUser.uid}`);
+
+      // Check if they already have a client_users record for this parent company
+      const existingClientUser = await admin.firestore()
+          .collection("client_users")
+          .where("email", "==", email)
+          .where("parent_company_id", "==", parent_company_id)
+          .get();
+
+      if (!existingClientUser.empty) {
+        throw new HttpsError("already-exists", "This user has already been invited to this portal");
+      }
+    } catch (error) {
+      if (error.code === "auth/user-not-found") {
+        // Create new Firebase Auth user with a temporary password
+        const tempPassword = require("crypto").randomBytes(16).toString("hex");
+        firebaseUser = await admin.auth().createUser({
+          email: email,
+          displayName: name,
+          password: tempPassword,
+        });
+        isNewUser = true;
+        console.log(`[inviteClientUser] Created new Firebase Auth user: ${firebaseUser.uid}`);
+      } else if (error instanceof HttpsError) {
+        throw error;
+      } else {
+        throw new HttpsError("internal", `Failed to check user: ${error.message}`);
+      }
+    }
+
+    // Set custom claims to identify this user as a client portal user
+    await admin.auth().setCustomUserClaims(firebaseUser.uid, {
+      client_portal_user: true,
+      client_company_id: client_company_id,
+      parent_company_id: parent_company_id,
+    });
+
+    // Create client_users record in Firestore
+    const clientUserData = {
+      email: email,
+      name: name,
+      uid: firebaseUser.uid,
+      client_company_id: client_company_id,
+      parent_company_id: parent_company_id,
+      role: userRole,
+      is_active: true,
+      invited_by: callerUid,
+      invited_at: admin.firestore.FieldValue.serverTimestamp(),
+      invitation_token: invitationToken,
+      invitation_status: "pending",
+      last_login: null,
+      login_count: 0,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const clientUserRef = await admin.firestore().collection("client_users").add(clientUserData);
+    console.log(`[inviteClientUser] Created client_users record: ${clientUserRef.id}`);
+
+    // Generate the portal invite URL
+    // The token allows them to set their password on first login
+    const portalBaseUrl = process.env.GCLOUD_PROJECT === "serve-max-1f01c0af"
+        ? "https://www.servemax.pro"
+        : "http://localhost:5173";
+    const portalInviteUrl = `${portalBaseUrl}/portal/${portalSlug}/accept-invite?token=${invitationToken}`;
+
+    // Generate password reset link if new user, so they can set their password
+    let passwordSetupLink = null;
+    if (isNewUser) {
+      passwordSetupLink = await admin.auth().generatePasswordResetLink(email);
+    }
+
+    console.log(`[inviteClientUser] ✅ Successfully invited ${email}`);
+
+    return {
+      success: true,
+      client_user_id: clientUserRef.id,
+      firebase_uid: firebaseUser.uid,
+      portal_url: `${portalBaseUrl}/portal/${portalSlug}`,
+      invite_url: portalInviteUrl,
+      password_setup_link: passwordSetupLink,
+      is_new_user: isNewUser,
+      message: isNewUser
+          ? `Invitation created. User will need to set their password using the password setup link.`
+          : `Invitation created for existing user. They can log in with their existing credentials.`,
+    };
+  } catch (error) {
+    console.error("[inviteClientUser] Error:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to invite client user: ${error.message}`);
+  }
+});
+
+/**
+ * Accepts a client portal invitation and activates the account
+ * @param {Object} data - { token: string }
+ * @returns {Object} - { success: boolean, redirect_url: string }
+ */
+exports.acceptClientInvitation = onCall(async (request) => {
+  try {
+    const {token} = request.data;
+
+    if (!token) {
+      throw new HttpsError("invalid-argument", "Invitation token is required");
+    }
+
+    console.log(`[acceptClientInvitation] Processing token: ${token.substring(0, 8)}...`);
+
+    // Find client_user by invitation token
+    const clientUserQuery = await admin.firestore()
+        .collection("client_users")
+        .where("invitation_token", "==", token)
+        .where("invitation_status", "==", "pending")
+        .limit(1)
+        .get();
+
+    if (clientUserQuery.empty) {
+      throw new HttpsError("not-found", "Invalid or expired invitation token");
+    }
+
+    const clientUserDoc = clientUserQuery.docs[0];
+    const clientUserData = clientUserDoc.data();
+
+    // Update invitation status
+    await clientUserDoc.ref.update({
+      invitation_status: "accepted",
+      invitation_token: null, // Clear token after use
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Get company portal slug for redirect
+    const companyDoc = await admin.firestore()
+        .collection("companies")
+        .doc(clientUserData.parent_company_id)
+        .get();
+
+    const portalSlug = companyDoc.exists ? companyDoc.data()?.portal_settings?.portal_slug : null;
+    const portalBaseUrl = process.env.GCLOUD_PROJECT === "serve-max-1f01c0af"
+        ? "https://www.servemax.pro"
+        : "http://localhost:5173";
+
+    console.log(`[acceptClientInvitation] ✅ Invitation accepted for ${clientUserData.email}`);
+
+    return {
+      success: true,
+      email: clientUserData.email,
+      redirect_url: portalSlug ? `${portalBaseUrl}/portal/${portalSlug}/login` : portalBaseUrl,
+      message: "Invitation accepted successfully. You can now log in to the portal.",
+    };
+  } catch (error) {
+    console.error("[acceptClientInvitation] Error:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to accept invitation: ${error.message}`);
+  }
+});
+
+/**
+ * Gets client portal data for an authenticated client user
+ * @param {Object} data - { parent_company_id: string }
+ * @returns {Object} - { company, branding, jobs, invoices }
+ */
+exports.getClientPortalData = onCall(async (request) => {
+  try {
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    // Get the client user record
+    const clientUserQuery = await admin.firestore()
+        .collection("client_users")
+        .where("uid", "==", callerUid)
+        .where("is_active", "==", true)
+        .limit(1)
+        .get();
+
+    if (clientUserQuery.empty) {
+      throw new HttpsError("permission-denied", "No active client portal access found");
+    }
+
+    const clientUser = clientUserQuery.docs[0].data();
+    const parentCompanyId = clientUser.parent_company_id;
+    const clientCompanyId = clientUser.client_company_id;
+
+    // Get parent company data (for branding)
+    const companyDoc = await admin.firestore()
+        .collection("companies")
+        .doc(parentCompanyId)
+        .get();
+
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Company not found");
+    }
+
+    const companyData = companyDoc.data();
+
+    // Update last login
+    await clientUserQuery.docs[0].ref.update({
+      last_login: admin.firestore.FieldValue.serverTimestamp(),
+      login_count: admin.firestore.FieldValue.increment(1),
+    });
+
+    // Get jobs for this client company
+    const jobsQuery = await admin.firestore()
+        .collection("jobs")
+        .where("company_id", "==", parentCompanyId)
+        .where("client_id", "==", clientCompanyId)
+        .orderBy("created_at", "desc")
+        .limit(50)
+        .get();
+
+    const jobs = jobsQuery.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    // Get invoices for this client company
+    const invoicesQuery = await admin.firestore()
+        .collection("invoices")
+        .where("company_id", "==", parentCompanyId)
+        .where("client_id", "==", clientCompanyId)
+        .orderBy("created_at", "desc")
+        .limit(50)
+        .get();
+
+    const invoices = invoicesQuery.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    console.log(`[getClientPortalData] Loaded ${jobs.length} jobs and ${invoices.length} invoices for client ${clientCompanyId}`);
+
+    return {
+      success: true,
+      clientUser: {
+        id: clientUserQuery.docs[0].id,
+        name: clientUser.name,
+        email: clientUser.email,
+        role: clientUser.role,
+      },
+      company: {
+        id: parentCompanyId,
+        name: companyData.name,
+        email: companyData.email,
+        phone: companyData.phone,
+      },
+      branding: companyData.branding || {
+        logo_url: "",
+        primary_color: "#1e40af",
+        accent_color: "#3b82f6",
+      },
+      portalSettings: companyData.portal_settings || {},
+      jobs: jobs,
+      invoices: invoices,
+    };
+  } catch (error) {
+    console.error("[getClientPortalData] Error:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to get portal data: ${error.message}`);
   }
 });

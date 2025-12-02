@@ -66,6 +66,7 @@ export default function InvoiceDetailPage() {
     payment_method: 'check',
     notes: ''
   });
+  const [invoiceModified, setInvoiceModified] = useState(false); // Track if invoice was modified during session
 
   useEffect(() => {
     loadInvoiceData();
@@ -233,6 +234,7 @@ export default function InvoiceDetailPage() {
         description: `Invoice ${invoice.invoice_number} has been issued successfully.`
       });
 
+      setInvoiceModified(true); // Mark invoice as modified for back navigation refresh
       await loadInvoiceData(true); // Pass true to prevent skeleton flash
     } catch (error) {
       console.error('Error issuing invoice:', error);
@@ -412,6 +414,16 @@ export default function InvoiceDetailPage() {
     ? createPageUrl(`JobDetails?id=${jobId}`)
     : createPageUrl('Accounting');
 
+  // Handle back navigation with refresh signal if invoice was modified
+  const handleBackNavigation = () => {
+    if (returnTo === 'JobDetails' && jobId && invoiceModified) {
+      // Navigate with refresh signal so JobDetails refreshes invoice data
+      navigate(createPageUrl(`JobDetails?id=${jobId}`), { state: { refreshInvoice: true } });
+    } else {
+      navigate(backUrl);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Fixed Header Section */}
@@ -419,11 +431,9 @@ export default function InvoiceDetailPage() {
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link to={backUrl}>
-                <Button variant="ghost" size="icon" className="no-print">
-                  <ArrowLeft className="w-5 h-5" />
-                </Button>
-              </Link>
+              <Button variant="ghost" size="icon" className="no-print" onClick={handleBackNavigation}>
+                <ArrowLeft className="w-5 h-5" />
+              </Button>
               <div>
                 <h1 className="text-3xl font-bold text-slate-900">
                   Invoice {invoice.invoice_number}

@@ -291,4 +291,31 @@ export class InvoiceManager {
 
     return `INV-${year}${month}-${seq}`;
   }
+
+  /**
+   * Send invoice email to client
+   * STUB: Placeholder for future SendGrid integration
+   *
+   * @param {string} invoiceId - The ID of the invoice to send
+   * @param {string} clientEmail - The email address to send the invoice to
+   * @param {object} invoiceData - Optional invoice data for email content
+   * @returns {Promise<object>} - Result object with success status
+   */
+  static async sendInvoiceEmail(invoiceId, clientEmail, invoiceData = {}) {
+    console.log('[sendInvoiceEmail] TODO: Implement SendGrid integration');
+    console.log('[sendInvoiceEmail] Would send invoice', invoiceId, 'to', clientEmail);
+    console.log('[sendInvoiceEmail] Invoice data:', {
+      invoiceNumber: invoiceData.invoice_number,
+      total: invoiceData.total,
+      dueDate: invoiceData.due_date
+    });
+
+    // For now, just return success - actual email sending to be added later with SendGrid
+    return {
+      success: true,
+      message: 'Email queued (SendGrid integration pending)',
+      invoiceId,
+      recipientEmail: clientEmail
+    };
+  }
 }

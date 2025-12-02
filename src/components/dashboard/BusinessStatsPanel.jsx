@@ -21,6 +21,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { StatsManager } from '@/firebase/stats';
 import { InvoiceManager } from '@/firebase/invoiceManager';
 import { useGlobalData } from '@/components/GlobalDataContext';
+import { CompanySettings } from '@/api/entities';
 import { createPageUrl } from '@/utils';
 import TopClients from './TopClients';
 import TopServers from './TopServers';
@@ -36,7 +37,7 @@ import {
 
 export default function BusinessStatsPanel() {
   const { user } = useAuth();
-  const { jobs, clients, invoices, employees, isLoading: isLoadingJobs } = useGlobalData();
+  const { jobs, clients, invoices, employees, serverPayRecords, isLoading: isLoadingJobs } = useGlobalData();
   const [stats, setStats] = useState(null);
   const [topClients, setTopClients] = useState([]);
   const [topServers, setTopServers] = useState([]);
@@ -54,6 +55,14 @@ export default function BusinessStatsPanel() {
   const [topServersData, setTopServersData] = useState([]);
   const [isTopServersLoading, setIsTopServersLoading] = useState(true);
   const [topServersPeriod, setTopServersPeriod] = useState('this_month');
+  const [ratingWeights, setRatingWeights] = useState({
+    completion_time: 3,
+    profit_margin: 3,
+    affidavit_turnaround: 3,
+    first_attempt_timing: 3,
+    acceptance_rate: 0,
+    mobile_app_usage: 0
+  });
 
   // Time period options
   const timePeriods = [
@@ -73,6 +82,21 @@ export default function BusinessStatsPanel() {
     { value: 'this_year', label: 'This Year' },
     { value: 'all_time', label: 'All Time' },
   ];
+
+  // Load rating weights from company settings
+  useEffect(() => {
+    const loadRatingWeights = async () => {
+      try {
+        const result = await CompanySettings.filter({ setting_key: 'server_rating_weights' });
+        if (result && result.length > 0) {
+          setRatingWeights(prev => ({ ...prev, ...result[0].setting_value.weights }));
+        }
+      } catch (error) {
+        console.error('Error loading rating weights:', error);
+      }
+    };
+    loadRatingWeights();
+  }, []);
 
   // Calculate real-time job counts whenever jobs data changes
   useEffect(() => {
@@ -311,9 +335,16 @@ export default function BusinessStatsPanel() {
         if (job.assigned_server_id && serverStats[job.assigned_server_id]) {
             serverStats[job.assigned_server_id].completedJobs += 1;
 
-            // Add financial calculations
-            const serverPay = job.server_pay || 0;
-            const clientBilling = job.amount || 0; // Assuming job.amount is what's billed to client
+            // Get server pay from serverPayRecords collection (linked by job_id)
+            const serverPayRecord = serverPayRecords?.find(r => r.job_id === job.id);
+            const serverPay = serverPayRecord?.total_amount || 0;
+
+            // Get client billing from invoice linked to this job (invoice total is the actual billed amount)
+            // Note: invoices use job_ids array, not job_id
+            const jobInvoice = invoices?.find(inv =>
+              inv.job_ids?.includes(job.id) || inv.job_id === job.id
+            );
+            const clientBilling = jobInvoice?.total_amount || jobInvoice?.total || job.total_fee || 0;
 
             serverStats[job.assigned_server_id].serverPay += serverPay;
             serverStats[job.assigned_server_id].clientBilling += clientBilling;
@@ -332,21 +363,57 @@ export default function BusinessStatsPanel() {
         }
     });
 
-    // Calculate ratings based on completion rate and job volume
+    // Calculate ratings using weighted factors from settings
     const statsArray = Object.values(serverStats).map(stat => {
         // A server must have jobs assigned in the period to have a rating.
         if (stat.jobs === 0) {
           return { ...stat, rating: 0 };
         }
 
-        const completionRate = stat.completedJobs / stat.jobs;
+        let totalScore = 0;
+        let totalWeight = 0;
 
-        // Rating formula:
-        // - Up to 4 stars for completion rate.
-        // - Up to 1 star for job volume (maxes out at 20 completed jobs).
-        const completionBonus = completionRate * 4;
-        const volumeBonus = Math.min(stat.completedJobs / 20, 1);
-        const rating = completionBonus + volumeBonus;
+        // 1. Completion Time Score (faster = better)
+        // Score based on completion rate as proxy for efficiency
+        if (ratingWeights.completion_time > 0) {
+          const completionRate = stat.completedJobs / stat.jobs;
+          totalScore += completionRate * ratingWeights.completion_time;
+          totalWeight += ratingWeights.completion_time;
+        }
+
+        // 2. Profit Margin Score (higher margin = better)
+        // Score: profit as percentage of client billing, capped at 100%
+        if (ratingWeights.profit_margin > 0 && stat.clientBilling > 0) {
+          const marginPercent = Math.min(stat.profit / stat.clientBilling, 1);
+          const marginScore = Math.max(0, marginPercent); // No negative scores
+          totalScore += marginScore * ratingWeights.profit_margin;
+          totalWeight += ratingWeights.profit_margin;
+        } else if (ratingWeights.profit_margin > 0) {
+          // If no billing data, neutral score of 0.5
+          totalScore += 0.5 * ratingWeights.profit_margin;
+          totalWeight += ratingWeights.profit_margin;
+        }
+
+        // 3. First Attempt Timing Score (placeholder - uses completion as proxy)
+        if (ratingWeights.first_attempt_timing > 0) {
+          const completionRate = stat.completedJobs / stat.jobs;
+          totalScore += completionRate * ratingWeights.first_attempt_timing;
+          totalWeight += ratingWeights.first_attempt_timing;
+        }
+
+        // 4. Affidavit Turnaround Score (placeholder - uses completion as proxy)
+        if (ratingWeights.affidavit_turnaround > 0) {
+          const completionRate = stat.completedJobs / stat.jobs;
+          totalScore += completionRate * ratingWeights.affidavit_turnaround;
+          totalWeight += ratingWeights.affidavit_turnaround;
+        }
+
+        // Future factors (acceptance_rate, mobile_app_usage) - disabled by default
+
+        // Calculate final rating (0-5 scale)
+        const rating = totalWeight > 0
+          ? (totalScore / totalWeight) * 5
+          : 0;
 
         return {
             ...stat,
@@ -356,7 +423,7 @@ export default function BusinessStatsPanel() {
 
     setTopServersData(statsArray);
     setIsTopServersLoading(false);
-  }, [jobs, employees, topServersPeriod, isLoadingJobs]);
+  }, [jobs, employees, serverPayRecords, topServersPeriod, isLoadingJobs, ratingWeights, invoices]);
 
   // Calculate TopClients data when dependencies change
   useEffect(() => {

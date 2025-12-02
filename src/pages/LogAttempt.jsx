@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Job, Employee, Attempt, User, Client, Document, CompanySettings } from '@/api/entities'; // Added Document and CompanySettings imports
+import { UsageTracker } from '@/firebase/usageTracker';
 import { createPageUrl } from '@/utils';
 import { useGlobalData } from '@/components/GlobalDataContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -743,6 +744,10 @@ export default function LogAttemptPage() {
         newAttempt = await Attempt.update(editingAttemptId, attemptData);
       } else {
         newAttempt = await Attempt.create(attemptData);
+        // Track platform-wide usage stats for successful serves
+        if (attemptData.status === 'served') {
+          UsageTracker.trackServeCompleted();
+        }
       }
 
       // Update documents with the attempt_id (New logic as per outline)

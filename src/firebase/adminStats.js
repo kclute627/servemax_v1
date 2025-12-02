@@ -1,6 +1,7 @@
 import { entities } from './database';
-import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, where, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db } from './config';
+import { getDocIds } from './usageTracker';
 
 /**
  * Admin Statistics Manager
@@ -377,6 +378,54 @@ export class AdminStatsManager {
         apiStatus: 'unknown',
         last_incident: null,
         last_updated: new Date()
+      };
+    }
+  }
+
+  /**
+   * Get platform usage statistics for different time periods
+   * Fetches counters for: jobs_created, affidavits_generated, serves_completed, users_added
+   */
+  static async getUsageStats() {
+    try {
+      const docIds = getDocIds();
+
+      const defaultStats = () => ({
+        jobs_created: 0,
+        affidavits_generated: 0,
+        serves_completed: 0,
+        users_added: 0
+      });
+
+      const [daily, weekly, monthly, yearly, allTime] = await Promise.all([
+        getDoc(doc(db, 'platform_usage', docIds.daily)),
+        getDoc(doc(db, 'platform_usage', docIds.weekly)),
+        getDoc(doc(db, 'platform_usage', docIds.monthly)),
+        getDoc(doc(db, 'platform_usage', docIds.yearly)),
+        getDoc(doc(db, 'platform_usage', 'all_time'))
+      ]);
+
+      return {
+        today: daily.exists() ? daily.data() : defaultStats(),
+        thisWeek: weekly.exists() ? weekly.data() : defaultStats(),
+        thisMonth: monthly.exists() ? monthly.data() : defaultStats(),
+        thisYear: yearly.exists() ? yearly.data() : defaultStats(),
+        allTime: allTime.exists() ? allTime.data() : defaultStats()
+      };
+    } catch (error) {
+      console.error('Error fetching usage stats:', error);
+      const defaultStats = () => ({
+        jobs_created: 0,
+        affidavits_generated: 0,
+        serves_completed: 0,
+        users_added: 0
+      });
+      return {
+        today: defaultStats(),
+        thisWeek: defaultStats(),
+        thisMonth: defaultStats(),
+        thisYear: defaultStats(),
+        allTime: defaultStats()
       };
     }
   }

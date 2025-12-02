@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 // FIREBASE TRANSITION: Replace with Firebase SDK imports.
-import { ServerPayRecord, Employee } from "@/api/entities";
+import { Employee } from "@/api/entities";
+import { SecureServerPayRecordAccess } from "@/firebase/multiTenantAccess";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,7 +44,7 @@ export default function ServerPayPage() {
     setIsLoading(true);
     try {
       const [serverPayRecords, employees] = await Promise.all([
-        ServerPayRecord.filter({ payment_status: 'unpaid' }),
+        SecureServerPayRecordAccess.filter({ payment_status: 'unpaid' }),
         Employee.filter({ role: 'process_server' }),
       ]);
 
@@ -104,7 +105,7 @@ export default function ServerPayPage() {
 
       // Update all selected server pay records
       await Promise.all(
-        selectedRecords.map(record => ServerPayRecord.update(record.id, paymentData))
+        selectedRecords.map(record => SecureServerPayRecordAccess.update(record.id, paymentData))
       );
       
       setShowPaymentDialog(false);

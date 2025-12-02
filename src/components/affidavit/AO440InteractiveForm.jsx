@@ -230,13 +230,12 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
     handleChange('total_fee', total);
   };
 
-  // Place signature on the form
+  // Place signature on the form (works in both edit and view mode)
   const placeSignature = () => {
     console.log('[AO440InteractiveForm] placeSignature called');
 
-    if (!isEditing || !user || !user.e_signature?.signature_data || placedSignature) {
+    if (!user || !user.e_signature?.signature_data || placedSignature) {
       console.log('  Signature placement blocked:', {
-        isEditing,
         hasUser: !!user,
         hasEsignature: !!user?.e_signature?.signature_data,
         alreadyPlaced: !!placedSignature
@@ -270,21 +269,20 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
     }
   };
 
-  // Clear signature
+  // Clear signature (works in both edit and view mode)
   const clearSignature = () => {
-    if (!isEditing) return;
-
     setPlacedSignature(null);
     setSignaturePosition({ x: 0, y: 0 });
+    setSignatureDate('');
 
     if (onDataChange) {
       onDataChange('placed_signature', null);
     }
   };
 
-  // Handle mouse down on signature for dragging
+  // Handle mouse down on signature for dragging (works in both edit and view mode)
   const handleMouseDown = (e) => {
-    if (!placedSignature || !isEditing || !signatureRef.current) return;
+    if (!placedSignature || !signatureRef.current) return;
 
     setIsDragging(true);
     const signatureRect = signatureRef.current.getBoundingClientRect();
@@ -295,9 +293,9 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
     });
   };
 
-  // Handle resize start
+  // Handle resize start (works in both edit and view mode)
   const handleResizeStart = (e, corner) => {
-    if (!placedSignature || !isEditing) return;
+    if (!placedSignature) return;
 
     e.stopPropagation(); // Prevent triggering drag
     setIsResizing(true);
@@ -656,8 +654,11 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
                     top: `${signaturePosition.y}px`,
                     width: `${signatureSize.width}pt`,
                     height: `${signatureSize.height}pt`,
+                    border: '2px dashed #3B82F6',
+                    borderRadius: '4px',
+                    backgroundColor: 'rgba(59, 130, 246, 0.05)',
                   }}
-                  onMouseEnter={() => isEditing && setShowResizeHandles(true)}
+                  onMouseEnter={() => setShowResizeHandles(true)}
                   onMouseLeave={() => !isDragging && !isResizing && setShowResizeHandles(false)}
                 >
                   <img
@@ -667,7 +668,7 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
                     style={{
                       width: '100%',
                       height: '100%',
-                      cursor: isEditing ? (isDragging ? 'grabbing' : 'grab') : 'default',
+                      cursor: isDragging ? 'grabbing' : 'grab',
                       objectFit: 'contain',
                       objectPosition: 'left center',
                     }}
@@ -675,8 +676,8 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
                     draggable="false"
                   />
 
-                  {/* Resize Handles - only show in edit mode when hovering or actively resizing */}
-                  {isEditing && (showResizeHandles || isResizing) && (
+                  {/* Resize Handles - show when hovering or actively resizing */}
+                  {(showResizeHandles || isResizing) && (
                     <>
                       {/* Top-left corner */}
                       <div
@@ -684,11 +685,10 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
                           position: 'absolute',
                           left: '-4pt',
                           top: '-4pt',
-                          width: '8pt',
-                          height: '8pt',
-                          backgroundColor: '#fff',
-                          border: '1pt solid #666',
-                          borderRadius: '50%',
+                          width: '10pt',
+                          height: '10pt',
+                          backgroundColor: '#3B82F6',
+                          borderRadius: '2px',
                           cursor: 'nwse-resize',
                           zIndex: 10
                         }}
@@ -700,11 +700,10 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
                           position: 'absolute',
                           right: '-4pt',
                           top: '-4pt',
-                          width: '8pt',
-                          height: '8pt',
-                          backgroundColor: '#fff',
-                          border: '1pt solid #666',
-                          borderRadius: '50%',
+                          width: '10pt',
+                          height: '10pt',
+                          backgroundColor: '#3B82F6',
+                          borderRadius: '2px',
                           cursor: 'nesw-resize',
                           zIndex: 10
                         }}
@@ -716,11 +715,10 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
                           position: 'absolute',
                           left: '-4pt',
                           bottom: '-4pt',
-                          width: '8pt',
-                          height: '8pt',
-                          backgroundColor: '#fff',
-                          border: '1pt solid #666',
-                          borderRadius: '50%',
+                          width: '10pt',
+                          height: '10pt',
+                          backgroundColor: '#3B82F6',
+                          borderRadius: '2px',
                           cursor: 'nesw-resize',
                           zIndex: 10
                         }}
@@ -732,11 +730,10 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
                           position: 'absolute',
                           right: '-4pt',
                           bottom: '-4pt',
-                          width: '8pt',
-                          height: '8pt',
-                          backgroundColor: '#fff',
-                          border: '1pt solid #666',
-                          borderRadius: '50%',
+                          width: '10pt',
+                          height: '10pt',
+                          backgroundColor: '#3B82F6',
+                          borderRadius: '2px',
                           cursor: 'nwse-resize',
                           zIndex: 10
                         }}
@@ -744,43 +741,44 @@ export default function AO440InteractiveForm({ affidavitData, onDataChange, isEd
                       />
                     </>
                   )}
-                </div>
 
-                {/* Clear signature button */}
-                {isEditing && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={clearSignature}
+                  {/* Remove button on signature */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      clearSignature();
+                    }}
                     style={{
                       position: 'absolute',
-                      right: '5px',
-                      top: '2px',
-                      padding: '4px',
-                      height: 'auto',
-                      backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                      border: '1px solid #ccc',
+                      top: '-10px',
+                      right: '-10px',
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      backgroundColor: '#EF4444',
+                      color: 'white',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       zIndex: 20
                     }}
-                    title="Clear Signature"
+                    title="Remove Signature"
                   >
-                    <X className="w-3 h-3" />
-                  </Button>
-                )}
+                    <X size={12} />
+                  </button>
+                </div>
               </>
-            ) : isEditing && user?.e_signature?.signature_data ? (
+            ) : user?.e_signature?.signature_data ? (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={placeSignature}
-                className="gap-1 text-xs h-6 px-2"
-                style={{
-                  backgroundColor: 'rgba(255, 249, 230, 0.9)',
-                  border: '1px solid #999'
-                }}
+                className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
               >
-                <Pencil className="w-3 h-3" />
-                Sign Here
+                <Pencil className="w-4 h-4" />
+                Sign Affidavit
               </Button>
             ) : null}
           </div>

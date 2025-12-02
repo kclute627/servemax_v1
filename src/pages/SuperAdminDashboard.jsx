@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 
 import PlatformStatsPanel from "../components/admin/PlatformStatsPanel";
+import UsageStatsPanel from "../components/admin/UsageStatsPanel";
 import QuickActionsPanel from "../components/admin/QuickActionsPanel";
 import ActivityFeedPanel from "../components/admin/ActivityFeedPanel";
 import GrowthChartPanel from "../components/admin/GrowthChartPanel";
@@ -40,6 +41,9 @@ export default function SuperAdminDashboard() {
 
           {/* Platform-wide Stats */}
           <PlatformStatsPanel />
+
+          {/* Platform Usage Stats */}
+          <UsageStatsPanel />
 
           {/* Quick Actions */}
           <QuickActionsPanel />

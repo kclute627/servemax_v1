@@ -68,6 +68,7 @@ import QuickInvoice from "../components/jobs/QuickInvoice";
 import PDFViewer from "../components/jobs/PDFViewer";
 // FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { generateFieldSheet } from "@/api/functions"; // Added import for generateFieldSheet
+import { InvoiceManager } from "@/firebase/invoiceManager";
 
 export default function CreateJobPage() {
   const navigate = useNavigate();
@@ -106,7 +107,7 @@ export default function CreateJobPage() {
     due_date: "",
     first_attempt_instructions: "",
     first_attempt_due_date: "",
-    service_fee: 75,
+    service_fee: 0,
     rush_fee: 0,
     mileage_fee: 0,
     server_pay_items: []
@@ -1157,12 +1158,22 @@ export default function CreateJobPage() {
         }
       };
 
-      const initialLogEntry = {
+      const activityLogEntries = [{
         timestamp: new Date().toISOString(),
         user_name: user?.full_name || "System",
         event_type: "job_created",
         description: `Job created by ${user?.full_name || "System"}.`
-      };
+      }];
+
+      // Add invoice issued entry if email on create was toggled
+      if (invoiceData?.emailOnCreate === true) {
+        activityLogEntries.push({
+          timestamp: new Date().toISOString(),
+          user_name: user?.full_name || "System",
+          event_type: "invoice_issued",
+          description: `Invoice #${jobNumber} issued and queued for email to client.`
+        });
+      }
 
       // Determine server name based on server type for field sheet
       let serverNameForJob = "Unassigned";
@@ -1211,7 +1222,7 @@ export default function CreateJobPage() {
         // Set status using kanban column UUID
         status: getInitialStatusColumn(serverIdForSubmission !== "unassigned"),
         is_closed: false,
-        activity_log: [initialLogEntry]
+        activity_log: activityLogEntries
       };
 
       // Create invoice FIRST if invoiceData exists
@@ -1237,6 +1248,10 @@ export default function CreateJobPage() {
           const defaultTerms = companySettings?.invoice_settings?.default_terms ||
             "Thanks for your business. Please pay the \"Balance Due\" within 30 days.";
 
+          // Check if user wants to email invoice immediately
+          const shouldIssueImmediately = invoiceData?.emailOnCreate === true;
+          const currentDate = new Date().toISOString();
+
           newInvoice = await Invoice.create({
             invoice_number: invoiceNumber,
             client_id: formData.client_id,
@@ -1244,9 +1259,9 @@ export default function CreateJobPage() {
             invoice_type: "job",
             invoice_date: invoiceDate.toISOString().split('T')[0],
             due_date: invoiceDueDate.toISOString().split('T')[0],
-            issued_on: null,
+            issued_on: shouldIssueImmediately ? currentDate : null,
             paid_on: null,
-            last_issued_at: null,
+            last_issued_at: shouldIssueImmediately ? currentDate : null,
             job_ids: [], // Will update after job creation
             line_items: lineItems,
             subtotal: subtotal,
@@ -1258,7 +1273,7 @@ export default function CreateJobPage() {
             balance_due: totalAmount,
             total_paid: 0,
             currency: "USD",
-            status: "Draft",
+            status: shouldIssueImmediately ? "Issued" : "Draft",
             locked: false,
             taxes_enabled: taxRate > 0,
             payment_method_required: "manual",
@@ -1329,6 +1344,7 @@ export default function CreateJobPage() {
               server_name: serverName,
               job_number: jobNumber,
               client_id: formData.client_id,
+              company_id: user.company_id,
               pay_items: formData.server_pay_items,
               total_amount: totalServerPay,
               payment_status: "unpaid",
@@ -1339,12 +1355,30 @@ export default function CreateJobPage() {
           console.error('Failed to create ServerPayRecord:', error);
         }),
 
-        // Update invoice with job_id if invoice was created
+        // Update invoice with job_id and send email if requested
         (async () => {
           if (newInvoice && newInvoice.id) {
             await Invoice.update(newInvoice.id, {
               job_ids: [newJob.id]
             });
+
+            // Send invoice email if "email on create" was toggled
+            if (invoiceData?.emailOnCreate === true && formData.contact_email) {
+              try {
+                await InvoiceManager.sendInvoiceEmail(
+                  newInvoice.id,
+                  formData.contact_email,
+                  {
+                    invoice_number: newInvoice.invoice_number,
+                    total: newInvoice.total,
+                    due_date: newInvoice.due_date
+                  }
+                );
+                console.log("Invoice email queued for:", formData.contact_email);
+              } catch (emailError) {
+                console.error("Failed to send invoice email:", emailError);
+              }
+            }
           }
         })().catch(error => {
           console.error("Failed to update invoice with job_id:", error);

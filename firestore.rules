@@ -170,10 +170,20 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
 
-    // Server Pay Records - users can read any records (app filters client-side)
+    // Server Pay Records - users can read/write their company's records only
     match /server_pay_records/{recordId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      allow update, delete: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
     }
 
     // Clients - users can read/write their company's clients

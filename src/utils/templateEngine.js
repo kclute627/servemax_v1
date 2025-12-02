@@ -59,6 +59,15 @@ Handlebars.registerHelper('lowercase', function(str) {
   return str.toLowerCase();
 });
 
+Handlebars.registerHelper('titleCase', function(str) {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+});
+
 /**
  * Format service manner for display
  * Converts snake_case to Title Case (e.g., 'personal' -> 'Personal', 'sub_service' -> 'Sub-Service')
@@ -636,6 +645,7 @@ export const getAvailablePlaceholders = () => {
     { placeholder: '{{capitalize str}}', description: 'Capitalize first letter' },
     { placeholder: '{{uppercase str}}', description: 'Convert to UPPERCASE' },
     { placeholder: '{{lowercase str}}', description: 'Convert to lowercase' },
+    { placeholder: '{{titleCase str}}', description: 'Convert to Title Case (capitalize each word)' },
     { placeholder: '{{formatServiceManner service_manner}}', description: 'Format service type: personal -> Personal, sub_service -> Sub-Service' },
     { placeholder: '{{buildPersonDescription person_sex person_age person_height person_weight person_hair person_relationship person_description_other}}', description: 'Build comma-separated person description from available fields' },
     { placeholder: '{{truncateParties text maxLength}}', description: 'Smart truncate party names, adds "et al." (e.g., {{truncateParties plaintiff 300}})' },

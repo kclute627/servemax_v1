@@ -145,6 +145,20 @@ export const createCompanySchema = (data) => ({
     ]
   },
 
+  // Client portal branding
+  branding: data.branding || {
+    logo_url: '',           // Firebase Storage URL for company logo
+    primary_color: '#1e40af',  // Primary brand color (default blue)
+    accent_color: '#3b82f6',   // Accent color
+  },
+
+  // Client portal settings
+  portal_settings: data.portal_settings || {
+    portal_enabled: false,
+    portal_slug: '',        // URL-friendly slug: "williams-process"
+    welcome_message: '',    // Custom welcome message for clients
+  },
+
   // Timestamps
   created_at: serverTimestamp(),
   updated_at: serverTimestamp()
@@ -222,6 +236,42 @@ export const createInvitationSchema = (data) => ({
   invitation_token: data.invitation_token, // Unique token for secure signup
   status: 'pending', // pending, accepted, expired
   expires_at: data.expires_at, // Expiration timestamp
+  created_at: serverTimestamp(),
+  updated_at: serverTimestamp()
+});
+
+// Client Portal User Schema (separate from staff users)
+export const CLIENT_USER_ROLES = {
+  VIEWER: 'viewer',       // Can only view jobs and invoices
+  MANAGER: 'manager',     // Can submit jobs and view everything
+  ADMIN: 'admin'          // Full access including managing other portal users
+};
+
+export const createClientUserSchema = (data) => ({
+  // User identity
+  email: data.email,
+  name: data.name,
+  uid: data.uid || null,  // Firebase Auth UID (set after account creation)
+
+  // Relationships
+  client_company_id: data.client_company_id,   // Which client company they belong to
+  parent_company_id: data.parent_company_id,   // The process serving company that owns the portal
+
+  // Portal access
+  role: data.role || CLIENT_USER_ROLES.VIEWER,  // viewer, manager, admin
+  is_active: data.is_active !== undefined ? data.is_active : true,
+
+  // Invitation tracking
+  invited_by: data.invited_by,        // User ID of staff who sent invite
+  invited_at: serverTimestamp(),
+  invitation_token: data.invitation_token || null,  // For secure signup link
+  invitation_status: data.invitation_status || 'pending',  // pending, accepted
+
+  // Activity tracking
+  last_login: null,
+  login_count: 0,
+
+  // Timestamps
   created_at: serverTimestamp(),
   updated_at: serverTimestamp()
 });

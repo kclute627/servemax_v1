@@ -20,6 +20,8 @@ import LogAttempt from "./LogAttempt";
 
 import GenerateAffidavit from "./GenerateAffidavit";
 
+import SignExternalAffidavit from "./SignExternalAffidavit";
+
 import Accounting from "./Accounting";
 
 import Home from "./Home";
@@ -52,6 +54,14 @@ import System from "./System";
 
 import InvoiceDetail from "./InvoiceDetail";
 
+// Client Portal pages
+import PortalLayout from "./portal/PortalLayout";
+import ClientLogin from "./portal/ClientLogin";
+import ClientDashboard from "./portal/ClientDashboard";
+import ClientJobs from "./portal/ClientJobs";
+import ClientInvoices from "./portal/ClientInvoices";
+import AcceptInvite from "./portal/AcceptInvite";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { GlobalDataProvider } from "../components/GlobalDataContext";
 import { AuthProvider } from "@/components/auth/AuthProvider";
@@ -78,6 +88,8 @@ const PAGES = {
     LogAttempt: LogAttempt,
 
     GenerateAffidavit: GenerateAffidavit,
+
+    SignExternalAffidavit: SignExternalAffidavit,
 
     Accounting: Accounting,
 
@@ -157,6 +169,7 @@ function PagesContent() {
                 <Route path="/JobDetails" element={<ProtectedRoute><JobDetails /></ProtectedRoute>} />
                 <Route path="/LogAttempt" element={<ProtectedRoute><LogAttempt /></ProtectedRoute>} />
                 <Route path="/GenerateAffidavit" element={<ProtectedRoute><GenerateAffidavit /></ProtectedRoute>} />
+                <Route path="/SignExternalAffidavit" element={<ProtectedRoute><SignExternalAffidavit /></ProtectedRoute>} />
                 <Route path="/Accounting" element={<ProtectedRoute><Accounting /></ProtectedRoute>} />
                 <Route path="/Directory" element={<ProtectedRoute><Directory /></ProtectedRoute>} />
                 <Route path="/ClientDetails" element={<ProtectedRoute><ClientDetails /></ProtectedRoute>} />
@@ -173,12 +186,43 @@ function PagesContent() {
     );
 }
 
+// Wrapper for portal routes (separate from main app)
+function PortalRoutes() {
+    return (
+        <Routes>
+            <Route path="/portal/:companySlug" element={<PortalLayout />}>
+                <Route path="login" element={<ClientLogin />} />
+                <Route path="accept-invite" element={<AcceptInvite />} />
+                <Route path="dashboard" element={<ClientDashboard />} />
+                <Route path="jobs" element={<ClientJobs />} />
+                <Route path="jobs/:jobId" element={<ClientJobs />} />
+                <Route path="invoices" element={<ClientInvoices />} />
+                <Route path="invoices/:invoiceId" element={<ClientInvoices />} />
+                <Route index element={<ClientLogin />} />
+            </Route>
+        </Routes>
+    );
+}
+
+// Main app content wrapper
+function AppContent() {
+    const location = useLocation();
+
+    // Check if we're on a portal route
+    if (location.pathname.startsWith('/portal/')) {
+        return <PortalRoutes />;
+    }
+
+    // Regular app routes
+    return <PagesContent />;
+}
+
 export default function Pages() {
     return (
         <AuthProvider>
             <GlobalDataProvider>
                 <Router>
-                    <PagesContent />
+                    <AppContent />
                 </Router>
             </GlobalDataProvider>
         </AuthProvider>

@@ -1,6 +1,7 @@
 import { entities } from './database';
 import { StatsManager } from './stats';
 import { CompanyManager } from './schemas';
+import { UsageTracker } from './usageTracker';
 
 /**
  * JobManager - Enhanced job management with automatic stats tracking
@@ -28,6 +29,9 @@ export class JobManager {
         created_at: new Date(),
         updated_at: new Date()
       });
+
+      // Track platform-wide usage stats
+      UsageTracker.trackJobCreated();
 
       // Update stats asynchronously (don't block job creation)
       this.updateStatsAsync('job_created', {

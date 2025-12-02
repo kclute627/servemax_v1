@@ -10,7 +10,7 @@ export const STARTER_TEMPLATES = {
     description: 'Professional service affidavit - the best affidavit known to the legal industry. Multi-page support with precise formatting.',
     service_status: 'both',
     is_active: true,
-    html: `<div style="width: 612pt; padding: 12pt 24pt; font-family: Times New Roman, Times, serif; font-size: 13pt; line-height: 1.5; color: #000000; background-color: #FFFFFF; box-sizing: border-box;">
+    html: `<div style="width: 612pt; padding: 12pt 24pt; font-family: Times New Roman, Times, serif; font-size: 13pt; line-height: 1.5; color: #000000; background-color: #FFFFFF; box-sizing: border-box; position: relative;">
 
   <!-- Top Section: Court Name -->
   <div style="text-align: center; margin-bottom: 50pt;">
@@ -71,7 +71,7 @@ export const STARTER_TEMPLATES = {
 
   <!-- Opening Affidavit Paragraph -->
   <p style="margin-top: 8pt; margin-bottom: 4pt; text-align: justify; line-height: 1.5;">
-    I, <strong>{{server_name}}</strong>, being duly sworn, depose and say: I am over the age of 18 years and not a party to this action{{#if (eq status "served")}}, and that within the boundaries of the state where service was effected, I was authorized by applicable law to make service of the documents and informed said person of the contents herein{{else}}, and that I was authorized by applicable law to attempt service of the documents{{/if}}
+    I, <strong>{{titleCase server_name}}</strong>, being duly sworn, depose and say: I am over the age of 18 years and not a party to this action{{#if (eq status "served")}}, and that within the boundaries of the state where service was effected, I was authorized by applicable law to make service of the documents and informed said person of the contents herein{{else}}, and that I was authorized by applicable law to attempt service of the documents{{/if}}
   </p>
 
   <!-- Second Paragraph: Documents Received -->
@@ -101,13 +101,13 @@ export const STARTER_TEMPLATES = {
     <p style="margin-bottom: 4pt; text-align: justify; line-height: 1.5;">
       <strong>Person Served / Address:</strong>
       {{#if (eq service_manner "personal")}}
-        {{person_served_name}} at {{service_address}}
+        {{titleCase person_served_name}} at {{service_address}}
       {{else if (or (eq service_manner "registered_agent") (eq service_manner "authorized_representative") (eq service_manner "corporate_officer") (eq service_manner "business"))}}
-        {{person_served_name}}, {{person_title}}, who is authorized to accept legal documents on behalf of {{company_being_served}} at {{service_address}}
+        {{titleCase person_served_name}}, {{person_title}}, who is authorized to accept legal documents on behalf of {{company_being_served}} at {{service_address}}
       {{else if (eq service_manner "substitute")}}
-        {{person_served_name}} ({{person_relationship}}) who lives at the address and confirmed residency of {{recipient_name}} - to comply with sub-service statute(s) I also mailed the documents via USPS on {{formatDate mailing_date "MMMM d, yyyy"}} to {{recipient_name}} at {{service_address}}.
+        {{titleCase person_served_name}} ({{person_relationship}}) who lives at the address and confirmed residency of {{titleCase recipient_name}} - to comply with sub-service statute(s) I also mailed the documents via USPS on {{formatDate mailing_date "MMMM d, yyyy"}} to {{titleCase recipient_name}} at {{service_address}}.
       {{else}}
-        {{person_served_name}} ({{person_relationship}}) at {{service_address}}
+        {{titleCase person_served_name}} ({{person_relationship}}) at {{service_address}}
       {{/if}}
     </p>
   {{/if}}
@@ -194,14 +194,17 @@ export const STARTER_TEMPLATES = {
           </td>
           <td style="width: 50%; border: none; vertical-align: top; padding-left: 12pt;">
             <!-- Signature Block -->
-            <div style="border-bottom: 1pt solid #000000; width: 100%; margin-bottom: 4pt; height: 40pt;"></div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8pt;">
-              <div>{{server_name}}, License #{{server_license_number}}</div>
-              <div style="padding-right: 20pt;">Date</div>
+            <div style="border-bottom: 1pt solid #000000; width: 100%; margin-bottom: 4pt; height: 40pt; position: relative;">
             </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8pt;">
+              <div>{{titleCase server_name}}{{#if server_license_number}}, License #{{server_license_number}}{{/if}}</div>
+              <div style="padding-right: 20pt;">Date: {{#if placed_signature.signed_date}}{{formatDate placed_signature.signed_date "M/d/yyyy"}}{{else}}_____________{{/if}}</div>
+            </div>
+            {{#if company_info}}
             <div style="margin-bottom: 2pt;">{{company_info.company_name}}</div>
             <div style="font-size: 11pt;">{{company_info.address1}}</div>
-            <div style="font-size: 11pt;">{{company_info.city}}, {{company_info.state}} {{company_info.zip}}</div>
+            <div style="font-size: 11pt;">{{company_info.city}}, {{company_info.state}} {{company_info.postal_code}}</div>
+            {{/if}}
           </td>
         </tr>
       </table>
@@ -210,14 +213,17 @@ export const STARTER_TEMPLATES = {
     <!-- Single Column: Signature Only (Right Aligned) -->
     <div style="margin-top: 20pt; page-break-inside: avoid; break-inside: avoid; display: flex; justify-content: flex-end;">
       <div style="text-align: left; width: 300pt;">
-        <div style="border-bottom: 1pt solid #000000; width: 100%; margin-bottom: 4pt; height: 40pt;"></div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 8pt;">
-          <div>{{server_name}}, License #{{server_license_number}}</div>
-          <div style="padding-right: 20pt;">Date</div>
+        <div style="border-bottom: 1pt solid #000000; width: 100%; margin-bottom: 4pt; height: 40pt; position: relative;">
         </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 8pt;">
+          <div>{{titleCase server_name}}{{#if server_license_number}}, License #{{server_license_number}}{{/if}}</div>
+          <div style="padding-right: 20pt;">Date: {{#if placed_signature.signed_date}}{{formatDate placed_signature.signed_date "M/d/yyyy"}}{{else}}_____________{{/if}}</div>
+        </div>
+        {{#if company_info}}
         <div style="margin-bottom: 2pt;">{{company_info.company_name}}</div>
         <div style="font-size: 11pt;">{{company_info.address1}}</div>
-        <div style="font-size: 11pt;">{{company_info.city}}, {{company_info.state}} {{company_info.zip}}</div>
+        <div style="font-size: 11pt;">{{company_info.city}}, {{company_info.state}} {{company_info.postal_code}}</div>
+        {{/if}}
       </div>
     </div>
   {{/if}}
@@ -321,11 +327,17 @@ export const STARTER_TEMPLATES = {
       <!-- Date -->
       <div style="display: flex; align-items: baseline; gap: 8pt; flex: 0 0 168pt;">
         <span style="font-size: 10pt;">Date:</span>
-        <div style="border-bottom: 1pt solid #000; width: 120pt; height: 0pt; margin-bottom: 2pt;"></div>
+        <div style="border-bottom: 1pt solid #000; width: 120pt; height: 0pt; margin-bottom: 2pt; display: flex; align-items: flex-end; padding-bottom: 2pt;">
+          {{#if placed_signature.signed_date}}<span style="font-size: 11pt;">{{formatDate placed_signature.signed_date "M/d/yyyy"}}</span>{{/if}}
+        </div>
       </div>
       <!-- Server's Signature Line -->
-      <div style="flex: 1; padding-right: 10px;">
-        <div style="border-bottom: 1pt solid #000; width: 100%; height: 0pt;"></div>
+      <div style="flex: 1; padding-right: 10px; position: relative;">
+        <div style="border-bottom: 1pt solid #000; width: 100%; height: 30pt; position: relative;">
+          {{#if placed_signature.signature_data}}
+            <img src="{{placed_signature.signature_data}}" alt="Signature" style="position: absolute; bottom: 2pt; left: 0; height: 28pt; max-width: 200pt; object-fit: contain;" />
+          {{/if}}
+        </div>
       </div>
     </div>
     <div style="text-align: center; font-size: 10pt; font-style: italic; margin-bottom: 26pt; padding-left: 168pt; padding-right: 10px;">

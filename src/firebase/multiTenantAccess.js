@@ -628,6 +628,11 @@ export class MultiTenantAccess {
   static async getServerPayRecords(queryOptions = {}) {
     const user = await this.getCurrentUser();
 
+    // Super admin can see ALL server pay records across all companies
+    if (isSuperAdmin(user)) {
+      return await entities.ServerPayRecord.find(queryOptions);
+    }
+
     // Independent contractors can only see their own pay records
     if (user.user_type === USER_TYPES.INDEPENDENT_CONTRACTOR) {
       const modifiedQuery = {
@@ -761,4 +766,12 @@ export const SecureDocumentAccess = {
   update: (id, data) => entities.Document.update(id, data),
   delete: (id) => entities.Document.delete(id),
   bulkCreate: (dataArray) => entities.Document.bulkCreate(dataArray)
+};
+
+export const SecureServerPayRecordAccess = {
+  list: (queryOptions) => MultiTenantAccess.getServerPayRecords(queryOptions),
+  filter: (filterObj) => MultiTenantAccess.getServerPayRecords({ where: Object.entries(filterObj).map(([k, v]) => [k, '==', v]) }),
+  findById: (id) => entities.ServerPayRecord.findById(id),
+  create: (data) => entities.ServerPayRecord.create(data),
+  update: (id, data) => entities.ServerPayRecord.update(id, data)
 };

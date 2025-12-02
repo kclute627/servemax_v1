@@ -13,10 +13,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { UserCheck, Briefcase, Star, Calendar, Award, DollarSign } from "lucide-react";
+import { UserCheck, Briefcase, Star, Calendar, Award, DollarSign, Trophy, TrendingUp, TrendingDown } from "lucide-react";
 
 export default function TopServers({ serversData, isLoading, period, onPeriodChange, timePeriods }) {
   const [viewMode, setViewMode] = useState('jobs'); // 'jobs', 'revenue', or 'rating'
+
+  // Helper function for rank badge styling - using high contrast colors
+  const getRankBadgeStyle = (rank) => {
+    switch (rank) {
+      case 1:
+        return 'bg-gradient-to-br from-amber-400 to-amber-600 text-amber-950 shadow-lg shadow-amber-300 font-bold';
+      case 2:
+        return 'bg-gradient-to-br from-slate-400 to-slate-600 text-white shadow-md shadow-slate-300 font-bold';
+      case 3:
+        return 'bg-gradient-to-br from-orange-500 to-orange-700 text-white shadow-md shadow-orange-300 font-bold';
+      default:
+        return 'bg-slate-200 text-slate-700 font-semibold';
+    }
+  };
 
   const sortedServers = useMemo(() => {
     if (!serversData) return [];
@@ -46,36 +60,36 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
   }, [serversData, viewMode]);
 
   return (
-    <Card className="border-0 shadow-lg bg-white">
-      <CardHeader>
+    <Card className="border-0 shadow-xl bg-white overflow-hidden">
+      <CardHeader className="bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 text-white pb-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center">
-                <Award className="w-5 h-5 text-white" />
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
+                <Trophy className="w-6 h-6 text-white" />
               </div>
               <div>
-                <CardTitle className="text-2xl font-bold text-slate-900">Top Servers</CardTitle>
-                <p className="text-slate-600">Your highest performing process servers by activity and rating.</p>
+                <CardTitle className="text-2xl font-bold text-white">Top Servers</CardTitle>
+                <p className="text-emerald-100">Your highest performing process servers by activity and rating.</p>
               </div>
             </div>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             {/* Time Period Selector */}
             <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-slate-500" />
+              <Calendar className="w-4 h-4 text-emerald-100" />
               <select
                 value={period}
                 onChange={(e) => onPeriodChange(e.target.value)}
-                className="flex h-9 items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+                className="flex h-9 items-center justify-between rounded-lg border border-white/30 bg-white/10 backdrop-blur-sm px-3 py-2 text-sm text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-white/50"
               >
                 {timePeriods.map(p => (
-                  <option key={p.value} value={p.value}>
+                  <option key={p.value} value={p.value} className="text-slate-800">
                     {p.label}
                   </option>
                 ))}
               </select>
             </div>
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg relative">
+            <div className="flex items-center gap-1 bg-white/10 backdrop-blur-sm p-1 rounded-xl relative">
               <motion.div
                 animate={{
                   x: viewMode === 'jobs' ? 0 : viewMode === 'revenue' ? '100%' : '200%'
@@ -85,15 +99,15 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                   stiffness: 400,
                   damping: 30
                 }}
-                className="absolute inset-y-1 left-1 bg-white rounded-md shadow-sm"
+                className="absolute inset-y-1 left-1 bg-white rounded-lg shadow-lg"
                 style={{ width: 'calc(33.333% - 2px)' }}
               />
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('jobs')}
-                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 ${
-                  viewMode === 'jobs' ? 'text-slate-900' : 'text-slate-600 hover:text-slate-800'
+                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
+                  viewMode === 'jobs' ? 'text-emerald-600' : 'text-white/80 hover:text-white'
                 }`}
               >
                 <Briefcase className="w-4 h-4" />
@@ -103,8 +117,8 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('revenue')}
-                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 ${
-                  viewMode === 'revenue' ? 'text-slate-900' : 'text-slate-600 hover:text-slate-800'
+                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
+                  viewMode === 'revenue' ? 'text-emerald-600' : 'text-white/80 hover:text-white'
                 }`}
               >
                 <DollarSign className="w-4 h-4" />
@@ -114,8 +128,8 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('rating')}
-                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 ${
-                  viewMode === 'rating' ? 'text-slate-900' : 'text-slate-600 hover:text-slate-800'
+                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
+                  viewMode === 'rating' ? 'text-emerald-600' : 'text-white/80 hover:text-white'
                 }`}
               >
                 <Star className="w-4 h-4" />
@@ -126,22 +140,22 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="h-80 overflow-x-auto overflow-y-auto">
+        <div className="h-96 overflow-x-auto overflow-y-auto">
           <Table>
             <TableHeader>
-              <TableRow className="bg-slate-50">
-                <TableHead className="w-[60px] text-center font-semibold">Rank</TableHead>
-                <TableHead className="font-semibold whitespace-nowrap">Server</TableHead>
+              <TableRow className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
+                <TableHead className="w-[70px] text-center font-bold text-slate-700">Rank</TableHead>
+                <TableHead className="font-bold text-slate-700 whitespace-nowrap">Server</TableHead>
                 {viewMode === 'revenue' ? (
                   <>
-                    <TableHead className="text-right font-semibold whitespace-nowrap">Server Pay</TableHead>
-                    <TableHead className="text-right font-semibold whitespace-nowrap">Client Billing</TableHead>
-                    <TableHead className="text-right font-semibold whitespace-nowrap">Profit/Loss</TableHead>
+                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">Server Pay</TableHead>
+                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">Client Billing</TableHead>
+                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">Profit/Loss</TableHead>
                   </>
                 ) : (
                   <>
-                    <TableHead className="text-center font-semibold">Jobs</TableHead>
-                    <TableHead className="text-right font-semibold whitespace-nowrap">
+                    <TableHead className="text-center font-bold text-slate-700">Jobs</TableHead>
+                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">
                       {viewMode === 'jobs' ? 'Total Jobs' : 'Rating'}
                     </TableHead>
                   </>
@@ -174,40 +188,69 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                   ))
                 ) : sortedServers.length > 0 ? (
                   sortedServers.map((item, index) => (
-                    <TableRow
+                    <motion.tr
                       key={`${item.server.id}-${viewMode}`}
-                      className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted cursor-pointer"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`border-b transition-all duration-200 cursor-pointer ${
+                        index < 3
+                          ? 'bg-gradient-to-r from-slate-50 to-slate-100 hover:from-teal-100 hover:to-emerald-100'
+                          : 'hover:bg-slate-100'
+                      }`}
                     >
-                      <TableCell className="text-center">
-                        <div className="w-6 h-6 bg-slate-100 text-slate-600 font-semibold text-xs rounded-full flex items-center justify-center mx-auto">
+                      <TableCell className="text-center py-4">
+                        <div className={`w-8 h-8 font-bold text-sm rounded-full flex items-center justify-center mx-auto ${getRankBadgeStyle(index + 1)}`}>
                           {index + 1}
                         </div>
                       </TableCell>
-                      <TableCell className="font-medium text-slate-800">
-                        {item.server.first_name} {item.server.last_name}
+                      <TableCell className="py-4">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${
+                            index < 3 ? 'bg-teal-600 text-white' : 'bg-slate-300 text-slate-700'
+                          }`}>
+                            {(item.server.first_name?.charAt(0) || '') + (item.server.last_name?.charAt(0) || '')}
+                          </div>
+                          <span className="font-semibold text-slate-900">
+                            {item.server.first_name} {item.server.last_name}
+                          </span>
+                        </div>
                       </TableCell>
                       {viewMode === 'revenue' ? (
                         <>
-                          <TableCell className="text-right font-medium text-slate-700">
-                            <AnimatedNumber
-                              value={item.serverPay || 0}
-                              format="currency"
-                              decimals={0}
-                              delay={index * 20 + 60}
-                              className="inline-block"
-                            />
+                          <TableCell className="text-right py-4">
+                            <span className="font-semibold text-orange-800 bg-orange-100 px-3 py-1.5 rounded-md">
+                              <AnimatedNumber
+                                value={item.serverPay || 0}
+                                format="currency"
+                                decimals={0}
+                                delay={index * 20 + 60}
+                                className="inline-block"
+                              />
+                            </span>
                           </TableCell>
-                          <TableCell className="text-right font-medium text-slate-700">
-                            <AnimatedNumber
-                              value={item.clientBilling || 0}
-                              format="currency"
-                              decimals={0}
-                              delay={index * 20 + 80}
-                              className="inline-block"
-                            />
+                          <TableCell className="text-right py-4">
+                            <span className="font-semibold text-blue-800 bg-blue-100 px-3 py-1.5 rounded-md">
+                              <AnimatedNumber
+                                value={item.clientBilling || 0}
+                                format="currency"
+                                decimals={0}
+                                delay={index * 20 + 80}
+                                className="inline-block"
+                              />
+                            </span>
                           </TableCell>
-                          <TableCell className="text-right">
-                            <span className={`font-bold inline-block ${(item.profit || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          <TableCell className="text-right py-4">
+                            <div className={`inline-flex items-center gap-1.5 font-bold px-3 py-1.5 rounded-lg ${
+                              (item.profit || 0) >= 0
+                                ? 'text-green-800 bg-green-200'
+                                : 'text-red-800 bg-red-200'
+                            }`}>
+                              {(item.profit || 0) >= 0
+                                ? <TrendingUp className="w-4 h-4" />
+                                : <TrendingDown className="w-4 h-4" />
+                              }
                               <AnimatedNumber
                                 value={item.profit || 0}
                                 format="currency"
@@ -215,32 +258,36 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                                 delay={index * 20 + 100}
                                 className="inline-block"
                               />
-                            </span>
+                            </div>
                           </TableCell>
                         </>
                       ) : (
                         <>
-                          <TableCell className="text-center text-slate-600">
-                            <AnimatedNumber
-                              value={item.jobs || 0}
-                              delay={index * 20 + 60}
-                              className="inline-block"
-                            />
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {viewMode === 'jobs' ? (
+                          <TableCell className="text-center py-4">
+                            <span className="text-slate-700 bg-slate-200 px-3 py-1.5 rounded-full font-semibold">
                               <AnimatedNumber
                                 value={item.jobs || 0}
-                                className="font-bold text-slate-900 inline-block"
-                                delay={index * 20 + 80}
+                                delay={index * 20 + 60}
+                                className="inline-block"
                               />
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right py-4">
+                            {viewMode === 'jobs' ? (
+                              <span className="font-bold text-teal-800 bg-teal-200 px-3 py-1.5 rounded-lg">
+                                <AnimatedNumber
+                                  value={item.jobs || 0}
+                                  delay={index * 20 + 80}
+                                  className="inline-block"
+                                />
+                              </span>
                             ) : (
-                              <div className="flex items-center justify-end gap-1">
-                                <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                              <div className="inline-flex items-center gap-1.5 bg-amber-200 px-3 py-1.5 rounded-lg">
+                                <Star className="w-4 h-4 text-amber-600 fill-amber-600" />
                                 <AnimatedNumber
                                   value={item.rating}
                                   decimals={1}
-                                  className="font-bold text-slate-900 inline-block"
+                                  className="font-bold text-amber-800 inline-block"
                                   delay={index * 20 + 100}
                                 />
                               </div>
@@ -248,15 +295,19 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                           </TableCell>
                         </>
                       )}
-                    </TableRow>
+                    </motion.tr>
                   ))
                 ) : (
                   <TableRow key="no-data">
-                    <TableCell colSpan={viewMode === 'revenue' ? 5 : 4} className="h-48 text-center">
-                      <div>
-                        <UserCheck className="mx-auto w-12 h-12 text-slate-300 mb-4" />
-                        <p className="font-medium text-slate-600">No server data for this period.</p>
-                        <p className="text-sm text-slate-500">Try selecting a different time frame.</p>
+                    <TableCell colSpan={viewMode === 'revenue' ? 5 : 4} className="h-64 text-center">
+                      <div className="py-8">
+                        <div className="w-20 h-20 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Trophy className="w-10 h-10 text-emerald-500" />
+                        </div>
+                        <h3 className="font-semibold text-slate-700 text-lg mb-2">No Server Data Yet</h3>
+                        <p className="text-slate-500 max-w-sm mx-auto">
+                          Assign jobs to your process servers and they'll appear here once they complete their first job.
+                        </p>
                       </div>
                     </TableCell>
                   </TableRow>
