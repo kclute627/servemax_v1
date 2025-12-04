@@ -43,7 +43,7 @@ export default function GenerateAffidavitPage() {
   const [companyInfo, setCompanyInfo] = useState(null); // Changed initial state to null
   const [hasCompanyInfo, setHasCompanyInfo] = useState(false); // New state variable
   const [affidavitTemplates, setAffidavitTemplates] = useState([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState('standard');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('standard_test');
   const [selectedTemplate, setSelectedTemplate] = useState(null); // Full template object
 
   const location = useLocation();
@@ -143,7 +143,22 @@ export default function GenerateAffidavitPage() {
     return template;
   };
 
-  const loadAffidavitTemplates = async () => {
+  const loadAffidavitTemplates = async (clientId = null) => {
+    // Always include starter templates from starterTemplates.js
+    const starterTemplatesList = Object.keys(STARTER_TEMPLATES).map(key => ({
+      id: key,
+      name: STARTER_TEMPLATES[key].name,
+      description: STARTER_TEMPLATES[key].description,
+      jurisdiction: key.includes('ao440') || key.includes('federal') ? 'Federal' : 'General',
+      isSystem: true,
+      isStarter: true,
+      template_mode: 'html',
+      html_content: STARTER_TEMPLATES[key].html,
+      service_status: STARTER_TEMPLATES[key].service_status || 'both',
+      is_active: STARTER_TEMPLATES[key].is_active !== false,
+      visible_to_clients: [], // Starter templates visible to all clients
+    })).filter(t => t.is_active);
+
     try {
       // Load system templates (available to all companies)
       const systemTemplates = await SystemAffidavitTemplate.list();
@@ -162,30 +177,46 @@ export default function GenerateAffidavitPage() {
         isSystem: false
       }));
 
-      // Merge both lists and filter by is_active
-      const allTemplates = [...systemTemplatesWithFlag, ...companyTemplatesWithFlag]
+      // Merge all lists: starter templates + system templates + company templates
+      // Filter by is_active and remove duplicates (prefer database version over starter)
+      // Use normalized name for deduplication to avoid duplicates with same name but different IDs
+      const normalizeTemplateName = (name) => (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      // Combine database templates and deduplicate by normalized name (keep first occurrence)
+      const allDbTemplates = [...systemTemplatesWithFlag, ...companyTemplatesWithFlag];
+      const seenNames = new Set();
+      const uniqueDbTemplates = allDbTemplates.filter(t => {
+        const normalizedName = normalizeTemplateName(t.name);
+        if (seenNames.has(normalizedName)) {
+          return false;
+        }
+        seenNames.add(normalizedName);
+        return true;
+      });
+
+      // Filter starter templates to exclude any that exist in database
+      const uniqueStarterTemplates = starterTemplatesList.filter(t => !seenNames.has(normalizeTemplateName(t.name)));
+
+      let allTemplates = [...uniqueStarterTemplates, ...uniqueDbTemplates]
         .filter(t => t.is_active !== false); // Show templates where is_active is true or undefined
 
-      if (allTemplates.length > 0) {
-        setAffidavitTemplates(allTemplates);
-      } else {
-        // Fallback: use only active templates if no templates exist
-        const fallbackTemplates = [
-          { id: 'standard', name: 'Standard Affidavit Template', jurisdiction: 'General', isSystem: true },
-          { id: 'ao440_federal', name: 'AO 440 Federal Proof of Service', jurisdiction: 'Federal', isSystem: true },
-        ].map(enrichFallbackTemplate);
-
-        setAffidavitTemplates(fallbackTemplates);
+      // Filter by client visibility if clientId is provided
+      if (clientId) {
+        allTemplates = allTemplates.filter(t => {
+          // If no visible_to_clients array or empty array, template is visible to all clients
+          if (!t.visible_to_clients || t.visible_to_clients.length === 0) {
+            return true;
+          }
+          // Otherwise, check if current client is in the list
+          return t.visible_to_clients.includes(clientId);
+        });
       }
+
+      setAffidavitTemplates(allTemplates);
     } catch (err) {
       console.error("Error loading affidavit templates:", err);
-      // Fallback: use only active templates
-      const fallbackTemplates = [
-        { id: 'standard', name: 'Standard Affidavit Template', jurisdiction: 'General', isSystem: true },
-        { id: 'ao440_federal', name: 'AO 440 Federal Proof of Service', jurisdiction: 'Federal', isSystem: true },
-      ].map(enrichFallbackTemplate);
-
-      setAffidavitTemplates(fallbackTemplates);
+      // Fallback: use starter templates only
+      setAffidavitTemplates(starterTemplatesList);
     }
   };
 
@@ -196,7 +227,8 @@ export default function GenerateAffidavitPage() {
       // Set loading to true explicitly before starting both loads
       setIsLoading(true);
       loadData(jobId);
-      loadAffidavitTemplates();
+      // Don't load templates here - wait for companyData to be available
+      // to avoid flash of wrong template and duplicate loads
 
       // Load current user for server name fallback
       User.me().then(user => setCurrentUser(user)).catch(err => console.error("Error loading current user:", err));
@@ -206,12 +238,15 @@ export default function GenerateAffidavitPage() {
     }
   }, [location.search, loadData]);
 
-  // Load company info when companyData becomes available
+  // Load company info and reload templates when companyData becomes available
   useEffect(() => {
     if (companyData) {
       loadCompanyInfo();
+      // Reload templates now that companyData is available (to include company-specific templates)
+      // Pass client_id to filter templates by client visibility
+      loadAffidavitTemplates(job?.client_id);
     }
-  }, [companyData]);
+  }, [companyData, job?.client_id]);
 
   // Auto-generate affidavit data when dependencies are loaded
   useEffect(() => {
@@ -398,11 +433,15 @@ export default function GenerateAffidavitPage() {
     console.log('Server Name and Title:', data.server_name_and_title);
 
     setAffidavitData(prev => {
+      // Only preserve html_content_edited if the template hasn't changed
+      // This prevents old template content from overriding the newly selected template
+      const templateMatches = !prev?.affidavit_template_id || prev.affidavit_template_id === selectedTemplateId;
+
       const newData = {
         ...data,
         // Preserve user-added data that should never be overwritten
-        placed_signature: prev?.placed_signature || data.placed_signature,
-        html_content_edited: prev?.html_content_edited, // Preserve user edits
+        placed_signature: templateMatches ? (prev?.placed_signature || data.placed_signature) : null,
+        html_content_edited: templateMatches ? prev?.html_content_edited : null, // Only preserve if same template
       };
 
       console.log('[GenerateAffidavit] affidavitData UPDATE:');
@@ -481,6 +520,13 @@ export default function GenerateAffidavitPage() {
     if (selectedTemplateId && affidavitTemplates.length > 0) {
       const template = affidavitTemplates.find(t => t.id === selectedTemplateId);
       setSelectedTemplate(template || null);
+
+      // Clear signature and edited content when template changes
+      setAffidavitData(prev => ({
+        ...prev,
+        placed_signature: null,
+        html_content_edited: null
+      }));
 
       // Set default include flags from template if available
       if (template) {
@@ -956,15 +1002,6 @@ export default function GenerateAffidavitPage() {
                   </Button>
                 )}
 
-                {/* Sign Button - shows when not yet signed */}
-                {!affidavitData?.placed_signature && affidavitData && (
-                  <SignatureButton
-                    user={currentUser}
-                    onSignaturePlace={handleSignaturePlace}
-                    isEditing={isEditing}
-                  />
-                )}
-
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div className="inline-block">
@@ -1061,21 +1098,6 @@ export default function GenerateAffidavitPage() {
                   Include Notary Block
                 </label>
               </div>
-
-              {hasCompanyInfo && ( // Only render if company info is available
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="include-company-info"
-                    checked={includeCompanyInfo}
-                    onChange={(e) => setIncludeCompanyInfo(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                  />
-                  <label htmlFor="include-company-info" className="text-sm font-medium text-slate-700 whitespace-nowrap">
-                    Include Company Info
-                  </label>
-                </div>
-              )}
 
               <div className="flex items-center space-x-2">
                 <Label htmlFor="affidavit-type" className="text-sm font-medium text-slate-700">

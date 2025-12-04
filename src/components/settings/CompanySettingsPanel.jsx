@@ -7,11 +7,12 @@ import { DirectoryManager, CompanyManager, COMPANY_TYPES } from "@/firebase/sche
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea"; // Import Textarea
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser, Globe, Phone, Briefcase } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser, Globe, Phone, Briefcase, ChevronDown } from "lucide-react";
 import AddressAutocomplete from "../jobs/AddressAutocomplete";
 import { useGlobalData } from "@/components/GlobalDataContext";
 import { useToast } from "@/components/ui/use-toast";
@@ -47,6 +48,19 @@ export default function CompanySettingsPanel() {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isAddressLoading, setIsAddressLoading] = useState(false);
+
+  // Collapsible section states - Company Info open by default, others closed
+  const [openSections, setOpenSections] = useState({
+    companyInfo: true,
+    jobSharing: false,
+    directory: false,
+    kanban: false,
+    priorities: false
+  });
+
+  const toggleSection = (section) => {
+    setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
 
   // Load settings from global context (already loaded at login)
   useEffect(() => {
@@ -330,13 +344,29 @@ export default function CompanySettingsPanel() {
     }));
   };
 
+  // Collapsible Card Header component
+  const CollapsibleCardHeader = ({ icon: Icon, title, section, isOpen }) => (
+    <CollapsibleTrigger asChild>
+      <CardHeader className="cursor-pointer hover:bg-slate-50 transition-colors rounded-t-lg">
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Icon className="w-5 h-5" />
+            {title}
+          </span>
+          <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        </CardTitle>
+      </CardHeader>
+    </CollapsibleTrigger>
+  );
+
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Building className="w-5 h-5" />Company Information</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <div className="space-y-6 pb-24">
+      {/* Company Information - Open by default */}
+      <Collapsible open={openSections.companyInfo} onOpenChange={() => toggleSection('companyInfo')}>
+        <Card>
+          <CollapsibleCardHeader icon={Building} title="Company Information" section="companyInfo" isOpen={openSections.companyInfo} />
+          <CollapsibleContent>
+            <CardContent className="space-y-4">
           <p className="text-sm text-slate-600 mb-4">This information will be available to include on affidavits and other documents.</p>
           
           <div>
@@ -471,29 +501,34 @@ export default function CompanySettingsPanel() {
             </div>
           </div>
         </CardContent>
-      </Card>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Share2 className="w-5 h-5" />Job Sharing</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <div className="text-base font-medium">Open to accept jobs from ServeMax users</div>
-              <p className="text-sm text-slate-500">Allow other ServeMax users to send you jobs.</p>
-            </div>
-            <Switch checked={jobSharingEnabled} onCheckedChange={setJobSharingEnabled} />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Job Sharing - Collapsed by default */}
+      <Collapsible open={openSections.jobSharing} onOpenChange={() => toggleSection('jobSharing')}>
+        <Card>
+          <CollapsibleCardHeader icon={Share2} title="Job Sharing" section="jobSharing" isOpen={openSections.jobSharing} />
+          <CollapsibleContent>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <div className="text-base font-medium">Open to accept jobs from ServeMax users</div>
+                  <p className="text-sm text-slate-500">Allow other ServeMax users to send you jobs.</p>
+                </div>
+                <Switch checked={jobSharingEnabled} onCheckedChange={setJobSharingEnabled} />
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
-      {/* New Directory Settings Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><BookUser className="w-5 h-5" />ServeMax Directory</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      {/* Directory Settings - Collapsed by default */}
+      <Collapsible open={openSections.directory} onOpenChange={() => toggleSection('directory')}>
+        <Card>
+          <CollapsibleCardHeader icon={BookUser} title="ServeMax Directory" section="directory" isOpen={openSections.directory} />
+          <CollapsibleContent>
+            <CardContent className="space-y-6">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <div className="text-base font-medium">Add company to the ServeMax Directory</div>
@@ -524,17 +559,17 @@ export default function CompanySettingsPanel() {
               <p className="text-xs text-slate-500 mt-1 text-right">{250 - (directorySettings.blurb?.length || 0)} characters remaining</p>
             </div>
           )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
-      {/* REMOVED: Invoice Settings moved to InvoiceSettingsPanel.jsx */}
-
-      {/* Kanban Board Configuration */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Briefcase className="w-5 h-5" />Kanban Board</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      {/* Kanban Board Configuration - Collapsed by default */}
+      <Collapsible open={openSections.kanban} onOpenChange={() => toggleSection('kanban')}>
+        <Card>
+          <CollapsibleCardHeader icon={Briefcase} title="Kanban Board" section="kanban" isOpen={openSections.kanban} />
+          <CollapsibleContent>
+            <CardContent className="space-y-6">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <div className="text-base font-medium">Enable Kanban View</div>
@@ -584,15 +619,18 @@ export default function CompanySettingsPanel() {
               </Button>
             </div>
           )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Settings className="w-5 h-5" />Job Priorities</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-slate-600 mb-4">Configure priority levels and automatic due dates.</p>
+      {/* Job Priorities - Collapsed by default */}
+      <Collapsible open={openSections.priorities} onOpenChange={() => toggleSection('priorities')}>
+        <Card>
+          <CollapsibleCardHeader icon={Settings} title="Job Priorities" section="priorities" isOpen={openSections.priorities} />
+          <CollapsibleContent>
+            <CardContent>
+              <p className="text-sm text-slate-600 mb-4">Configure priority levels and automatic due dates.</p>
           <div className="space-y-4">
             {priorities.map((priority, index) => (
               <div key={index} className="p-4 border rounded-lg bg-slate-50">
@@ -635,11 +673,19 @@ export default function CompanySettingsPanel() {
             ))}
           </div>
           <Button type="button" variant="outline" onClick={addPriority} className="gap-2 mt-4"><Plus className="w-4 h-4" />Add Priority</Button>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
-      <div className="flex justify-end">
-        <Button onClick={saveSettings} disabled={isSaving} className="gap-2"><Save className="w-4 h-4" />{isSaving ? 'Saving...' : 'Save Settings'}</Button>
+      {/* Sticky Save Button */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-lg z-10">
+        <div className="max-w-7xl mx-auto px-6 md:px-8 py-4 flex justify-end items-center">
+          <Button onClick={saveSettings} disabled={isSaving} className="gap-2">
+            <Save className="w-4 h-4" />
+            {isSaving ? 'Saving...' : 'Save Settings'}
+          </Button>
+        </div>
       </div>
     </div>
   );

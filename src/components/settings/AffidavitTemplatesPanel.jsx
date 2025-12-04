@@ -52,25 +52,34 @@ export default function AffidavitTemplatesPanel() {
     try {
       const templateKeys = Object.keys(STARTER_TEMPLATES);
       let createdCount = 0;
-      let skippedCount = 0;
+      let updatedCount = 0;
 
       for (const key of templateKeys) {
         // Check if template already exists
         const templateRef = doc(db, 'system_affidavit_templates', key);
         const existingTemplate = await getDoc(templateRef);
 
+        // Determine jurisdiction based on template key
+        let jurisdiction = 'General';
+        if (key.includes('ao440') || key.includes('federal')) {
+          jurisdiction = 'Federal';
+        } else if (key === 'illinois') {
+          jurisdiction = 'Illinois';
+        } else if (key === 'california') {
+          jurisdiction = 'California';
+        }
+
         const templateData = {
           name: STARTER_TEMPLATES[key].name,
           description: STARTER_TEMPLATES[key].description,
-          service_status: STARTER_TEMPLATES[key].service_status,
+          service_status: STARTER_TEMPLATES[key].service_status || 'both',
           template_mode: 'html',
           html_content: STARTER_TEMPLATES[key].html,
-          jurisdiction: key === 'illinois' ? 'Illinois' :
-                        key === 'california' ? 'California' :
-                        key === 'ao440_federal' ? 'Federal' :
-                        'General',
+          jurisdiction: jurisdiction,
           who_can_see: 'everyone', // System templates visible to all
+          visible_to_clients: [], // Empty = all clients, or array of client IDs
           is_active: STARTER_TEMPLATES[key].is_active !== undefined ? STARTER_TEMPLATES[key].is_active : true,
+          uses_table_layout: key.includes('css_test'), // Flag for new table-based approach
           updated_at: new Date().toISOString()
         };
 
@@ -78,7 +87,7 @@ export default function AffidavitTemplatesPanel() {
           // Update existing template (preserves created_at)
           await setDoc(templateRef, templateData, { merge: true });
           console.log(`Updated system template: ${templateData.name} with ID: ${key}`);
-          skippedCount++;
+          updatedCount++;
         } else {
           // Create new template
           templateData.created_at = new Date().toISOString();
@@ -90,7 +99,7 @@ export default function AffidavitTemplatesPanel() {
 
       toast({
         title: "System Templates Seeded",
-        description: `Created ${createdCount} new template(s), updated ${skippedCount} existing template(s)`,
+        description: `Created ${createdCount} new template(s), updated ${updatedCount} existing template(s)`,
       });
 
       return true;

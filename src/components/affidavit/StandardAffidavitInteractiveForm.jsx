@@ -1,568 +1,430 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { renderHTMLTemplate } from '@/utils/templateEngine';
-import { User } from '@/api/entities';
-import { Button } from '@/components/ui/button';
-import { PenTool, X } from 'lucide-react';
+// === StandardAffidavitInteractiveForm.jsx ===
+
+import React, { useState, useEffect, useRef } from "react";
+import { renderHTMLTemplate } from "@/utils/templateEngine";
+import { User } from "@/api/entities";
+import { Button } from "@/components/ui/button";
+import { PenTool, X, Check } from "lucide-react";
 
 /**
- * Intelligently paginate HTML content respecting CSS page breaks
- * Same logic as in TemplateCodeEditor for consistent pagination
+ * Pagination - handles different page widths
+ * Preserves <style> tags for CSS class-based templates
+ * Supports multi-page templates with multiple .page divs
  */
-const paginateContent = (htmlContent) => {
+const paginateContent = (htmlContent, pageWidthPt = "612pt") => {
   if (!htmlContent) return [];
 
   try {
-    const container = document.createElement('div');
-    container.style.position = 'absolute';
-    container.style.left = '-9999px';
-    container.style.visibility = 'hidden';
-    container.style.width = '816px'; // US Letter width at 96dpi (612pt)
+    // Convert pt to px (96dpi = 1.33 px per pt)
+    const widthPt = parseFloat(pageWidthPt);
+    const widthPx = Math.round(widthPt * 1.33);
+
+    // Extract and preserve <style> tags
+    const styleTagMatch = htmlContent.match(/<style[^>]*>[\s\S]*?<\/style>/gi);
+    const styleTag = styleTagMatch ? styleTagMatch.join('\n') : '';
+
+    const container = document.createElement("div");
+    container.style.position = "absolute";
+    container.style.left = "-9999px";
+    container.style.visibility = "hidden";
+    container.style.width = `${widthPx}px`;
     container.innerHTML = htmlContent;
     document.body.appendChild(container);
 
-    const PAGE_HEIGHT = 1056; // US Letter height at 96dpi (792pt)
+    // Check if template has multiple .page divs (pre-defined pages like competitor)
+    const pageElements = container.querySelectorAll('.page');
+    if (pageElements.length > 1) {
+      // Template already defines multiple pages - return each page as-is
+      const pages = [];
+      const parentWrapper = pageElements[0].parentElement;
+      const parentClass = parentWrapper && parentWrapper !== container ? parentWrapper.className : '';
+
+      pageElements.forEach((pageEl) => {
+        let pageHTML = pageEl.outerHTML;
+        if (parentClass) {
+          pageHTML = `<div class="${parentClass}">${pageHTML}</div>`;
+        }
+        pages.push(styleTag + pageHTML);
+      });
+
+      document.body.removeChild(container);
+      return pages;
+    }
+
+    // Standard letter page height: 792pt = 1056px at 96dpi
+    const PAGE_HEIGHT = 1056;
+    // Account for padding (0.5in = 36pt = 48px on top and bottom)
+    const USABLE_HEIGHT = PAGE_HEIGHT - 96; // Subtract padding
+
     const pages = [];
-    let currentPage = document.createElement('div');
+    let currentPage = document.createElement("div");
     let currentHeight = 0;
 
-    const mainContainer = container.querySelector('[style*="612pt"]') || container.firstElementChild;
+    // Look for container with page width or .page class
+    const mainContainer =
+      container.querySelector('.page') ||
+      container.querySelector('[style*="612pt"]') ||
+      container.querySelector('[style*="7.5in"]') ||
+      container.firstElementChild;
+
     if (!mainContainer) {
       document.body.removeChild(container);
       return [htmlContent];
     }
 
+    // Get parent wrapper classes (e.g., .sm_doc)
+    const parentWrapper = mainContainer.parentElement;
+    const parentClass = parentWrapper && parentWrapper !== container ? parentWrapper.className : '';
+    const pageClass = mainContainer.className || '';
+
     const children = Array.from(mainContainer.children);
-    const containerStyle = mainContainer.getAttribute('style') || '';
+    const containerStyle = mainContainer.getAttribute("style") || "";
 
     children.forEach((child) => {
-      // Measure element height
-      const clone = child.cloneNode(true);
-      const tempDiv = document.createElement('div');
-      tempDiv.style.position = 'absolute';
-      tempDiv.style.left = '-9999px';
-      tempDiv.style.width = '816px';
-      tempDiv.appendChild(clone);
-      document.body.appendChild(tempDiv);
-      const elementHeight = tempDiv.offsetHeight;
-      document.body.removeChild(tempDiv);
+      // Create a measurement container that includes the styles
+      const measureContainer = document.createElement("div");
+      measureContainer.style.position = "absolute";
+      measureContainer.style.left = "-9999px";
+      measureContainer.style.width = `${widthPx}px`;
+      measureContainer.innerHTML = styleTag; // Include styles for proper measurement
 
-      // Check if element should stay together
-      const computedStyle = window.getComputedStyle(child);
-      const shouldKeepTogether = computedStyle.pageBreakInside === 'avoid' ||
-                                 computedStyle.breakInside === 'avoid' ||
-                                 child.style.pageBreakInside === 'avoid' ||
-                                 child.style.breakInside === 'avoid';
+      // Recreate the structure for accurate measurement
+      const measureWrapper = document.createElement("div");
+      if (parentClass) measureWrapper.className = parentClass;
+      const measurePage = document.createElement("div");
+      if (pageClass) measurePage.className = pageClass;
+      measurePage.style.cssText = containerStyle;
+      measurePage.appendChild(child.cloneNode(true));
+      measureWrapper.appendChild(measurePage);
+      measureContainer.appendChild(measureWrapper);
 
-      // If element would overflow page and should stay together, move to next page
-      if (shouldKeepTogether && currentHeight + elementHeight > PAGE_HEIGHT && currentHeight > 0) {
-        const pageWrapper = document.createElement('div');
-        pageWrapper.setAttribute('style', containerStyle);
-        pageWrapper.innerHTML = currentPage.innerHTML;
-        pages.push(pageWrapper.outerHTML);
-        currentPage = document.createElement('div');
+      document.body.appendChild(measureContainer);
+      const elementHeight = measurePage.firstElementChild ? measurePage.firstElementChild.offsetHeight : 0;
+      document.body.removeChild(measureContainer);
+
+      const computed = window.getComputedStyle(child);
+      const keepTogether =
+        computed.pageBreakInside === "avoid" ||
+        computed.breakInside === "avoid" ||
+        child.style.pageBreakInside === "avoid" ||
+        child.style.breakInside === "avoid";
+
+      if (keepTogether && currentHeight + elementHeight > USABLE_HEIGHT && currentHeight > 0) {
+        const wrapper = document.createElement("div");
+        wrapper.setAttribute("style", containerStyle);
+        if (pageClass) wrapper.className = pageClass;
+        wrapper.innerHTML = currentPage.innerHTML;
+
+        // Wrap with parent class and include style tag
+        let pageHTML = wrapper.outerHTML;
+        if (parentClass) {
+          pageHTML = `<div class="${parentClass}">${pageHTML}</div>`;
+        }
+        pages.push(styleTag + pageHTML);
+
+        currentPage = document.createElement("div");
         currentHeight = 0;
       }
 
-      // Add element to current page
       currentPage.appendChild(child.cloneNode(true));
       currentHeight += elementHeight;
 
-      // If current page is full, start new page
-      if (currentHeight >= PAGE_HEIGHT && !shouldKeepTogether) {
-        const pageWrapper = document.createElement('div');
-        pageWrapper.setAttribute('style', containerStyle);
-        pageWrapper.innerHTML = currentPage.innerHTML;
-        pages.push(pageWrapper.outerHTML);
-        currentPage = document.createElement('div');
+      if (currentHeight >= USABLE_HEIGHT && !keepTogether) {
+        const wrapper = document.createElement("div");
+        wrapper.setAttribute("style", containerStyle);
+        if (pageClass) wrapper.className = pageClass;
+        wrapper.innerHTML = currentPage.innerHTML;
+
+        // Wrap with parent class and include style tag
+        let pageHTML = wrapper.outerHTML;
+        if (parentClass) {
+          pageHTML = `<div class="${parentClass}">${pageHTML}</div>`;
+        }
+        pages.push(styleTag + pageHTML);
+
+        currentPage = document.createElement("div");
         currentHeight = 0;
       }
     });
 
-    // Add remaining content
     if (currentPage.children.length > 0) {
-      const pageWrapper = document.createElement('div');
-      pageWrapper.setAttribute('style', containerStyle);
-      pageWrapper.innerHTML = currentPage.innerHTML;
-      pages.push(pageWrapper.outerHTML);
+      const wrapper = document.createElement("div");
+      wrapper.setAttribute("style", containerStyle);
+      if (pageClass) wrapper.className = pageClass;
+      wrapper.innerHTML = currentPage.innerHTML;
+
+      // Wrap with parent class and include style tag
+      let pageHTML = wrapper.outerHTML;
+      if (parentClass) {
+        pageHTML = `<div class="${parentClass}">${pageHTML}</div>`;
+      }
+      pages.push(styleTag + pageHTML);
     }
 
     document.body.removeChild(container);
     return pages.length > 0 ? pages : [htmlContent];
-  } catch (error) {
-    console.error('Pagination error:', error);
+  } catch (err) {
+    console.error("Pagination error:", err);
     return [htmlContent];
   }
 };
 
 /**
- * Draggable and Resizable Signature Component
+ * Extract page width from template HTML
+ * Looks for .page class or inline style with width definitions
  */
-function DraggableSignature({ signatureData, position, size, onPositionChange, onSizeChange, onRemove, containerRef }) {
-    const signatureRef = useRef(null);
-    const [isDragging, setIsDragging] = useState(false);
-    const [isResizing, setIsResizing] = useState(false);
-    const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-    const [resizeStart, setResizeStart] = useState({ width: 0, height: 0, x: 0, y: 0 });
+const extractPageWidth = (htmlContent) => {
+  if (!htmlContent) return "612pt"; // Default US Letter width
 
-    // Drag handlers
-    const handleMouseDown = (e) => {
-        if (e.target.classList.contains('resize-handle')) return;
-        e.preventDefault();
-        setIsDragging(true);
-        const rect = signatureRef.current.getBoundingClientRect();
-        setDragOffset({
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
-        });
-    };
+  // Check for .page class width in style tag
+  const styleMatch = htmlContent.match(/\.page\s*\{[^}]*width:\s*([^;]+)/i);
+  if (styleMatch) {
+    const width = styleMatch[1].trim();
+    // Convert common units to pt for consistency
+    if (width.includes("in")) {
+      const inches = parseFloat(width);
+      return `${inches * 72}pt`; // 72pt per inch
+    }
+    return width;
+  }
 
-    // Resize handlers
-    const handleResizeStart = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsResizing(true);
-        setResizeStart({
-            width: size.width,
-            height: size.height,
-            x: e.clientX,
-            y: e.clientY
-        });
-    };
+  // Check for inline style width on container
+  const inlineMatch = htmlContent.match(/style="[^"]*width:\s*([^;\"]+)/i);
+  if (inlineMatch) {
+    return inlineMatch[1].trim();
+  }
 
-    useEffect(() => {
-        const handleMouseMove = (e) => {
-            if (isDragging && containerRef.current) {
-                const containerRect = containerRef.current.getBoundingClientRect();
-                let newX = e.clientX - containerRect.left - dragOffset.x;
-                let newY = e.clientY - containerRect.top - dragOffset.y;
-
-                // Constrain within container
-                newX = Math.max(0, Math.min(newX, containerRect.width - size.width));
-                newY = Math.max(0, Math.min(newY, containerRect.height - size.height));
-
-                onPositionChange({ x: newX, y: newY });
-            }
-
-            if (isResizing) {
-                const deltaX = e.clientX - resizeStart.x;
-                const aspectRatio = resizeStart.width / resizeStart.height;
-
-                let newWidth = Math.max(80, Math.min(300, resizeStart.width + deltaX));
-                let newHeight = newWidth / aspectRatio;
-
-                onSizeChange({ width: newWidth, height: newHeight });
-            }
-        };
-
-        const handleMouseUp = () => {
-            setIsDragging(false);
-            setIsResizing(false);
-        };
-
-        if (isDragging || isResizing) {
-            window.addEventListener('mousemove', handleMouseMove);
-            window.addEventListener('mouseup', handleMouseUp);
-        }
-
-        return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
-        };
-    }, [isDragging, isResizing, dragOffset, resizeStart, size, containerRef, onPositionChange, onSizeChange]);
-
-    return (
-        <div
-            ref={signatureRef}
-            onMouseDown={handleMouseDown}
-            style={{
-                position: 'absolute',
-                left: `${position.x}px`,
-                top: `${position.y}px`,
-                width: `${size.width}px`,
-                height: `${size.height}px`,
-                cursor: isDragging ? 'grabbing' : 'grab',
-                border: '2px dashed #3B82F6',
-                borderRadius: '4px',
-                backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                zIndex: 10,
-                userSelect: 'none'
-            }}
-        >
-            <img
-                src={signatureData}
-                alt="Signature"
-                style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'contain',
-                    pointerEvents: 'none'
-                }}
-                draggable="false"
-            />
-
-            {/* Remove button */}
-            <button
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onRemove();
-                }}
-                style={{
-                    position: 'absolute',
-                    top: '-10px',
-                    right: '-10px',
-                    width: '20px',
-                    height: '20px',
-                    borderRadius: '50%',
-                    backgroundColor: '#EF4444',
-                    color: 'white',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '12px',
-                    zIndex: 11
-                }}
-            >
-                <X size={12} />
-            </button>
-
-            {/* Resize handle (bottom-right corner) */}
-            <div
-                className="resize-handle"
-                onMouseDown={handleResizeStart}
-                style={{
-                    position: 'absolute',
-                    bottom: '-5px',
-                    right: '-5px',
-                    width: '14px',
-                    height: '14px',
-                    backgroundColor: '#3B82F6',
-                    borderRadius: '2px',
-                    cursor: 'se-resize',
-                    zIndex: 11
-                }}
-            />
-        </div>
-    );
-}
+  return "612pt"; // Default
+};
 
 /**
- * Editable component for Standard Affidavit
- * Like a Word document - user can click and edit text directly
- * Pagination for view mode only - edit mode is one continuous scrollable page
+ * MAIN COMPONENT - Simplified one-click signature
  */
-export default function StandardAffidavitInteractiveForm({ affidavitData, template, isEditing, onDataChange }) {
-    const contentRef = useRef(null);
-    const containerRef = useRef(null);
-    const [paginatedPages, setPaginatedPages] = useState([]);
-    const [user, setUser] = useState(null);
-    const [signaturePosition, setSignaturePosition] = useState(
-        affidavitData?.placed_signature?.position || { x: 340, y: 620 }
-    );
-    const [signatureSize, setSignatureSize] = useState(
-        affidavitData?.placed_signature?.size || { width: 180, height: 50 }
-    );
+export default function StandardAffidavitInteractiveForm({
+  affidavitData,
+  template,
+  isEditing,
+  onDataChange,
+}) {
+  const contentRef = useRef(null);
+  const containerRef = useRef(null);
+  const [pages, setPages] = useState([]);
+  const [user, setUser] = useState(null);
+  const [signButtonPosition, setSignButtonPosition] = useState(null);
 
-    // Load current user to check for saved signature
-    useEffect(() => {
-        const fetchUser = async () => {
-            try {
-                const u = await User.me();
-                setUser(u);
-            } catch (e) {
-                console.error("User not found");
-            }
-        };
-        fetchUser();
-    }, []);
+  useEffect(() => {
+    User.me()
+      .then(setUser)
+      .catch(() => {});
+  }, []);
 
-    // Sync signature position/size from affidavitData
-    useEffect(() => {
-        if (affidavitData?.placed_signature?.position) {
-            setSignaturePosition(affidavitData.placed_signature.position);
-        }
-        if (affidavitData?.placed_signature?.size) {
-            setSignatureSize(affidavitData.placed_signature.size);
-        }
-    }, [affidavitData?.placed_signature]);
+  // Render HTML with signature data if present
+  const html = affidavitData?.html_content_edited
+    ? affidavitData.html_content_edited
+    : template?.html_content
+    ? renderHTMLTemplate(template.html_content, affidavitData)
+    : "";
 
-    if (!affidavitData || !template?.html_content) {
-        return null;
+  // Detect page width from template HTML
+  const pageWidth = extractPageWidth(template?.html_content || html);
+
+  useEffect(() => {
+    if (!isEditing && html) {
+      setPages(paginateContent(html, pageWidth));
     }
+  }, [html, isEditing, pageWidth]);
 
-    // Use edited HTML if available, otherwise render fresh from template
-    const htmlToRender = affidavitData.html_content_edited ||
-                         renderHTMLTemplate(template.html_content, affidavitData);
+  // Find the signature line position after pages render
+  useEffect(() => {
+    if (!containerRef.current || pages.length === 0) return;
 
-    // Paginate for view mode display only
-    useEffect(() => {
-        if (!isEditing) {
-            const pages = paginateContent(htmlToRender);
-            setPaginatedPages(pages);
-        }
-    }, [htmlToRender, isEditing]);
+    // Use requestAnimationFrame to ensure DOM is painted before measuring
+    const rafId = requestAnimationFrame(() => {
+      if (!containerRef.current) return;
 
-    const handleBlur = () => {
-        if (contentRef.current && onDataChange) {
-            const capturedHTML = contentRef.current.innerHTML;
-            console.log('[StandardAffidavitInteractiveForm] Blur - capturing HTML, length:', capturedHTML.length);
-            onDataChange('html_content_edited', capturedHTML);
-        }
-    };
+      // Look for signature line - multiple selectors for different template types:
+      // 1. Inline style with border-bottom (standard template)
+      // 2. CSS class .cell_underline with .digital_signature_container (CSS test templates)
+      // 3. CSS class .signature_cell (CSS test templates)
+      // 4. CSS class .signature_line (standard_test template)
+      let signatureLines = containerRef.current.querySelectorAll(
+        'div[style*="border-bottom"][style*="position: relative"]'
+      );
 
-    const handleSignaturePlace = () => {
-        if (!user?.e_signature?.signature_data) {
-            alert('No signature found. Please create a signature in Settings > My Settings first.');
-            return;
-        }
-
-        // Calculate percentage position for reliable PDF positioning
-        let positionPercent = { x: 0.5, y: 0.78 }; // Default: centered, near bottom
-        if (containerRef.current) {
-            const containerRect = containerRef.current.getBoundingClientRect();
-            positionPercent = {
-                x: signaturePosition.x / containerRect.width,
-                y: signaturePosition.y / containerRect.height
-            };
-        }
-
-        const signatureData = {
-            signature_data: user.e_signature.signature_data,
-            signature_type: user.e_signature.signature_type,
-            signature_color: user.e_signature.signature_color,
-            signed_date: new Date().toISOString(),
-            signer_name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email,
-            position: signaturePosition,
-            positionPercent: positionPercent,
-            size: signatureSize
-        };
-
-        onDataChange('placed_signature', signatureData);
-    };
-
-    const handleSignatureRemove = () => {
-        onDataChange('placed_signature', null);
-    };
-
-    const handlePositionChange = (newPosition) => {
-        setSignaturePosition(newPosition);
-        if (affidavitData?.placed_signature && containerRef.current) {
-            const containerRect = containerRef.current.getBoundingClientRect();
-            // Store both pixel position AND percentage for reliable PDF positioning
-            onDataChange('placed_signature', {
-                ...affidavitData.placed_signature,
-                position: newPosition,
-                positionPercent: {
-                    x: newPosition.x / containerRect.width,
-                    y: newPosition.y / containerRect.height
-                }
-            });
-        }
-    };
-
-    const handleSizeChange = (newSize) => {
-        setSignatureSize(newSize);
-        if (affidavitData?.placed_signature) {
-            onDataChange('placed_signature', {
-                ...affidavitData.placed_signature,
-                size: newSize
-            });
-        }
-    };
-
-    const hasUserSignature = user?.e_signature?.signature_data;
-    const hasPlacedSignature = affidavitData?.placed_signature?.signature_data;
-
-    console.log('[StandardAffidavitInteractiveForm] Rendering');
-    console.log('[StandardAffidavitInteractiveForm] isEditing:', isEditing);
-    console.log('[StandardAffidavitInteractiveForm] hasUserSignature:', hasUserSignature);
-    console.log('[StandardAffidavitInteractiveForm] hasPlacedSignature:', hasPlacedSignature);
-
-    // EDIT MODE: Single contentEditable div (like Word document)
-    if (isEditing) {
-        return (
-            <div
-                ref={contentRef}
-                contentEditable={true}
-                suppressContentEditableWarning={true}
-                onBlur={handleBlur}
-                style={{
-                    width: '612pt',
-                    minHeight: '792pt',
-                    backgroundColor: '#FFFFFF',
-                    outline: '2px solid #3B82F6',
-                    padding: '0',
-                    cursor: 'text'
-                }}
-                dangerouslySetInnerHTML={{ __html: htmlToRender }}
-            />
+      // If not found, try CSS test template selectors
+      if (signatureLines.length === 0) {
+        signatureLines = containerRef.current.querySelectorAll(
+          '.digital_signature_container, .signature_cell, .signature_line, td.cell_underline.align_bottom'
         );
+      }
+
+      if (signatureLines.length > 0) {
+        // Use the last signature line (usually the server's signature)
+        const lastSignatureLine = signatureLines[signatureLines.length - 1];
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const lineRect = lastSignatureLine.getBoundingClientRect();
+
+        setSignButtonPosition({
+          top: lineRect.top - containerRect.top + lineRect.height / 2,
+          left: lineRect.left - containerRect.left + lineRect.width / 2,
+        });
+      }
+    });
+
+    return () => cancelAnimationFrame(rafId);
+  }, [pages]);
+
+  // Simple one-click sign handler
+  const handleSign = () => {
+    if (!user?.e_signature?.signature_data) {
+      alert("No signature found. Please create one in Settings.");
+      return;
     }
 
-    // VIEW MODE: Paginated display with signature overlay
-    const selectedPhotos = affidavitData?.selected_photos || [];
+    onDataChange("placed_signature", {
+      signature_data: user.e_signature.signature_data,
+      signature_type: user.e_signature.signature_type,
+      signature_color: user.e_signature.signature_color,
+      signed_date: new Date().toISOString(),
+      signer_name:
+        `${user.first_name || ""} ${user.last_name || ""}`.trim() ||
+        user.email,
+      confirmed: true,
+    });
+  };
 
+  // Remove signature handler
+  const handleRemoveSignature = () => {
+    onDataChange("placed_signature", null);
+  };
+
+  if (isEditing) {
     return (
-        <div ref={containerRef} style={{ position: 'relative' }}>
-            {paginatedPages.map((pageHTML, index) => (
-                <React.Fragment key={index}>
-                    <div
-                        style={{
-                            width: '612pt',
-                            minHeight: '792pt',
-                            backgroundColor: '#FFFFFF',
-                            position: 'relative'
-                        }}
-                    >
-                        <div dangerouslySetInnerHTML={{ __html: pageHTML }} />
-
-                        {/* Signature overlay - only on last page */}
-                        {index === paginatedPages.length - 1 && (
-                            <>
-                                {/* Sign button - shows when user has signature but hasn't placed it */}
-                                {hasUserSignature && !hasPlacedSignature && (
-                                    <div style={{
-                                        position: 'absolute',
-                                        bottom: '120pt',
-                                        left: '50%',
-                                        transform: 'translateX(-50%)',
-                                        zIndex: 10
-                                    }}>
-                                        <Button
-                                            onClick={handleSignaturePlace}
-                                            className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg"
-                                        >
-                                            <PenTool className="w-4 h-4" />
-                                            Sign Affidavit
-                                        </Button>
-                                    </div>
-                                )}
-
-                                {/* Draggable signature - shows when signature is placed */}
-                                {hasPlacedSignature && (
-                                    <DraggableSignature
-                                        signatureData={affidavitData.placed_signature.signature_data}
-                                        position={signaturePosition}
-                                        size={signatureSize}
-                                        onPositionChange={handlePositionChange}
-                                        onSizeChange={handleSizeChange}
-                                        onRemove={handleSignatureRemove}
-                                        containerRef={containerRef}
-                                    />
-                                )}
-                            </>
-                        )}
-                    </div>
-                    {index < paginatedPages.length - 1 && (
-                        <div
-                            style={{
-                                height: '20px',
-                                backgroundColor: '#E5E7EB',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '10pt',
-                                fontFamily: 'system-ui, sans-serif',
-                                color: '#6B7280',
-                                fontWeight: '500'
-                            }}
-                        >
-                            — Page {index + 1} / Page {index + 2} —
-                        </div>
-                    )}
-                </React.Fragment>
-            ))}
-
-            {/* Photo Exhibits - display selected photos after affidavit pages */}
-            {selectedPhotos.length > 0 && (
-                <>
-                    {/* Page break indicator before photos */}
-                    <div
-                        style={{
-                            height: '20px',
-                            backgroundColor: '#E5E7EB',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '10pt',
-                            fontFamily: 'system-ui, sans-serif',
-                            color: '#6B7280',
-                            fontWeight: '500'
-                        }}
-                    >
-                        — Photo Exhibits —
-                    </div>
-
-                    {/* Render each photo as an exhibit page */}
-                    {selectedPhotos.map((photo, photoIndex) => (
-                        <React.Fragment key={`photo-${photoIndex}`}>
-                            <div
-                                style={{
-                                    width: '612pt',
-                                    minHeight: '792pt',
-                                    backgroundColor: '#FFFFFF',
-                                    padding: '36pt',
-                                    boxSizing: 'border-box',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center'
-                                }}
-                            >
-                                {/* Photo container */}
-                                <div style={{
-                                    flex: 1,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: '100%',
-                                    marginBottom: '24pt'
-                                }}>
-                                    <img
-                                        src={photo.file_url}
-                                        alt={`Exhibit ${photoIndex + 1}`}
-                                        style={{
-                                            maxWidth: '100%',
-                                            maxHeight: '650pt',
-                                            objectFit: 'contain',
-                                            border: '1px solid #E5E7EB'
-                                        }}
-                                    />
-                                </div>
-
-                                {/* Exhibit label */}
-                                <div style={{
-                                    fontFamily: 'Times New Roman, Times, serif',
-                                    fontSize: '14pt',
-                                    fontWeight: 'bold',
-                                    textAlign: 'center'
-                                }}>
-                                    EXHIBIT {photoIndex + 1}
-                                </div>
-                            </div>
-
-                            {/* Page break between photos */}
-                            {photoIndex < selectedPhotos.length - 1 && (
-                                <div
-                                    style={{
-                                        height: '20px',
-                                        backgroundColor: '#E5E7EB',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        fontSize: '10pt',
-                                        fontFamily: 'system-ui, sans-serif',
-                                        color: '#6B7280',
-                                        fontWeight: '500'
-                                    }}
-                                >
-                                    — Exhibit {photoIndex + 1} / Exhibit {photoIndex + 2} —
-                                </div>
-                            )}
-                        </React.Fragment>
-                    ))}
-                </>
-            )}
-        </div>
+      <div
+        contentEditable
+        ref={contentRef}
+        suppressContentEditableWarning
+        onBlur={() =>
+          onDataChange("html_content_edited", contentRef.current.innerHTML)
+        }
+        style={{
+          width: pageWidth,
+          minHeight: "792pt",
+          background: "#fff",
+          outline: "2px solid #3B82F6",
+        }}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
     );
+  }
+
+  const hasSig = affidavitData?.placed_signature?.signature_data;
+
+  return (
+    <div ref={containerRef} style={{ position: "relative" }}>
+      {pages.map((pageHTML, i) => (
+        <React.Fragment key={i}>
+          {/* Page separator (shown between pages, not before first page) */}
+          {i > 0 && (
+            <div
+              style={{
+                height: "20px",
+                background: "linear-gradient(to bottom, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%)",
+                borderTop: "2px dashed #9ca3af",
+                borderBottom: "2px dashed #9ca3af",
+                margin: "0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <span style={{
+                fontSize: "10px",
+                color: "#6b7280",
+                background: "#f3f4f6",
+                padding: "2px 8px",
+                borderRadius: "4px"
+              }}>
+                Page {i + 1}
+              </span>
+            </div>
+          )}
+          <div
+            style={{
+              width: pageWidth,
+              minHeight: "792pt",
+              background: "white",
+              position: "relative",
+            }}
+          >
+            <div dangerouslySetInnerHTML={{ __html: pageHTML }} />
+          </div>
+        </React.Fragment>
+      ))}
+
+      {/* Sign button positioned near signature line */}
+      {!hasSig && signButtonPosition && user?.e_signature?.signature_data && (
+        <div
+          style={{
+            position: "absolute",
+            top: `${signButtonPosition.top}px`,
+            left: `${signButtonPosition.left}px`,
+            transform: "translate(-50%, -50%)",
+            zIndex: 20,
+          }}
+        >
+          <Button
+            onClick={handleSign}
+            className="shadow-lg"
+            style={{
+              background: "#3B82F6",
+              color: "white",
+            }}
+          >
+            <PenTool className="w-4 h-4 mr-2" />
+            Sign Here
+          </Button>
+        </div>
+      )}
+
+      {/* Signed status and remove button */}
+      {hasSig && signButtonPosition && (
+        <div
+          style={{
+            position: "absolute",
+            top: `${signButtonPosition.top + 40}px`,
+            left: `${signButtonPosition.left}px`,
+            transform: "translateX(-50%)",
+            zIndex: 20,
+          }}
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRemoveSignature}
+            className="text-red-600 hover:text-red-700 bg-white shadow-sm"
+          >
+            <X className="w-3 h-3 mr-1" />
+            Remove Signature
+          </Button>
+        </div>
+      )}
+
+      {/* No signature message */}
+      {!user?.e_signature?.signature_data && (
+        <div
+          style={{
+            padding: "16px",
+            borderTop: "1px solid #e5e7eb",
+            background: "#fef3c7",
+            textAlign: "center",
+          }}
+        >
+          <p className="text-amber-700 text-sm">
+            No signature found. Please create one in Settings to sign this document.
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }

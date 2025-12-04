@@ -378,10 +378,13 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
     if (template?.template_mode === 'html' && template?.html_content) {
         const renderedHTML = renderHTMLTemplate(template.html_content, affidavitData);
 
-        // Check if this is the AO 440 template
-        const isAO440Template = template?.id === 'ao440_federal' ||
+        // Check if this is the AO 440 template (original version, not CSS test)
+        const isAO440Template = (template?.id === 'ao440_federal' ||
                                 template?.name?.includes('AO 440') ||
-                                template?.name?.includes('Federal Proof of Service');
+                                template?.name?.includes('Federal Proof of Service')) &&
+                                !template?.id?.includes('css_test') &&
+                                !template?.name?.toLowerCase().includes('css test') &&
+                                !template?.uses_table_layout;
 
         // AO 440 Template - ALWAYS use interactive form component (in both edit and view modes)
         if (isAO440Template) {
@@ -398,13 +401,20 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
             );
         }
 
-        // Check if this is the Standard Affidavit template
+        // Check if this is the Standard Affidavit template OR a CSS test template
+        // CSS test templates use the same table-based approach as Standard
         const isStandardTemplate = template?.id === 'standard' ||
                                    template?.name?.includes('Standard Affidavit');
 
-        // Standard Affidavit - use simple rendering component (no contentEditable complexity)
-        if (isStandardTemplate) {
-            console.log('[AffidavitPreview] Rendering Standard Affidavit with isEditing:', isEditing);
+        const isCSSTestTemplate = template?.id?.includes('css_test') ||
+                                  template?.name?.toLowerCase().includes('css test') ||
+                                  template?.uses_table_layout === true;
+
+        // Standard Affidavit and CSS Test templates - use simple rendering component
+        // This handles table-based layouts properly for both preview and PDF
+        if (isStandardTemplate || isCSSTestTemplate) {
+            console.log('[AffidavitPreview] Rendering with StandardAffidavitInteractiveForm');
+            console.log('[AffidavitPreview] Template:', template?.name, 'isCSSTest:', isCSSTestTemplate);
 
             return (
                 <StandardAffidavitInteractiveForm

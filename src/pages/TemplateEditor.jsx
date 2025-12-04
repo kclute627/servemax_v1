@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, X } from 'lucide-react';
+import { ArrowLeft, Save, X, Globe, Building, Users, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -16,9 +17,10 @@ import {
 import TemplateCodeEditor from '@/components/affidavit/TemplateCodeEditor';
 import { getStarterTemplatesList, getStarterTemplate } from '@/utils/starterTemplates';
 import { db } from '@/firebase/config';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection, getDocs } from 'firebase/firestore';
 import { useGlobalData } from '@/components/GlobalDataContext';
 import { isSuperAdmin } from '@/utils/permissions';
+import { Client, Company } from '@/api/entities';
 
 export default function TemplateEditor() {
   const navigate = useNavigate();
@@ -38,11 +40,18 @@ export default function TemplateEditor() {
     footer_text: '',
     service_status: 'both',
     who_can_see: companyData?.id ? [companyData.id] : 'everyone', // Default to company-specific
+    visible_to_clients: [], // Empty = all clients, array of client IDs = specific clients only
     is_active: true,
+    uses_table_layout: false, // Flag for new CSS table-based approach
   });
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [allCompanies, setAllCompanies] = useState([]);
+  const [allClients, setAllClients] = useState([]);
+  const [showCompanySelector, setShowCompanySelector] = useState(false);
+  const [showClientSelector, setShowClientSelector] = useState(false);
+  const [visibilityMode, setVisibilityMode] = useState('everyone'); // 'everyone', 'companies', 'clients'
 
   // Load template data in edit mode
   useEffect(() => {
@@ -50,6 +59,31 @@ export default function TemplateEditor() {
       loadTemplate();
     }
   }, [isEditMode, templateId]);
+
+  // Load companies and clients for visibility selector (super admin only)
+  useEffect(() => {
+    if (isSuperAdmin(user)) {
+      loadCompaniesAndClients();
+    }
+  }, [user]);
+
+  const loadCompaniesAndClients = async () => {
+    try {
+      // Load all companies
+      const companiesRef = collection(db, 'companies');
+      const companiesSnap = await getDocs(companiesRef);
+      const companies = companiesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllCompanies(companies);
+
+      // Load all clients (across all companies for super admin)
+      const clientsRef = collection(db, 'clients');
+      const clientsSnap = await getDocs(clientsRef);
+      const clients = clientsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllClients(clients);
+    } catch (error) {
+      console.error('Error loading companies/clients:', error);
+    }
+  };
 
   const loadTemplate = async () => {
     setLoading(true);
@@ -66,10 +100,23 @@ export default function TemplateEditor() {
       console.log('Template exists:', templateSnap.exists());
       if (templateSnap.exists()) {
         console.log('Template data:', templateSnap.data());
+        const data = templateSnap.data();
         setFormData({
-          ...templateSnap.data(),
-          is_active: templateSnap.data().is_active !== false,
+          ...data,
+          is_active: data.is_active !== false,
+          visible_to_clients: data.visible_to_clients || [],
         });
+
+        // Set visibility mode based on loaded data
+        if (data.who_can_see === 'everyone') {
+          setVisibilityMode('everyone');
+        } else if (data.visible_to_clients && data.visible_to_clients.length > 0) {
+          setVisibilityMode('clients');
+        } else if (Array.isArray(data.who_can_see) && data.who_can_see.length > 0) {
+          setVisibilityMode('companies');
+        } else {
+          setVisibilityMode('everyone');
+        }
       } else {
         console.error('Template NOT FOUND at path:', `system_affidavit_templates/${templateId}`);
         alert('Template not found');
@@ -421,7 +468,7 @@ export default function TemplateEditor() {
               </>
             )}
 
-            {/* Checkboxes */}
+            {/* Active Status */}
             <div className="space-y-3 pt-4 border-t">
               <div className="flex items-center gap-2">
                 <Checkbox
@@ -434,22 +481,155 @@ export default function TemplateEditor() {
                 </Label>
               </div>
 
-              {isSuperAdmin(user) && (
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="is_system_template"
-                    checked={formData.who_can_see === 'everyone'}
-                    onCheckedChange={(checked) => setFormData({
-                      ...formData,
-                      who_can_see: checked ? 'everyone' : (companyData?.id ? [companyData.id] : [])
-                    })}
-                  />
-                  <Label htmlFor="is_system_template" className="font-normal cursor-pointer">
-                    System Template (available to all companies)
-                  </Label>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="uses_table_layout"
+                  checked={formData.uses_table_layout}
+                  onCheckedChange={(checked) => setFormData({ ...formData, uses_table_layout: checked })}
+                />
+                <Label htmlFor="uses_table_layout" className="font-normal cursor-pointer">
+                  Uses Table Layout (CSS approach for PDF consistency)
+                </Label>
+              </div>
             </div>
+
+            {/* Visibility Controls (Super Admin Only) */}
+            {isSuperAdmin(user) && (
+              <div className="space-y-4 pt-4 border-t">
+                <Label className="text-sm font-semibold">Template Visibility</Label>
+
+                {/* Visibility Mode Selection */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      id="vis-everyone"
+                      checked={visibilityMode === 'everyone'}
+                      onChange={() => {
+                        setVisibilityMode('everyone');
+                        setFormData({ ...formData, who_can_see: 'everyone', visible_to_clients: [] });
+                      }}
+                      className="w-4 h-4"
+                    />
+                    <Label htmlFor="vis-everyone" className="font-normal cursor-pointer flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-green-600" />
+                      Everyone (all companies & clients)
+                    </Label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      id="vis-companies"
+                      checked={visibilityMode === 'companies'}
+                      onChange={() => {
+                        setVisibilityMode('companies');
+                        setFormData({ ...formData, who_can_see: [], visible_to_clients: [] });
+                      }}
+                      className="w-4 h-4"
+                    />
+                    <Label htmlFor="vis-companies" className="font-normal cursor-pointer flex items-center gap-2">
+                      <Building className="w-4 h-4 text-blue-600" />
+                      Specific Companies
+                    </Label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      id="vis-clients"
+                      checked={visibilityMode === 'clients'}
+                      onChange={() => {
+                        setVisibilityMode('clients');
+                        setFormData({ ...formData, who_can_see: 'everyone', visible_to_clients: [] });
+                      }}
+                      className="w-4 h-4"
+                    />
+                    <Label htmlFor="vis-clients" className="font-normal cursor-pointer flex items-center gap-2">
+                      <Users className="w-4 h-4 text-purple-600" />
+                      Specific Clients Only
+                    </Label>
+                  </div>
+                </div>
+
+                {/* Company Selector */}
+                {visibilityMode === 'companies' && (
+                  <div className="bg-blue-50 p-3 rounded-lg space-y-2">
+                    <div
+                      className="flex items-center justify-between cursor-pointer"
+                      onClick={() => setShowCompanySelector(!showCompanySelector)}
+                    >
+                      <span className="text-sm font-medium">
+                        Select Companies ({Array.isArray(formData.who_can_see) ? formData.who_can_see.length : 0} selected)
+                      </span>
+                      {showCompanySelector ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </div>
+                    {showCompanySelector && (
+                      <div className="max-h-40 overflow-y-auto space-y-1 mt-2">
+                        {allCompanies.map(company => (
+                          <div key={company.id} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`company-${company.id}`}
+                              checked={Array.isArray(formData.who_can_see) && formData.who_can_see.includes(company.id)}
+                              onCheckedChange={(checked) => {
+                                const current = Array.isArray(formData.who_can_see) ? formData.who_can_see : [];
+                                const updated = checked
+                                  ? [...current, company.id]
+                                  : current.filter(id => id !== company.id);
+                                setFormData({ ...formData, who_can_see: updated });
+                              }}
+                            />
+                            <Label htmlFor={`company-${company.id}`} className="font-normal text-xs cursor-pointer">
+                              {company.name || company.id}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Client Selector */}
+                {visibilityMode === 'clients' && (
+                  <div className="bg-purple-50 p-3 rounded-lg space-y-2">
+                    <div
+                      className="flex items-center justify-between cursor-pointer"
+                      onClick={() => setShowClientSelector(!showClientSelector)}
+                    >
+                      <span className="text-sm font-medium">
+                        Select Clients ({formData.visible_to_clients?.length || 0} selected)
+                      </span>
+                      {showClientSelector ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </div>
+                    {showClientSelector && (
+                      <div className="max-h-40 overflow-y-auto space-y-1 mt-2">
+                        {allClients.map(client => (
+                          <div key={client.id} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`client-${client.id}`}
+                              checked={formData.visible_to_clients?.includes(client.id)}
+                              onCheckedChange={(checked) => {
+                                const current = formData.visible_to_clients || [];
+                                const updated = checked
+                                  ? [...current, client.id]
+                                  : current.filter(id => id !== client.id);
+                                setFormData({ ...formData, visible_to_clients: updated });
+                              }}
+                            />
+                            <Label htmlFor={`client-${client.id}`} className="font-normal text-xs cursor-pointer">
+                              {client.name || client.id}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-slate-500 mt-2">
+                      Template will only appear when generating affidavits for selected clients
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

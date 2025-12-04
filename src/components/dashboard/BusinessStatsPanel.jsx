@@ -288,7 +288,7 @@ export default function BusinessStatsPanel() {
 
     invoicesToConsider.forEach(invoice => {
         if (invoice.client_id && clientStats[invoice.client_id]) {
-            clientStats[invoice.client_id].revenue += invoice.total_amount || 0;
+            clientStats[invoice.client_id].revenue += invoice.total_amount || invoice.total || 0;
         }
     });
 
