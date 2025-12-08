@@ -1,0 +1,32 @@
+<h2>New Job {{#if requires_acceptance}}Request{{else}}Assignment{{/if}}</h2>
+
+<p>Hello,</p>
+
+{{#if requires_acceptance}}
+<p>You have received a new job share request from <strong>{{from_company_name}}</strong>.</p>
+{{else}}
+<p>A new job has been assigned to you from <strong>{{from_company_name}}</strong>.</p>
+{{/if}}
+
+<div class="info-box">
+  {{#if job_preview.service_address}}
+  <p><strong>Address:</strong> {{job_preview.service_address}}{{#if job_preview.city}}, {{job_preview.city}}{{/if}}{{#if job_preview.state}}, {{job_preview.state}}{{/if}}</p>
+  {{/if}}
+  {{#if job_preview.due_date}}<p><strong>Due Date:</strong> {{formatDate job_preview.due_date 'MMMM d, yyyy'}}</p>{{/if}}
+  {{#if job_preview.documents_count}}<p><strong>Documents:</strong> {{job_preview.documents_count}} document(s)</p>{{/if}}
+  {{#if proposed_fee}}<p><strong>Proposed Fee:</strong> {{formatCurrency proposed_fee}}</p>{{/if}}
+</div>
+
+<p style="text-align: center;">
+  {{#if requires_acceptance}}
+  <a href="{{accept_url}}" class="button">View & Respond</a>
+  {{else}}
+  <a href="{{job_url}}" class="button">View Job</a>
+  {{/if}}
+</p>
+
+{{#if requires_acceptance}}
+<p style="font-size: 13px; color: #64748b;">
+  Please review the job details and accept or decline this request.
+</p>
+{{/if}}

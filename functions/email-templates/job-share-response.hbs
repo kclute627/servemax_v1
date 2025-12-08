@@ -1,0 +1,26 @@
+<h2>Job Share {{#if accepted}}Accepted{{else}}Declined{{/if}}</h2>
+
+<p>Hello,</p>
+
+<p>Your job share request has been <strong>{{#if accepted}}accepted{{else}}declined{{/if}}</strong> by <strong>{{responding_company_name}}</strong>.</p>
+
+{{#if accepted}}
+<div class="info-box">
+  {{#if final_fee}}<p><strong>Agreed Fee:</strong> {{formatCurrency final_fee}}</p>{{/if}}
+  {{#if job_preview.service_address}}<p><strong>Address:</strong> {{job_preview.service_address}}</p>{{/if}}
+</div>
+
+<p>The job has been transferred and {{responding_company_name}} will handle the service.</p>
+{{else}}
+{{#if decline_reason}}
+<div class="info-box">
+  <p><strong>Reason:</strong> {{decline_reason}}</p>
+</div>
+{{/if}}
+
+<p>You may want to share this job with another partner or handle it internally.</p>
+{{/if}}
+
+<p style="text-align: center;">
+  <a href="{{job_url}}" class="button">View Job</a>
+</p>

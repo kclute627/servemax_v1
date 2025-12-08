@@ -82,7 +82,7 @@ import NewContactDialog from '../components/jobs/NewContactDialog';
 import ContractorSearchInput from '../components/jobs/ContractorSearchInput';
 import DocumentUpload from '../components/jobs/DocumentUpload';
 // FIREBASE TRANSITION: This will become a call to a Firebase Cloud Function.
-import { generateFieldSheet, mergePDFs } from "@/api/functions";
+import { generateFieldSheet, mergePDFs, sendAttemptNotification } from "@/api/functions";
 // FIREBASE TRANSITION: This will be replaced with Firebase Storage's `uploadBytes` and `getDownloadURL`.
 import { UploadFile } from "@/api/integrations";
 import { motion, AnimatePresence } from 'framer-motion';
@@ -161,8 +161,27 @@ const DetailItem = ({ icon, label, value }) => {
  * Component to display a single service attempt with expandable details and map integration.
  * This is a new component for the outline.
  */
-const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees }) => {
+const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees, companyId, hasClientEmail, onEmailSent }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  const handleSendAttemptEmail = async () => {
+    if (!hasClientEmail) return;
+
+    setIsSendingEmail(true);
+    try {
+      const result = await sendAttemptNotification(attempt.id, jobId, companyId);
+      if (onEmailSent) {
+        onEmailSent(result);
+      }
+    } catch (error) {
+      console.error('Error sending attempt notification:', error);
+      if (onEmailSent) {
+        onEmailSent({ success: false, error: error.message });
+      }
+    }
+    setIsSendingEmail(false);
+  };
 
   let serverName = attempt.server_name_manual;
   if (attempt.server_id && Array.isArray(employees)) {
@@ -232,6 +251,28 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees 
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
+          {hasClientEmail && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-slate-500 hover:text-blue-600"
+                  onClick={handleSendAttemptEmail}
+                  disabled={isSendingEmail}
+                >
+                  {isSendingEmail ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Mail className="w-4 h-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Email Attempt to Client</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
               <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-800" onClick={() => setIsExpanded(prev => !prev)}>
@@ -2547,6 +2588,22 @@ export default function JobDetailsPage() {
                             jobAddress={jobAddressString}
                             jobCoordinates={jobCoordinates}
                             employees={allEmployees}
+                            companyId={user?.company_id}
+                            hasClientEmail={Boolean(job?.contact_email || client?.contact_email || client?.email)}
+                            onEmailSent={(result) => {
+                              if (result.success) {
+                                toast({
+                                  title: 'Email Sent',
+                                  description: `Attempt notification sent to ${result.recipient}`,
+                                });
+                              } else {
+                                toast({
+                                  variant: 'destructive',
+                                  title: 'Error',
+                                  description: result.error || 'Failed to send attempt notification',
+                                });
+                              }
+                            }}
                           />
                         );
                       })}

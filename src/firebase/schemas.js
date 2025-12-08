@@ -147,9 +147,11 @@ export const createCompanySchema = (data) => ({
 
   // Client portal branding
   branding: data.branding || {
-    logo_url: '',           // Firebase Storage URL for company logo
+    logo_url: '',              // Firebase Storage URL for company logo
     primary_color: '#1e40af',  // Primary brand color (default blue)
     accent_color: '#3b82f6',   // Accent color
+    email_tagline: '',         // Tagline for email footer (e.g., "Professional Process Serving Since 2010")
+    google_review_url: '',     // Google review page URL for "Leave us a review" link
   },
 
   // Client portal settings

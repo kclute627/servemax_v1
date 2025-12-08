@@ -1,0 +1,21 @@
+<h2>Affidavit of Service Ready</h2>
+
+<p>Hello {{client_name}},</p>
+
+<p>The affidavit of service for your job has been completed and is ready for your review.</p>
+
+<div class="info-box">
+  {{#if case_caption}}<p><strong>Case:</strong> {{case_caption}}</p>{{/if}}
+  {{#if case_number}}<p><strong>Case Number:</strong> {{case_number}}</p>{{/if}}
+  <p><strong>Service Date:</strong> {{formatDate service_date 'MMMM d, yyyy'}}</p>
+  <p><strong>Recipient:</strong> {{recipient_name}}</p>
+  {{#if service_status}}<p><strong>Status:</strong> {{service_status}}</p>{{/if}}
+</div>
+
+<p style="text-align: center;">
+  <a href="{{affidavit_view_url}}" class="button">View Affidavit</a>
+</p>
+
+<p style="font-size: 13px; color: #64748b;">
+  You can download or print the affidavit from the link above.
+</p>

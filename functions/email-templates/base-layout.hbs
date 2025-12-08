@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{emailSubject}}</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.6;
+      color: #333333;
+      margin: 0;
+      padding: 0;
+      background-color: #f5f5f5;
+      -webkit-font-smoothing: antialiased;
+    }
+    .email-wrapper {
+      width: 100%;
+      background-color: #f5f5f5;
+      padding: 40px 0;
+    }
+    .email-container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .header {
+      background-color: {{#if branding.primary_color}}{{branding.primary_color}}{{else}}#1e40af{{/if}};
+      padding: 24px;
+      text-align: center;
+    }
+    .header img {
+      max-height: 50px;
+      max-width: 200px;
+    }
+    .header-text {
+      color: #ffffff;
+      font-size: 22px;
+      font-weight: 600;
+      margin: 0;
+      letter-spacing: -0.5px;
+    }
+    .content {
+      padding: 32px 32px 24px;
+    }
+    .content h2 {
+      color: #1e293b;
+      margin: 0 0 16px 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .content p {
+      margin: 0 0 16px 0;
+      color: #475569;
+    }
+    .content ul {
+      margin: 0 0 16px 0;
+      padding-left: 24px;
+      color: #475569;
+    }
+    .content li {
+      margin-bottom: 8px;
+    }
+    .button {
+      display: inline-block;
+      background-color: {{#if branding.primary_color}}{{branding.primary_color}}{{else}}#1e40af{{/if}};
+      color: #ffffff !important;
+      text-decoration: none;
+      padding: 14px 32px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 15px;
+      margin: 8px 0 16px;
+      transition: background-color 0.2s;
+    }
+    .button:hover {
+      background-color: {{#if branding.accent_color}}{{branding.accent_color}}{{else}}#1d4ed8{{/if}};
+    }
+    .info-box {
+      background-color: #f8fafc;
+      border-left: 4px solid {{#if branding.primary_color}}{{branding.primary_color}}{{else}}#1e40af{{/if}};
+      padding: 16px 20px;
+      margin: 20px 0;
+      border-radius: 0 6px 6px 0;
+    }
+    .info-box p {
+      margin: 0 0 8px 0;
+      color: #334155;
+      font-size: 14px;
+    }
+    .info-box p:last-child {
+      margin-bottom: 0;
+    }
+    .info-box strong {
+      color: #1e293b;
+    }
+    .footer {
+      background-color: #f8fafc;
+      padding: 24px 32px;
+      text-align: center;
+      border-top: 1px solid #e2e8f0;
+    }
+    .footer p {
+      margin: 0 0 8px 0;
+      font-size: 13px;
+      color: #64748b;
+    }
+    .footer p:last-child {
+      margin-bottom: 0;
+    }
+    .footer a {
+      color: {{#if branding.primary_color}}{{branding.primary_color}}{{else}}#1e40af{{/if}};
+      text-decoration: none;
+    }
+    .footer a:hover {
+      text-decoration: underline;
+    }
+    .powered-by {
+      margin-top: 16px !important;
+      padding-top: 16px;
+      border-top: 1px solid #e2e8f0;
+      font-size: 12px !important;
+      color: #94a3b8 !important;
+    }
+    .tagline {
+      font-style: italic;
+      color: #64748b;
+      margin-bottom: 12px !important;
+    }
+    .footer-links {
+      margin-top: 12px !important;
+      margin-bottom: 4px !important;
+    }
+    .footer-links a {
+      display: inline-block;
+      margin: 0 8px;
+    }
+    .review-link {
+      display: inline-block;
+      background-color: {{#if branding.primary_color}}{{branding.primary_color}}{{else}}#1e40af{{/if}};
+      color: #ffffff !important;
+      text-decoration: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+    a {
+      color: {{#if branding.primary_color}}{{branding.primary_color}}{{else}}#1e40af{{/if}};
+    }
+    @media only screen and (max-width: 640px) {
+      .email-wrapper {
+        padding: 20px 16px;
+      }
+      .content {
+        padding: 24px 20px;
+      }
+      .footer {
+        padding: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <div class="email-container">
+      <div class="header">
+        {{#if branding.logo_url}}
+          <img src="{{branding.logo_url}}" alt="{{company_name}}">
+        {{else}}
+          <p class="header-text">{{company_name}}</p>
+        {{/if}}
+      </div>
+      <div class="content">
+        {{{content}}}
+      </div>
+      <div class="footer">
+        {{#if branding.logo_url}}
+          <img src="{{branding.logo_url}}" alt="{{company_name}}" style="max-height: 40px; margin-bottom: 12px;">
+        {{/if}}
+        <p><strong>{{company_name}}</strong></p>
+        {{#if branding.email_tagline}}
+          <p class="tagline">{{branding.email_tagline}}</p>
+        {{/if}}
+        {{#if company_address}}<p>{{company_address}}</p>{{/if}}
+        {{#if company_phone}}<p>{{company_phone}}</p>{{/if}}
+        {{#if company_email}}<p><a href="mailto:{{company_email}}">{{company_email}}</a></p>{{/if}}
+
+        {{#if company_website}}
+          <p class="footer-links">
+            <a href="{{company_website}}">Visit Our Website</a>
+          </p>
+        {{/if}}
+
+        {{#if branding.google_review_url}}
+          <p>
+            <a href="{{branding.google_review_url}}" class="review-link">Leave Us a Review ⭐</a>
+          </p>
+        {{/if}}
+
+        <p class="powered-by">
+          Powered by <a href="https://servemax.pro">ServeMax</a>
+        </p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

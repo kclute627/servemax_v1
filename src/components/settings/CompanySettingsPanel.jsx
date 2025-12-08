@@ -12,10 +12,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser, Globe, Phone, Briefcase, ChevronDown } from "lucide-react";
+import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser, Globe, Phone, Briefcase, ChevronDown, Palette, Upload, X, Image } from "lucide-react";
 import AddressAutocomplete from "../jobs/AddressAutocomplete";
 import { useGlobalData } from "@/components/GlobalDataContext";
 import { useToast } from "@/components/ui/use-toast";
+import { FirebaseStorage } from "@/firebase/storage";
 
 export default function CompanySettingsPanel() {
   const { user } = useAuth();
@@ -46,12 +47,21 @@ export default function CompanySettingsPanel() {
     enabled: false,
     blurb: ''
   });
+  const [branding, setBranding] = useState({
+    logo_url: '',
+    primary_color: '#1e40af',
+    accent_color: '#3b82f6',
+    email_tagline: '',
+    google_review_url: ''
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [isAddressLoading, setIsAddressLoading] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   // Collapsible section states - Company Info open by default, others closed
   const [openSections, setOpenSections] = useState({
     companyInfo: true,
+    branding: false,
     jobSharing: false,
     directory: false,
     kanban: false,
@@ -82,6 +92,15 @@ export default function CompanySettingsPanel() {
         longitude: primaryAddress?.lng || companyData.longitude || null,
         phone: companyData.phone || '',
         email: companyData.email || ''
+      });
+
+      // Load branding settings
+      setBranding({
+        logo_url: companyData.branding?.logo_url || '',
+        primary_color: companyData.branding?.primary_color || '#1e40af',
+        accent_color: companyData.branding?.accent_color || '#3b82f6',
+        email_tagline: companyData.branding?.email_tagline || '',
+        google_review_url: companyData.branding?.google_review_url || ''
       });
     }
   }, [companyData]);
@@ -174,6 +193,16 @@ export default function CompanySettingsPanel() {
           ...companyData?.collaboration_settings,
           directory_listing_enabled: directorySettings.enabled
         },
+
+        // Branding settings
+        branding: {
+          logo_url: branding.logo_url,
+          primary_color: branding.primary_color,
+          accent_color: branding.accent_color,
+          email_tagline: branding.email_tagline,
+          google_review_url: branding.google_review_url
+        },
+
         updated_at: new Date()
       };
 
@@ -344,6 +373,60 @@ export default function CompanySettingsPanel() {
     }));
   };
 
+  // Logo upload handler
+  const handleLogoUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        variant: "destructive",
+        title: "Invalid file type",
+        description: "Please upload an image file (PNG, JPG, etc.)",
+      });
+      return;
+    }
+
+    // Validate file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toast({
+        variant: "destructive",
+        title: "File too large",
+        description: "Logo must be smaller than 2MB",
+      });
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    try {
+      const result = await FirebaseStorage.uploadFile(
+        file,
+        `companies/${user.company_id}/branding`,
+        { fileName: `logo_${Date.now()}.${file.name.split('.').pop()}` }
+      );
+
+      setBranding(prev => ({ ...prev, logo_url: result.url }));
+      toast({
+        variant: "success",
+        title: "Logo uploaded",
+        description: "Your company logo has been uploaded. Don't forget to save!",
+      });
+    } catch (error) {
+      console.error("Error uploading logo:", error);
+      toast({
+        variant: "destructive",
+        title: "Upload failed",
+        description: "Failed to upload logo. Please try again.",
+      });
+    }
+    setIsUploadingLogo(false);
+  };
+
+  const removeLogo = () => {
+    setBranding(prev => ({ ...prev, logo_url: '' }));
+  };
+
   // Collapsible Card Header component
   const CollapsibleCardHeader = ({ icon: Icon, title, section, isOpen }) => (
     <CollapsibleTrigger asChild>
@@ -501,6 +584,274 @@ export default function CompanySettingsPanel() {
             </div>
           </div>
         </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
+      {/* Company Branding - Collapsed by default */}
+      <Collapsible open={openSections.branding} onOpenChange={() => toggleSection('branding')}>
+        <Card>
+          <CollapsibleCardHeader icon={Palette} title="Company Branding" section="branding" isOpen={openSections.branding} />
+          <CollapsibleContent>
+            <CardContent className="space-y-6">
+              <p className="text-sm text-slate-500">
+                Customize your company's visual identity for emails, documents, and the client portal.
+              </p>
+
+              {/* Logo Upload */}
+              <div className="space-y-3">
+                <Label>Company Logo</Label>
+                <div className="flex items-start gap-4">
+                  {branding.logo_url ? (
+                    <div className="relative">
+                      <div className="w-32 h-32 border rounded-lg overflow-hidden bg-white flex items-center justify-center">
+                        <img
+                          src={branding.logo_url}
+                          alt="Company logo"
+                          className="max-w-full max-h-full object-contain"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="absolute -top-2 -right-2 h-6 w-6"
+                        onClick={removeLogo}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <label className="w-32 h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleLogoUpload}
+                        disabled={isUploadingLogo}
+                      />
+                      {isUploadingLogo ? (
+                        <div className="animate-spin rounded-full h-6 w-6 border-2 border-slate-300 border-t-slate-600" />
+                      ) : (
+                        <>
+                          <Image className="w-8 h-8 text-slate-400 mb-1" />
+                          <span className="text-xs text-slate-500">Upload Logo</span>
+                        </>
+                      )}
+                    </label>
+                  )}
+                  <div className="flex-1 space-y-2">
+                    <p className="text-sm text-slate-600">
+                      Upload your company logo to display on emails and documents.
+                    </p>
+                    <ul className="text-xs text-slate-500 space-y-1">
+                      <li>• Recommended size: 200x200px or larger</li>
+                      <li>• Formats: PNG, JPG, SVG</li>
+                      <li>• Max file size: 2MB</li>
+                    </ul>
+                    {branding.logo_url && (
+                      <label className="inline-flex items-center gap-2 text-sm text-blue-600 cursor-pointer hover:underline">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleLogoUpload}
+                          disabled={isUploadingLogo}
+                        />
+                        <Upload className="w-4 h-4" />
+                        Replace logo
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Color Pickers */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="primary_color">Primary Color</Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      id="primary_color"
+                      value={branding.primary_color}
+                      onChange={(e) => setBranding(prev => ({ ...prev, primary_color: e.target.value }))}
+                      className="w-12 h-10 rounded cursor-pointer border border-slate-200"
+                    />
+                    <Input
+                      value={branding.primary_color}
+                      onChange={(e) => setBranding(prev => ({ ...prev, primary_color: e.target.value }))}
+                      placeholder="#1e40af"
+                      className="flex-1 font-mono"
+                      maxLength={7}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Used for email headers, buttons, and links.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="accent_color">Secondary Color</Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      id="accent_color"
+                      value={branding.accent_color}
+                      onChange={(e) => setBranding(prev => ({ ...prev, accent_color: e.target.value }))}
+                      className="w-12 h-10 rounded cursor-pointer border border-slate-200"
+                    />
+                    <Input
+                      value={branding.accent_color}
+                      onChange={(e) => setBranding(prev => ({ ...prev, accent_color: e.target.value }))}
+                      placeholder="#3b82f6"
+                      className="flex-1 font-mono"
+                      maxLength={7}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Used for accents and hover states.
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Color Presets */}
+              <div className="space-y-2">
+                <Label>Quick Presets</Label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { name: 'Blue', primary: '#1e40af', accent: '#3b82f6' },
+                    { name: 'Green', primary: '#166534', accent: '#22c55e' },
+                    { name: 'Purple', primary: '#7c3aed', accent: '#a78bfa' },
+                    { name: 'Red', primary: '#dc2626', accent: '#f87171' },
+                    { name: 'Orange', primary: '#ea580c', accent: '#fb923c' },
+                    { name: 'Slate', primary: '#334155', accent: '#64748b' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => setBranding(prev => ({
+                        ...prev,
+                        primary_color: preset.primary,
+                        accent_color: preset.accent
+                      }))}
+                      className="flex items-center gap-2 px-3 py-1.5 border rounded-full text-sm hover:bg-slate-50 transition-colors"
+                    >
+                      <span
+                        className="w-4 h-4 rounded-full border"
+                        style={{ backgroundColor: preset.primary }}
+                      />
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t pt-6 space-y-4">
+                <h4 className="font-medium text-slate-900">Email Footer Settings</h4>
+
+                <div className="space-y-2">
+                  <Label htmlFor="email_tagline">Company Tagline</Label>
+                  <Input
+                    id="email_tagline"
+                    value={branding.email_tagline}
+                    onChange={(e) => setBranding(prev => ({ ...prev, email_tagline: e.target.value }))}
+                    placeholder="e.g., Professional Process Serving Since 2010"
+                  />
+                  <p className="text-xs text-slate-500">
+                    A short tagline that appears in the footer of all emails sent to your clients.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="google_review_url">Google Review Link</Label>
+                  <Input
+                    id="google_review_url"
+                    type="url"
+                    value={branding.google_review_url}
+                    onChange={(e) => setBranding(prev => ({ ...prev, google_review_url: e.target.value }))}
+                    placeholder="https://g.page/r/your-business/review"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Add your Google Business review link to encourage clients to leave reviews.
+                  </p>
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="px-4 py-2 bg-slate-100 border-b">
+                  <p className="text-xs font-medium text-slate-500">EMAIL PREVIEW</p>
+                </div>
+                <div
+                  className="p-6 text-center"
+                  style={{ backgroundColor: branding.primary_color }}
+                >
+                  {branding.logo_url ? (
+                    <img
+                      src={branding.logo_url}
+                      alt="Logo preview"
+                      className="h-12 mx-auto object-contain"
+                      style={{ filter: 'brightness(0) invert(1)' }}
+                    />
+                  ) : (
+                    <p className="text-white font-semibold text-lg">
+                      {companyInfo.company_name || 'Your Company Name'}
+                    </p>
+                  )}
+                </div>
+                <div className="p-6 bg-white">
+                  <p className="text-slate-600 text-sm mb-4">
+                    This is how your email header will appear to clients...
+                  </p>
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      className="px-6 py-2 rounded text-white font-medium"
+                      style={{ backgroundColor: branding.primary_color }}
+                    >
+                      Sample Button
+                    </button>
+                  </div>
+                </div>
+                <div className="p-4 bg-slate-50 border-t text-center space-y-1">
+                  {branding.logo_url && (
+                    <img
+                      src={branding.logo_url}
+                      alt="Footer logo"
+                      className="h-8 mx-auto object-contain mb-2"
+                    />
+                  )}
+                  <p className="font-semibold text-sm">{companyInfo.company_name || 'Your Company Name'}</p>
+                  {branding.email_tagline && (
+                    <p className="text-xs italic text-slate-600">{branding.email_tagline}</p>
+                  )}
+                  <p className="text-xs text-slate-500">
+                    {companyInfo.address1 && `${companyInfo.address1}, `}
+                    {companyInfo.city && `${companyInfo.city}, `}
+                    {companyInfo.state} {companyInfo.postal_code}
+                  </p>
+                  <div className="flex justify-center gap-4 pt-2">
+                    {companyInfo.website && (
+                      <span
+                        className="text-xs cursor-pointer"
+                        style={{ color: branding.primary_color }}
+                      >
+                        Visit Our Website
+                      </span>
+                    )}
+                    {branding.google_review_url && (
+                      <span
+                        className="text-xs text-white px-2 py-1 rounded cursor-pointer"
+                        style={{ backgroundColor: branding.primary_color }}
+                      >
+                        Leave Us a Review ⭐
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
           </CollapsibleContent>
         </Card>
       </Collapsible>

@@ -1,5 +1,6 @@
 import { entities } from './database';
 import { StatsManager } from './stats';
+import { FirebaseFunctions } from './functions';
 
 /**
  * InvoiceManager - Enhanced invoice management with automatic financial stats tracking
@@ -294,7 +295,6 @@ export class InvoiceManager {
 
   /**
    * Send invoice email to client
-   * STUB: Placeholder for future SendGrid integration
    *
    * @param {string} invoiceId - The ID of the invoice to send
    * @param {string} clientEmail - The email address to send the invoice to
@@ -302,20 +302,55 @@ export class InvoiceManager {
    * @returns {Promise<object>} - Result object with success status
    */
   static async sendInvoiceEmail(invoiceId, clientEmail, invoiceData = {}) {
-    console.log('[sendInvoiceEmail] TODO: Implement SendGrid integration');
-    console.log('[sendInvoiceEmail] Would send invoice', invoiceId, 'to', clientEmail);
-    console.log('[sendInvoiceEmail] Invoice data:', {
-      invoiceNumber: invoiceData.invoice_number,
-      total: invoiceData.total,
-      dueDate: invoiceData.due_date
-    });
+    try {
+      // Fetch invoice if not provided
+      const invoice = invoiceData.id ? invoiceData : await this.getInvoiceById(invoiceId);
+      if (!invoice) {
+        throw new Error(`Invoice ${invoiceId} not found`);
+      }
 
-    // For now, just return success - actual email sending to be added later with SendGrid
-    return {
-      success: true,
-      message: 'Email queued (SendGrid integration pending)',
-      invoiceId,
-      recipientEmail: clientEmail
-    };
+      console.log('[sendInvoiceEmail] Sending invoice', invoiceId, 'to', clientEmail);
+
+      // Send email via Cloud Function
+      const result = await FirebaseFunctions.sendEmail(
+        clientEmail,
+        `Invoice #${invoice.invoice_number || invoiceId}`,
+        null,
+        {
+          templateName: 'invoice',
+          templateData: {
+            client_name: invoiceData.client_name || invoice.client_name || 'Valued Client',
+            invoice_number: invoice.invoice_number || invoiceId,
+            total_amount: invoice.total_amount || invoice.total,
+            due_date: invoice.due_date,
+            job_reference: invoice.job_reference || invoice.reference,
+            invoice_view_url: `https://www.servemax.pro/invoices/${invoiceId}`,
+          },
+          companyId: invoice.company_id,
+        }
+      );
+
+      // Update invoice to track that email was sent
+      await entities.Invoice.update(invoiceId, {
+        email_sent: true,
+        email_sent_at: new Date(),
+        email_sent_to: clientEmail,
+        updated_at: new Date(),
+      });
+
+      console.log(`[sendInvoiceEmail] Invoice email sent to ${clientEmail}`);
+
+      return {
+        success: true,
+        message: 'Invoice email sent successfully',
+        invoiceId,
+        recipientEmail: clientEmail,
+        messageId: result.messageId,
+      };
+
+    } catch (error) {
+      console.error('[sendInvoiceEmail] Error sending invoice email:', error);
+      throw error;
+    }
   }
 }

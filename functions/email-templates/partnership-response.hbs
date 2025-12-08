@@ -1,0 +1,28 @@
+<h2>Partnership {{#if accepted}}Accepted{{else}}Declined{{/if}}</h2>
+
+<p>Hello,</p>
+
+<p>Your partnership request to <strong>{{target_company_name}}</strong> has been <strong>{{#if accepted}}accepted{{else}}declined{{/if}}</strong>.</p>
+
+{{#if accepted}}
+<p>You can now:</p>
+<ul>
+  <li>Share jobs with {{target_company_name}}</li>
+  <li>Set up auto-assignment rules</li>
+  <li>Collaborate on service coverage</li>
+</ul>
+
+<p style="text-align: center;">
+  <a href="{{partners_url}}" class="button">View Partners</a>
+</p>
+{{else}}
+{{#if decline_reason}}
+<div class="info-box">
+  <p><strong>Reason:</strong> {{decline_reason}}</p>
+</div>
+{{/if}}
+
+<p style="font-size: 13px; color: #64748b;">
+  You can send partnership requests to other companies from the Directory.
+</p>
+{{/if}}

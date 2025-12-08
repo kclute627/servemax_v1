@@ -13,12 +13,16 @@ const {format} = require("date-fns");
 const {DocumentProcessorServiceClient} = require("@google-cloud/documentai").v1;
 const Anthropic = require("@anthropic-ai/sdk");
 const axios = require("axios");
+const sgMail = require("@sendgrid/mail");
+const fs = require("fs");
+const path = require("path");
 
 admin.initializeApp();
 
 // Define secrets
 const googleMapsApiKey = defineSecret("GOOGLE_MAPS_API_KEY");
 const anthropicApiKey = defineSecret("CLAUDE_API_KEY");
+const sendgridApiKey = defineSecret("SENDGRID_API_KEY");
 
 // ============================================================================
 // Platform Usage Tracking Utilities
@@ -77,6 +81,122 @@ async function trackPlatformUsage(operation) {
     console.error(`[UsageTracker] Error tracking ${operation}:`, err);
     // Don't throw - tracking errors should not fail the main operation
   }
+}
+
+// ============================================================================
+// Email Service Utilities
+// ============================================================================
+
+/**
+ * Load and compile an email template from the email-templates directory
+ * @param {string} templateName - Name of the template file (without .hbs extension)
+ * @returns {Function} Compiled Handlebars template function
+ */
+function loadEmailTemplate(templateName) {
+  const templatePath = path.join(__dirname, "email-templates", `${templateName}.hbs`);
+  const templateSource = fs.readFileSync(templatePath, "utf-8");
+  return Handlebars.compile(templateSource);
+}
+
+/**
+ * Format company address for email footer
+ * @param {Object} company - Company data object
+ * @returns {string} Formatted address string
+ */
+function formatCompanyAddressForEmail(company) {
+  if (!company) return "";
+  const parts = [];
+  if (company.address1) parts.push(company.address1);
+  if (company.city && company.state) {
+    parts.push(`${company.city}, ${company.state} ${company.zip || ""}`);
+  }
+  return parts.join(", ");
+}
+
+/**
+ * Render a complete email with base layout and company branding
+ * @param {string} templateName - Name of the content template
+ * @param {Object} data - Template data
+ * @param {Object} companyData - Company data for branding
+ * @returns {string} Rendered HTML email
+ */
+function renderEmail(templateName, data, companyData) {
+  // Compile and render the content template
+  const contentTemplate = loadEmailTemplate(templateName);
+  const contentHtml = contentTemplate(data);
+
+  // Prepare branding data
+  const brandingData = {
+    ...data,
+    content: contentHtml,
+    company_name: companyData.name || companyData.company_name || "ServeMax",
+    company_address: formatCompanyAddressForEmail(companyData),
+    company_phone: companyData.phone || "",
+    company_email: companyData.email || "",
+    company_website: companyData.website || "",
+    branding: {
+      logo_url: companyData.branding?.logo_url || companyData.logo_url || null,
+      primary_color: companyData.branding?.primary_color || "#1e40af",
+      accent_color: companyData.branding?.accent_color || "#3b82f6",
+      email_tagline: companyData.branding?.email_tagline || "",
+      google_review_url: companyData.branding?.google_review_url || "",
+    },
+  };
+
+  // Render with base layout
+  const baseLayout = loadEmailTemplate("base-layout");
+  return baseLayout(brandingData);
+}
+
+/**
+ * Internal helper to send email with template (for use within other Cloud Functions)
+ * @param {Object} options - Email options
+ * @param {string} options.to - Recipient email
+ * @param {string} options.subject - Email subject
+ * @param {string} options.templateName - Name of template to use
+ * @param {Object} options.templateData - Data for template
+ * @param {string} options.companyId - Company ID for branding
+ * @param {string} [options.from] - Optional from email
+ * @param {string} [options.replyTo] - Optional reply-to email
+ * @returns {Promise<Object>} Send result
+ */
+async function sendEmailWithTemplate(options) {
+  const {to, subject, templateName, templateData, companyId, from, replyTo} = options;
+
+  // Fetch company data for branding
+  let companyData = {};
+  if (companyId) {
+    const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+    if (companyDoc.exists) {
+      companyData = companyDoc.data();
+    }
+  }
+
+  // Render the email
+  const html = renderEmail(templateName, {...templateData, emailSubject: subject}, companyData);
+
+  // Configure SendGrid
+  sgMail.setApiKey(sendgridApiKey.value());
+
+  // Build the message
+  const msg = {
+    to: to,
+    from: {
+      email: from || companyData.email || "noreply@servemax.pro",
+      name: companyData.name || companyData.company_name || "ServeMax",
+    },
+    replyTo: replyTo || companyData.email || undefined,
+    subject: subject,
+    html: html,
+  };
+
+  // Send the email
+  const response = await sgMail.send(msg);
+
+  console.log(`[Email] Sent "${subject}" to ${to}`);
+  await trackPlatformUsage("emails_sent");
+
+  return {success: true, messageId: response[0]?.headers?.["x-message-id"]};
 }
 
 /**
@@ -2309,13 +2429,44 @@ exports.autoAssignJobOnCreate = onDocumentCreated(
           console.log(`Job ${jobId}: Auto-accepted and job updated`);
         }
 
-        // Email notification placeholder
+        // Send email notification to partner
         if (selectedPartner.email_notifications_enabled) {
-          console.log("EMAIL PLACEHOLDER: Send job share notification", {
-            to: selectedPartner.partner_company_name,
-            jobId: jobId,
-            type: selectedPartner.requires_acceptance ? "pending" : "auto-accepted",
-          });
+          try {
+            // Fetch partner company email
+            const partnerCompanyDoc = await admin.firestore()
+                .collection("companies")
+                .doc(selectedPartner.partner_company_id)
+                .get();
+
+            if (partnerCompanyDoc.exists && partnerCompanyDoc.data().email) {
+              await sendEmailWithTemplate({
+                to: partnerCompanyDoc.data().email,
+                subject: selectedPartner.requires_acceptance ?
+                  `New Job Share Request from ${companyData.name || companyData.company_name}` :
+                  `New Job Assigned from ${companyData.name || companyData.company_name}`,
+                templateName: "job-share-notification",
+                templateData: {
+                  requires_acceptance: selectedPartner.requires_acceptance,
+                  from_company_name: companyData.name || companyData.company_name,
+                  job_preview: {
+                    service_address: job.addresses?.[0]?.address1 || "",
+                    city: job.addresses?.[0]?.city || "",
+                    state: job.addresses?.[0]?.state || "",
+                    due_date: job.due_date,
+                    documents_count: job.documents?.length || 0,
+                  },
+                  proposed_fee: zone.default_fee,
+                  job_url: `https://www.servemax.pro/jobs/${jobId}`,
+                  accept_url: `https://www.servemax.pro/jobs/share-requests`,
+                },
+                companyId: job.company_id,
+              });
+              console.log(`Job ${jobId}: Email notification sent to partner`);
+            }
+          } catch (emailError) {
+            console.error(`Job ${jobId}: Failed to send email notification:`, emailError);
+            // Don't fail the auto-assignment if email fails
+          }
         }
 
         return requestRef.id;
@@ -2466,12 +2617,29 @@ exports.createJobShareRequest = onCall(async (request) => {
 
     console.log(`Job share request created: ${requestRef.id}`);
 
-    // Email notification placeholder
-    console.log("EMAIL PLACEHOLDER: Notify target company of share request", {
-      to: targetCompanyData.email,
-      from: companyData.name || companyData.company_name,
-      jobId: jobId,
-    });
+    // Send email notification to target company
+    if (targetCompanyData.email) {
+      try {
+        await sendEmailWithTemplate({
+          to: targetCompanyData.email,
+          subject: `New Job Share Request from ${companyData.name || companyData.company_name}`,
+          templateName: "job-share-notification",
+          templateData: {
+            requires_acceptance: true,
+            from_company_name: companyData.name || companyData.company_name,
+            job_preview: shareRequest.job_preview,
+            proposed_fee: proposedFee,
+            job_url: `https://www.servemax.pro/jobs/${jobId}`,
+            accept_url: `https://www.servemax.pro/jobs/share-requests`,
+          },
+          companyId: job.company_id,
+        });
+        console.log(`Email notification sent to ${targetCompanyData.email}`);
+      } catch (emailError) {
+        console.error("Failed to send share request email:", emailError);
+        // Don't fail the share request if email fails
+      }
+    }
 
     return {requestId: requestRef.id, success: true};
   } catch (error) {
@@ -2619,12 +2787,32 @@ exports.respondToShareRequest = onCall(async (request) => {
 
       console.log(`Job ${shareRequest.job_id} share chain updated`);
 
-      // Email notification placeholder
-      console.log("EMAIL PLACEHOLDER: Job Share Accepted", {
-        to: shareRequest.requesting_company_name,
-        from: shareRequest.target_company_name,
-        jobId: shareRequest.job_id,
-      });
+      // Send acceptance email notification to requesting company
+      try {
+        const requestingCompanyDoc = await admin.firestore()
+            .collection("companies")
+            .doc(shareRequest.requesting_company_id)
+            .get();
+
+        if (requestingCompanyDoc.exists && requestingCompanyDoc.data().email) {
+          await sendEmailWithTemplate({
+            to: requestingCompanyDoc.data().email,
+            subject: `Job Share Accepted by ${shareRequest.target_company_name}`,
+            templateName: "job-share-response",
+            templateData: {
+              accepted: true,
+              responding_company_name: shareRequest.target_company_name,
+              final_fee: finalFee,
+              job_preview: shareRequest.job_preview,
+              job_url: `https://www.servemax.pro/jobs/${shareRequest.job_id}`,
+            },
+            companyId: shareRequest.target_company_id,
+          });
+          console.log(`Acceptance email sent to ${requestingCompanyDoc.data().email}`);
+        }
+      } catch (emailError) {
+        console.error("Failed to send acceptance email:", emailError);
+      }
     } else {
       // Decline the request
       console.log(`Declining share request ${requestId}`);
@@ -2634,12 +2822,31 @@ exports.respondToShareRequest = onCall(async (request) => {
         responded_at: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // Email notification placeholder
-      console.log("EMAIL PLACEHOLDER: Job Share Declined", {
-        to: shareRequest.requesting_company_name,
-        from: shareRequest.target_company_name,
-        jobId: shareRequest.job_id,
-      });
+      // Send decline email notification to requesting company
+      try {
+        const requestingCompanyDoc = await admin.firestore()
+            .collection("companies")
+            .doc(shareRequest.requesting_company_id)
+            .get();
+
+        if (requestingCompanyDoc.exists && requestingCompanyDoc.data().email) {
+          await sendEmailWithTemplate({
+            to: requestingCompanyDoc.data().email,
+            subject: `Job Share Declined by ${shareRequest.target_company_name}`,
+            templateName: "job-share-response",
+            templateData: {
+              accepted: false,
+              responding_company_name: shareRequest.target_company_name,
+              job_preview: shareRequest.job_preview,
+              job_url: `https://www.servemax.pro/jobs/${shareRequest.job_id}`,
+            },
+            companyId: shareRequest.target_company_id,
+          });
+          console.log(`Decline email sent to ${requestingCompanyDoc.data().email}`);
+        }
+      } catch (emailError) {
+        console.error("Failed to send decline email:", emailError);
+      }
     }
 
     return {success: true};
@@ -2768,7 +2975,25 @@ exports.createPartnershipRequest = onCall(async (request) => {
 
     console.log(`Partnership request created: ${docRef.id}`);
 
-    // TODO: Send email notification to target company
+    // Send email notification to target company
+    if (targetCompany.email) {
+      try {
+        await sendEmailWithTemplate({
+          to: targetCompany.email,
+          subject: `Partnership Request from ${requestingCompany.name || "A Process Server"}`,
+          templateName: "partnership-request",
+          templateData: {
+            requesting_company_name: requestingCompany.name || "Unknown Company",
+            message: message || "",
+            respond_url: "https://www.servemax.pro/partners/requests",
+          },
+          companyId: requestingCompanyId,
+        });
+        console.log(`Partnership request email sent to ${targetCompany.email}`);
+      } catch (emailError) {
+        console.error("Failed to send partnership request email:", emailError);
+      }
+    }
 
     return {
       success: true,
@@ -3103,7 +3328,46 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
       await batch.commit();
     }
 
-    // TODO: Send notification email
+    // Send notification email to requesting company
+    try {
+      let requestingCompanyEmail;
+      let targetCompanyName;
+
+      if (accept) {
+        // requestingCompany and targetCompany already fetched above
+        requestingCompanyEmail = requestingCompany.email;
+        targetCompanyName = targetCompany.name || partnershipReq.target_company_name;
+      } else {
+        // Fetch requesting company email for decline notification
+        const reqCompanyDoc = await admin.firestore()
+            .collection("companies")
+            .doc(partnershipReq.requesting_company_id)
+            .get();
+        if (reqCompanyDoc.exists) {
+          requestingCompanyEmail = reqCompanyDoc.data().email;
+        }
+        targetCompanyName = partnershipReq.target_company_name;
+      }
+
+      if (requestingCompanyEmail) {
+        await sendEmailWithTemplate({
+          to: requestingCompanyEmail,
+          subject: accept ?
+            `Partnership Accepted by ${targetCompanyName}` :
+            `Partnership Request Update from ${targetCompanyName}`,
+          templateName: "partnership-response",
+          templateData: {
+            accepted: accept,
+            target_company_name: targetCompanyName,
+            partners_url: "https://www.servemax.pro/partners",
+          },
+          companyId: partnershipReq.target_company_id,
+        });
+        console.log(`Partnership response email sent to ${requestingCompanyEmail}`);
+      }
+    } catch (emailError) {
+      console.error("Failed to send partnership response email:", emailError);
+    }
 
     return {
       success: true,
@@ -4061,6 +4325,26 @@ exports.inviteClientUser = onCall(async (request) => {
 
     console.log(`[inviteClientUser] ✅ Successfully invited ${email}`);
 
+    // Send invitation email
+    try {
+      await sendEmailWithTemplate({
+        to: email,
+        subject: `You've Been Invited to ${companyData.name}'s Client Portal`,
+        templateName: "client-portal-invitation",
+        templateData: {
+          client_name: name,
+          company_name: companyData.name || companyData.company_name || "ServeMax",
+          invite_url: portalInviteUrl,
+          is_new_user: isNewUser,
+        },
+        companyId: parent_company_id,
+      });
+      console.log(`[inviteClientUser] Invitation email sent to ${email}`);
+    } catch (emailError) {
+      console.error("[inviteClientUser] Failed to send invitation email:", emailError);
+      // Don't fail the invitation if email fails - the user can still use the link
+    }
+
     return {
       success: true,
       client_user_id: clientUserRef.id,
@@ -4257,3 +4541,254 @@ exports.getClientPortalData = onCall(async (request) => {
     throw new HttpsError("internal", `Failed to get portal data: ${error.message}`);
   }
 });
+
+// ============================================================================
+// Email Service
+// ============================================================================
+
+/**
+ * Send email using SendGrid with template support
+ * Callable from client-side via FirebaseFunctions.sendEmail()
+ */
+exports.sendEmail = onCall(
+    {secrets: [sendgridApiKey]},
+    async (request) => {
+      try {
+        const {to, subject, templateName, templateData, body, companyId, from, replyTo} = request.data;
+
+        // Validate required fields
+        if (!to) {
+          throw new HttpsError("invalid-argument", "Recipient email (to) is required");
+        }
+        if (!subject) {
+          throw new HttpsError("invalid-argument", "Email subject is required");
+        }
+        if (!templateName && !body) {
+          throw new HttpsError("invalid-argument", "Either templateName or body is required");
+        }
+
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(to)) {
+          throw new HttpsError("invalid-argument", "Invalid email address format");
+        }
+
+        console.log(`[sendEmail] Sending "${subject}" to ${to}`);
+
+        // Fetch company data for branding
+        let companyData = {};
+        const effectiveCompanyId = companyId || request.auth?.token?.company_id;
+
+        if (effectiveCompanyId) {
+          const companyDoc = await admin.firestore().collection("companies").doc(effectiveCompanyId).get();
+          if (companyDoc.exists) {
+            companyData = companyDoc.data();
+          }
+        }
+
+        // Configure SendGrid
+        sgMail.setApiKey(sendgridApiKey.value());
+
+        // Build the email HTML
+        let html;
+        if (templateName) {
+          // Use template
+          html = renderEmail(templateName, {...templateData, emailSubject: subject}, companyData);
+        } else {
+          // Use raw body with base layout
+          const baseLayout = loadEmailTemplate("base-layout");
+          html = baseLayout({
+            content: body,
+            emailSubject: subject,
+            company_name: companyData.name || companyData.company_name || "ServeMax",
+            company_address: formatCompanyAddressForEmail(companyData),
+            company_phone: companyData.phone || "",
+            company_email: companyData.email || "",
+            company_website: companyData.website || "",
+            branding: {
+              logo_url: companyData.branding?.logo_url || null,
+              primary_color: companyData.branding?.primary_color || "#1e40af",
+              accent_color: companyData.branding?.accent_color || "#3b82f6",
+              email_tagline: companyData.branding?.email_tagline || "",
+              google_review_url: companyData.branding?.google_review_url || "",
+            },
+          });
+        }
+
+        // Build from address
+        const fromEmail = from || companyData.email || "noreply@servemax.pro";
+        const msg = {
+          to: to,
+          from: {
+            email: fromEmail,
+            name: companyData.name || companyData.company_name || "ServeMax",
+          },
+          replyTo: replyTo || (companyData.email && companyData.email !== fromEmail ? companyData.email : undefined),
+          subject: subject,
+          html: html,
+        };
+
+        // Send the email
+        const response = await sgMail.send(msg);
+
+        console.log(`[sendEmail] Successfully sent to ${to}`);
+        await trackPlatformUsage("emails_sent");
+
+        return {
+          success: true,
+          messageId: response[0]?.headers?.["x-message-id"],
+          message: "Email sent successfully",
+        };
+      } catch (error) {
+        console.error("[sendEmail] Error:", error);
+
+        if (error instanceof HttpsError) {
+          throw error;
+        }
+        throw new HttpsError("internal", `Failed to send email: ${error.message}`);
+      }
+    },
+);
+
+/**
+ * Send job attempt notification email to client
+ * Includes attempt details, GPS coordinates, photos, and company branding
+ */
+exports.sendAttemptNotification = onCall(
+    {secrets: [sendgridApiKey]},
+    async (request) => {
+      try {
+        const {attemptId, jobId, companyId} = request.data;
+
+        // Validate required fields
+        if (!attemptId) {
+          throw new HttpsError("invalid-argument", "attemptId is required");
+        }
+        if (!jobId) {
+          throw new HttpsError("invalid-argument", "jobId is required");
+        }
+        if (!companyId) {
+          throw new HttpsError("invalid-argument", "companyId is required");
+        }
+
+        console.log(`[sendAttemptNotification] Sending notification for attempt ${attemptId}`);
+
+        // Fetch attempt data
+        const attemptDoc = await admin.firestore().collection("attempts").doc(attemptId).get();
+        if (!attemptDoc.exists) {
+          throw new HttpsError("not-found", "Attempt not found");
+        }
+        const attempt = attemptDoc.data();
+
+        // Fetch job data
+        const jobDoc = await admin.firestore().collection("jobs").doc(jobId).get();
+        if (!jobDoc.exists) {
+          throw new HttpsError("not-found", "Job not found");
+        }
+        const job = jobDoc.data();
+
+        // Fetch company data
+        const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+        if (!companyDoc.exists) {
+          throw new HttpsError("not-found", "Company not found");
+        }
+        const companyData = companyDoc.data();
+
+        // Fetch client data
+        let clientEmail = null;
+        let clientName = "Client";
+        if (job.client_id) {
+          const clientDoc = await admin.firestore().collection("clients").doc(job.client_id).get();
+          if (clientDoc.exists) {
+            const clientData = clientDoc.data();
+            clientEmail = clientData.contact_email || clientData.email;
+            clientName = clientData.name || clientData.company_name || "Client";
+          }
+        }
+
+        if (!clientEmail) {
+          throw new HttpsError("failed-precondition", "No client email found for this job");
+        }
+
+        // Fetch photos linked to this attempt
+        const photosSnapshot = await admin.firestore()
+            .collection("documents")
+            .where("attempt_id", "==", attemptId)
+            .where("document_category", "==", "photo")
+            .get();
+
+        const photos = photosSnapshot.docs.map((doc) => ({
+          url: doc.data().file_url,
+          title: doc.data().title || "Photo",
+        }));
+
+        // Get recipient name from job
+        const recipientName = job.recipients && job.recipients.length > 0
+          ? job.recipients[0].name
+          : "Recipient";
+
+        // Get server name
+        let serverName = null;
+        if (attempt.server_id) {
+          const serverDoc = await admin.firestore().collection("users").doc(attempt.server_id).get();
+          if (serverDoc.exists) {
+            const serverData = serverDoc.data();
+            serverName = serverData.full_name || `${serverData.first_name || ""} ${serverData.last_name || ""}`.trim();
+          }
+        } else if (attempt.server_name_manual) {
+          serverName = attempt.server_name_manual;
+        }
+
+        // Build job view URL
+        const jobViewUrl = `https://servemax.pro/jobs/${jobId}`;
+
+        // Build template data
+        const templateData = {
+          client_name: clientName,
+          case_caption: job.case_caption || null,
+          case_number: job.case_number || null,
+          recipient_name: recipientName,
+          attempt_date: attempt.attempt_date,
+          attempt_time: attempt.attempt_time || "",
+          status: attempt.status,
+          success: attempt.success || attempt.status === "served",
+          address_of_attempt: attempt.address_of_attempt || "",
+          gps_lat: attempt.gps_lat || null,
+          gps_lon: attempt.gps_lon || null,
+          gps_accuracy: attempt.gps_accuracy || null,
+          person_served_name: attempt.person_served_name || null,
+          person_served_description: attempt.person_served_description || null,
+          service_type_detail: attempt.service_type_detail || null,
+          relationship_to_recipient: attempt.relationship_to_recipient || null,
+          notes: attempt.notes || null,
+          photos: photos,
+          server_name: serverName,
+          job_view_url: jobViewUrl,
+        };
+
+        // Send the email
+        await sendEmailWithTemplate({
+          to: clientEmail,
+          subject: `Service Attempt Update - ${recipientName}`,
+          templateName: "job-attempt",
+          templateData: templateData,
+          companyId: companyId,
+        });
+
+        console.log(`[sendAttemptNotification] Successfully sent to ${clientEmail}`);
+
+        return {
+          success: true,
+          message: `Attempt notification sent to ${clientEmail}`,
+          recipient: clientEmail,
+        };
+      } catch (error) {
+        console.error("[sendAttemptNotification] Error:", error);
+
+        if (error instanceof HttpsError) {
+          throw error;
+        }
+        throw new HttpsError("internal", `Failed to send attempt notification: ${error.message}`);
+      }
+    },
+);

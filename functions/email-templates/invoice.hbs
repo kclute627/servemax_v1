@@ -1,0 +1,22 @@
+<h2>Invoice #{{invoice_number}}</h2>
+
+<p>Hello {{client_name}},</p>
+
+<p>A new invoice has been generated for your account.</p>
+
+<div class="info-box">
+  <p><strong>Invoice Number:</strong> {{invoice_number}}</p>
+  <p><strong>Amount Due:</strong> {{formatCurrency total_amount}}</p>
+  <p><strong>Due Date:</strong> {{formatDate due_date 'MMMM d, yyyy'}}</p>
+  {{#if job_reference}}<p><strong>Reference:</strong> {{job_reference}}</p>{{/if}}
+</div>
+
+<p style="text-align: center;">
+  <a href="{{invoice_view_url}}" class="button">View Invoice</a>
+</p>
+
+<p>Thank you for your business!</p>
+
+<p style="font-size: 13px; color: #64748b;">
+  If you have any questions about this invoice, please don't hesitate to contact us.
+</p>

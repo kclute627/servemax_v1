@@ -1,0 +1,85 @@
+<h2>Service Attempt Update</h2>
+
+<p>Hello {{client_name}},</p>
+
+<p>A service attempt has been made for your job. Here are the details:</p>
+
+<div class="info-box">
+  {{#if case_caption}}<p><strong>Case:</strong> {{case_caption}}</p>{{/if}}
+  {{#if case_number}}<p><strong>Case Number:</strong> {{case_number}}</p>{{/if}}
+  <p><strong>Recipient:</strong> {{recipient_name}}</p>
+</div>
+
+<h3 style="color: #1e293b; font-size: 16px; margin: 24px 0 12px 0;">Attempt Details</h3>
+<div class="info-box">
+  <p><strong>Date:</strong> {{formatDate attempt_date 'MMMM d, yyyy'}}</p>
+  <p><strong>Time:</strong> {{attempt_time}}</p>
+  <p><strong>Status:</strong>
+    {{#eq status 'served'}}
+      <span style="background-color: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">SERVED</span>
+    {{/eq}}
+    {{#eq status 'not_served'}}
+      <span style="background-color: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">NOT SERVED</span>
+    {{/eq}}
+    {{#eq status 'contact_made'}}
+      <span style="background-color: #fef9c3; color: #854d0e; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">CONTACT MADE</span>
+    {{/eq}}
+    {{#eq status 'vacant'}}
+      <span style="background-color: #f1f5f9; color: #475569; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">VACANT</span>
+    {{/eq}}
+    {{#eq status 'bad_address'}}
+      <span style="background-color: #ffedd5; color: #c2410c; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">BAD ADDRESS</span>
+    {{/eq}}
+  </p>
+  <p><strong>Address:</strong> {{address_of_attempt}}</p>
+  {{#if gps_lat}}
+  <p><strong>GPS Location:</strong> {{formatGPS gps_lat gps_lon gps_accuracy}}</p>
+  {{/if}}
+</div>
+
+{{#if success}}
+<h3 style="color: #1e293b; font-size: 16px; margin: 24px 0 12px 0;">Service Details</h3>
+<div class="info-box">
+  <p><strong>Person Served:</strong> {{person_served_name}}</p>
+  {{#if person_served_description}}<p><strong>Description:</strong> {{person_served_description}}</p>{{/if}}
+  {{#if service_type_detail}}<p><strong>Service Type:</strong> {{service_type_detail}}</p>{{/if}}
+  {{#if relationship_to_recipient}}<p><strong>Relationship:</strong> {{relationship_to_recipient}}</p>{{/if}}
+</div>
+{{/if}}
+
+{{#if notes}}
+<h3 style="color: #1e293b; font-size: 16px; margin: 24px 0 12px 0;">Notes</h3>
+<div class="info-box">
+  <p style="white-space: pre-wrap;">{{notes}}</p>
+</div>
+{{/if}}
+
+{{#if photos.length}}
+<h3 style="color: #1e293b; font-size: 16px; margin: 24px 0 12px 0;">Photos</h3>
+<table cellpadding="0" cellspacing="0" border="0" style="margin: 16px 0;">
+  <tr>
+    {{#each photos}}
+    <td style="padding: 4px;">
+      <a href="{{this.url}}" target="_blank" style="display: inline-block; text-decoration: none;">
+        <img src="{{this.url}}" alt="Attempt photo {{@index}}" style="width: 120px; height: 120px; object-fit: cover; border-radius: 4px; border: 1px solid #e2e8f0;" />
+      </a>
+    </td>
+    {{/each}}
+  </tr>
+</table>
+<p style="font-size: 12px; color: #64748b;">Click photos to view full size</p>
+{{/if}}
+
+{{#if server_name}}
+<p style="font-size: 13px; color: #64748b; margin-top: 24px;">
+  <strong>Process Server:</strong> {{server_name}}
+</p>
+{{/if}}
+
+<p style="text-align: center; margin-top: 24px;">
+  <a href="{{job_view_url}}" class="button">View Full Job Details</a>
+</p>
+
+<p style="font-size: 13px; color: #64748b; text-align: center;">
+  If you have any questions about this attempt, please don't hesitate to contact us.
+</p>

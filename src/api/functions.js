@@ -24,3 +24,5 @@ export const extractDocumentClaudeHaiku = FirebaseFunctions.extractDocumentClaud
 export const findCourtAddressWithAI = FirebaseFunctions.findCourtAddressWithAI;
 
 export const signExternalPDF = FirebaseFunctions.signExternalPDF;
+
+export const sendAttemptNotification = FirebaseFunctions.sendAttemptNotification;

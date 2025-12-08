@@ -1,0 +1,27 @@
+<h2>You've Been Invited</h2>
+
+<p>Hello {{client_name}},</p>
+
+<p>You have been invited to access the <strong>{{company_name}}</strong> client portal.</p>
+
+<p>The client portal allows you to:</p>
+<ul>
+  <li>View job status and updates in real-time</li>
+  <li>Access completed affidavits and documents</li>
+  <li>Review and pay invoices</li>
+  <li>Submit new service requests</li>
+</ul>
+
+<p style="text-align: center;">
+  <a href="{{invite_url}}" class="button">Accept Invitation</a>
+</p>
+
+{{#if is_new_user}}
+<p style="font-size: 13px; color: #64748b; text-align: center;">
+  You'll be prompted to set your password when you first sign in.
+</p>
+{{/if}}
+
+<p style="font-size: 13px; color: #64748b;">
+  If you didn't expect this invitation, you can safely ignore this email.
+</p>

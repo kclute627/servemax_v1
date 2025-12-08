@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign, Users, Star } from "lucide-react";
+import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign, Users, Star, Mail } from "lucide-react";
 import { User } from "@/api/entities";
 import { isSuperAdmin } from "@/utils/permissions";
 import CompanySettingsPanel from "../components/settings/CompanySettingsPanel";
@@ -12,6 +12,7 @@ import InvoiceSettingsPanel from "../components/settings/InvoiceSettingsPanel";
 import AgentsSettingsPanel from "../components/settings/AgentsSettingsPanel";
 import PricingConfigPanel from "../components/settings/PricingConfigPanel";
 import ServerRatingSettingsPanel from "../components/settings/ServerRatingSettingsPanel";
+import EmailTemplatesPanel from "../components/settings/EmailTemplatesPanel";
 import { PartnerManagement, PartnershipDirectory, PartnershipRequests } from "@/components/JobSharing";
 
 export default function SettingsPage() {
@@ -90,7 +91,10 @@ export default function SettingsPage() {
                   </>
                 )}
                 {isSuperAdminUser && (
-                  <TabButton tabName="pricing" label="Pricing" icon={DollarSign} />
+                  <>
+                    <TabButton tabName="pricing" label="Pricing" icon={DollarSign} />
+                    <TabButton tabName="email-templates" label="Email Templates" icon={Mail} />
+                  </>
                 )}
               </div>
           </div>
@@ -129,6 +133,7 @@ export default function SettingsPage() {
             {activeTab === 'agents' && isAdmin && !isSuperAdminUser && <AgentsSettingsPanel />}
             {activeTab === 'billing' && isAdmin && !isSuperAdminUser && <BillingPanel />}
             {activeTab === 'pricing' && isSuperAdminUser && <PricingConfigPanel />}
+            {activeTab === 'email-templates' && isSuperAdminUser && <EmailTemplatesPanel />}
           </div>
         </div>
       </div>

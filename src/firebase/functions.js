@@ -301,4 +301,16 @@ export class FirebaseFunctions {
       throw error;
     }
   }
+
+  // Send attempt notification email to client
+  static async sendAttemptNotification(attemptId, jobId, companyId) {
+    try {
+      const sendAttemptNotification = httpsCallable(functions, 'sendAttemptNotification');
+      const result = await sendAttemptNotification({ attemptId, jobId, companyId });
+      return result.data;
+    } catch (error) {
+      console.error('Send attempt notification error:', error);
+      throw error;
+    }
+  }
 }

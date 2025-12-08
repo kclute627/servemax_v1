@@ -1,0 +1,27 @@
+<h2>New Job Assignment</h2>
+
+<p>Hello {{server_name}},</p>
+
+<p>You have been assigned a new job.</p>
+
+<div class="info-box">
+  <p><strong>Address:</strong> {{service_address}}{{#if city}}, {{city}}{{/if}}{{#if state}}, {{state}}{{/if}}</p>
+  <p><strong>Recipient:</strong> {{recipient_name}}</p>
+  {{#if due_date}}<p><strong>Due Date:</strong> {{formatDate due_date 'MMMM d, yyyy'}}</p>{{/if}}
+  {{#if documents_count}}<p><strong>Documents:</strong> {{documents_count}} document(s)</p>{{/if}}
+</div>
+
+{{#if special_instructions}}
+<div class="info-box" style="border-left-color: #f59e0b;">
+  <p><strong>Special Instructions:</strong></p>
+  <p>{{special_instructions}}</p>
+</div>
+{{/if}}
+
+<p style="text-align: center;">
+  <a href="{{job_url}}" class="button">View Job Details</a>
+</p>
+
+<p style="font-size: 13px; color: #64748b;">
+  Please review the job details and begin service as soon as possible.
+</p>
