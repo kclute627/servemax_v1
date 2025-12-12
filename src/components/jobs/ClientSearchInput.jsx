@@ -166,7 +166,7 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
                     </div>
                   ))}
                 </div>
-                <div className="border-t border-slate-200 pt-2 mt-2">
+                {/* <div className="border-t border-slate-200 pt-2 mt-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -177,12 +177,12 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
                     <Plus className="w-4 h-4" />
                     Add New Client
                   </Button>
-                </div>
+                </div> */}
               </>
             ) : (
               <div className="p-3 text-center">
                 <p className="text-slate-500 text-sm mb-3">No clients found matching "{value}"</p>
-                <Button
+                {/* <Button
                   type="button"
                   variant="outline"
                   size="sm"
@@ -191,7 +191,7 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
                 >
                   <Plus className="w-4 h-4" />
                   Add New Client
-                </Button>
+                </Button> */}
               </div>
             )}
           </CardContent>

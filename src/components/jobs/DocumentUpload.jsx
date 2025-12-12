@@ -908,7 +908,7 @@ export default function DocumentUpload({ documents, onDocumentsChange, onExtract
                                   {index === 0 && doc.content_type === 'application/pdf' && doc.file_url && (
                                     <>
                                       {/* Document AI Button */}
-                                      <Button
+                                      {/* <Button
                                         type="button"
                                         size="sm"
                                         variant="outline"
@@ -929,10 +929,10 @@ export default function DocumentUpload({ documents, onDocumentsChange, onExtract
                                         <span className="text-xs">
                                           {isExtracting ? 'Extracting...' : 'Doc AI'}
                                         </span>
-                                      </Button>
+                                      </Button> */}
 
                                       {/* Claude Vision (Sonnet) Button */}
-                                      <Button
+                                      {/* <Button
                                         type="button"
                                         size="sm"
                                         variant="outline"
@@ -953,7 +953,7 @@ export default function DocumentUpload({ documents, onDocumentsChange, onExtract
                                         <span className="text-xs">
                                           {isExtractingClaude ? 'Extracting...' : 'Sonnet'}
                                         </span>
-                                      </Button>
+                                      </Button> */}
 
                                       {/* Claude Haiku Button */}
                                       <Button
@@ -975,7 +975,7 @@ export default function DocumentUpload({ documents, onDocumentsChange, onExtract
                                           <Sparkles className="w-3 h-3" />
                                         )}
                                         <span className="text-xs">
-                                          {isExtractingHaiku ? 'Extracting...' : 'Haiku'}
+                                          {isExtractingHaiku ? 'Extracting...' : 'Extract Data'}
                                         </span>
                                       </Button>
                                     </>

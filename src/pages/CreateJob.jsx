@@ -27,6 +27,7 @@ import {
   SelectItem, // Retained as per outline
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'; // ✅ YEH ADD KARO
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/use-toast";
 import {
@@ -119,6 +120,7 @@ export default function CreateJobPage() {
   const [isAddressLoading, setIsAddressLoading] = useState(false);
   const [isCourtAddressLoading, setIsCourtAddressLoading] = useState(false);
   const [showNewClientForm, setShowNewClientForm] = useState(false);
+  const [showNewClientDialog, setShowNewClientDialog] = useState(false);
   const [showNewContactDialog, setShowNewContactDialog] = useState(false);
   const [showCourtDetails, setShowCourtDetails] = useState(false);
   const [showCourtEditWarning, setShowCourtEditWarning] = useState(false);
@@ -334,7 +336,7 @@ export default function CreateJobPage() {
   const handleCaseSelect = async (courtCase) => {
     setSelectedCase(courtCase);
     setIsEditingCase(false); // Lock fields on select
-    
+
     // Populate case information fields
     setFormData(prev => ({
       ...prev,
@@ -355,7 +357,7 @@ export default function CreateJobPage() {
         address: courtCase.court_address ? JSON.parse(courtCase.court_address) : {}
       };
       setSelectedCourtFromAutocomplete(courtObj);
-      
+
       if (courtObj.address?.address1) {
         setShowCourtDetails(true);
       }
@@ -365,7 +367,7 @@ export default function CreateJobPage() {
     try {
       const jobs = await Job.filter({ court_case_id: courtCase.id });
       setAssociatedJobsCount(jobs.length); // Don't subtract 1 - show actual count of existing jobs
-    } catch(err) {
+    } catch (err) {
       console.error("Error fetching associated jobs count:", err);
       setAssociatedJobsCount(0);
     }
@@ -399,10 +401,10 @@ export default function CreateJobPage() {
 
   const handleClearCourtSelection = () => {
     setFormData(prev => ({
-        ...prev,
-        court_name: '',
-        court_county: '',
-        court_address: {}
+      ...prev,
+      court_name: '',
+      court_county: '',
+      court_address: {}
     }));
     setSelectedCourtFromAutocomplete(null);
     setIsEditingExistingCourt(false);
@@ -594,11 +596,11 @@ export default function CreateJobPage() {
   const handleContractorSelected = (contractor) => {
     setSelectedContractor(contractor);
     if (contractor) {
-        setContractorSearchText(contractor.company_name);
-        handleInputChange('assigned_server_id', contractor.id);
+      setContractorSearchText(contractor.company_name);
+      handleInputChange('assigned_server_id', contractor.id);
     } else {
-        setContractorSearchText("");
-        handleInputChange('assigned_server_id', 'unassigned');
+      setContractorSearchText("");
+      handleInputChange('assigned_server_id', 'unassigned');
     }
   };
 
@@ -1026,7 +1028,7 @@ export default function CreateJobPage() {
       let isCollaboratingContractor = false;
       if (formData.server_type === 'contractor' && selectedContractor) {
         isCollaboratingContractor = selectedContractor.company_type === 'process_server' &&
-                                   selectedContractor.job_sharing_opt_in === true;
+          selectedContractor.job_sharing_opt_in === true;
       }
 
       // ============================================================================
@@ -1456,573 +1458,595 @@ export default function CreateJobPage() {
       >
         <div className="p-6 md:p-8">
           <div className="max-w-screen mx-auto">
-          {/* Header */}
-          <div className="flex items-center gap-4 mb-8">
-            <Link to={createPageUrl("Jobs")}>
-              <Button variant="outline" size="icon">
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-3xl font-bold text-slate-900 mb-2">Create New Job</h1>
-              <p className="text-slate-600">Enter job details for process serving</p>
+            {/* Header */}
+            <div className="flex items-center gap-4 mb-8">
+              <Link to={createPageUrl("Jobs")}>
+                <Button variant="outline" size="icon">
+                  <ArrowLeft className="w-4 h-4" />
+                </Button>
+              </Link>
+              <div>
+                <h1 className="text-3xl font-bold text-slate-900 mb-2">Create New Job</h1>
+                <p className="text-slate-600">Enter job details for process serving</p>
+              </div>
             </div>
-          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Service Documents */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Service Documents</CardTitle>
-                  {uploadedDocuments.some(doc => doc.content_type === 'application/pdf' && doc.file_url) && (
-                    <Button
-                      type="button"
-                      variant={showPDFViewer ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setShowPDFViewer(!showPDFViewer)}
-                      className="gap-2 hidden lg:flex"
-                    >
-                      <FileText className="w-4 h-4" />
-                      {showPDFViewer ? 'Hide PDFs' : 'View PDFs'}
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <DocumentUpload
-                  documents={uploadedDocuments}
-                  onDocumentsChange={setUploadedDocuments}
-                  onExtractedData={handleExtractedData}
-                />
-              </CardContent>
-            </Card>
-
-            {/* Client Selection */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Building2 className="w-5 h-5" />
-                  Client Information
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-4">
-                  {!showNewClientForm && !selectedClient && (
-                    <div>
-                      <Label>Client</Label>
-                      <ClientSearchInput
-                        value={clientSearchText}
-                        onValueChange={setClientSearchText}
-                        onClientSelected={handleClientSelected}
-                        onShowNewClient={() => setShowNewClientForm(true)}
-                        selectedClient={selectedClient}
-                      />
-                    </div>
-                  )}
-
-                  {selectedClient && !showNewClientForm && (
-                    <SelectedClientBox
-                      client={selectedClient}
-                      contacts={clientContacts}
-                      selectedContactId={formData.contact_id}
-                      onContactChange={(contactId) => {
-                        const selectedContact = clientContacts.find(c => c.id === contactId);
-                        if (selectedContact) {
-                          setFormData(prev => ({
-                            ...prev,
-                            contact_id: selectedContact.id,
-                            contact_email: selectedContact.email
-                          }));
-                        }
-                      }}
-                      onRemoveClient={handleRemoveClient}
-                      onAddContact={() => setShowNewContactDialog(true)}
-                    />
-                  )}
-
-                  <div>
-                    <Label htmlFor="client_job_number">Client Reference Number</Label>
-                    <Input
-                      id="client_job_number"
-                      value={formData.client_job_number}
-                      onChange={(e) => handleInputChange('client_job_number', e.target.value)}
-                      placeholder="Client's internal job/ref #"
-                    />
-                  </div>
-                </div>
-
-                {showNewClientForm && (
-                  <NewClientQuickForm
-                    onClientCreated={handleNewClientCreated}
-                    onCancel={() => {
-                      setShowNewClientForm(false);
-                      setClientSearchText("");
-                    }}
-                    initialCompanyName={clientSearchText}
-                  />
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Case Information */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Case Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {selectedCase && !isEditingCase ? (
-                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h4 className="font-semibold text-slate-900">{selectedCase.case_number}</h4>
-                        <p className="text-sm text-slate-600">{selectedCase.case_name}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="gap-2"
-                          onClick={async () => {
-                            // Count jobs linked to this case
-                            try {
-                              const jobs = await Job.filter({ court_case_id: selectedCase.id });
-                              setAssociatedJobsCount(jobs.length);
-                            } catch (error) {
-                              console.error('Error counting linked jobs:', error);
-                              setAssociatedJobsCount(0);
-                            }
-                            setShowCaseEditWarning(true);
-                          }}
-                        >
-                          <Pencil className="w-4 h-4" />
-                          Edit Case
-                        </Button>
-                         <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-slate-500 hover:bg-slate-200"
-                          onClick={handleClearCaseSelection}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div>
-                      <Label htmlFor="case_number">Case Number</Label>
-                      <CaseNumberAutocomplete
-                        id="case_number"
-                        value={formData.case_number}
-                        onChange={(value) => handleInputChange('case_number', value)}
-                        onCaseSelect={isEditingCase ? undefined : handleCaseSelect}
-                        placeholder="Enter case number or search existing cases..."
-                        disabled={selectedCase && !isEditingCase}
-                      />
-                    </div>
-                  </>
-                )}
-
-                <div>
-                  <Label htmlFor="plaintiff">Plaintiff</Label>
-                  <Textarea
-                    id="plaintiff"
-                    value={formData.plaintiff}
-                    onChange={(e) => handleInputChange('plaintiff', e.target.value)}
-                    rows={2}
-                    placeholder="Enter plaintiff name(s)"
-                    className="resize-none"
-                    disabled={selectedCase && !isEditingCase}
-                  />
-                </div>
-
-                <div className="flex items-center justify-center py-2">
-                  <div className="text-lg font-semibold text-slate-600 bg-slate-100 px-4 py-1 rounded-full">
-                    vs
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="defendant">Defendant</Label>
-                  <Textarea
-                    id="defendant"
-                    value={formData.defendant}
-                    onChange={(e) => handleInputChange('defendant', e.target.value)}
-                    rows={2}
-                    placeholder="Enter defendant name(s)"
-                    className="resize-none"
-                    disabled={selectedCase && !isEditingCase}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Court Information */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                    <Landmark className="w-5 h-5" />
-                    Court Information
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {selectedCourtFromAutocomplete ? (
-                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h4 className="font-semibold text-slate-900">{selectedCourtFromAutocomplete.branch_name}</h4>
-                        <p className="text-sm text-slate-600">{selectedCourtFromAutocomplete.county}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="gap-2"
-                          onClick={() => setShowCourtEditWarning(true)}
-                          disabled={selectedCase && !isEditingCase}
-                        >
-                          <Pencil className="w-4 h-4" />
-                          Edit
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-slate-500 hover:bg-slate-200"
-                          onClick={handleClearCourtSelection}
-                          disabled={selectedCase && !isEditingCase}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    {selectedCourtFromAutocomplete.address?.address1 && (
-                      <div className="text-sm text-slate-600 space-y-1">
-                        <p>{selectedCourtFromAutocomplete.address.address1}</p>
-                        {selectedCourtFromAutocomplete.address.address2 && (
-                          <p>{selectedCourtFromAutocomplete.address.address2}</p>
-                        )}
-                        <p>
-                          {selectedCourtFromAutocomplete.address.city}, {selectedCourtFromAutocomplete.address.state} {selectedCourtFromAutocomplete.address.postal_code}
-                        </p>
-                      </div>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Service Documents */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Service Documents</CardTitle>
+                    {uploadedDocuments.some(doc => doc.content_type === 'application/pdf' && doc.file_url) && (
+                      <Button
+                        type="button"
+                        variant={showPDFViewer ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setShowPDFViewer(!showPDFViewer)}
+                        className="gap-2 hidden lg:flex"
+                      >
+                        <FileText className="w-4 h-4" />
+                        {showPDFViewer ? 'Hide PDFs' : 'View PDFs'}
+                      </Button>
                     )}
                   </div>
-                ) : (
-                  <>
-                    <div>
-                      <Label htmlFor="court_name">Court Name</Label>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-grow">
-                          <CourtAutocomplete
-                            id="court_name"
-                            value={formData.court_name}
-                            onChange={(value) => {
-                              handleInputChange('court_name', value);
-                              // Reset flag when user manually types
-                              setCourtFromExtraction(false);
-                            }}
-                            onCourtSelect={handleCourtSelect}
-                            selectedCourt={selectedCourtFromAutocomplete}
-                            onClearSelection={handleClearCourtSelection}
-                            placeholder="e.g., 12th Judicial Circuit Court"
-                            disabled={(selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew) || (selectedCase && !isEditingCase)}
-                            fromExtraction={courtFromExtraction}
-                          />
-                        </div>
-                        {isEditingExistingCourt && (
+                </CardHeader>
+                <CardContent>
+                  <DocumentUpload
+                    documents={uploadedDocuments}
+                    onDocumentsChange={setUploadedDocuments}
+                    onExtractedData={handleExtractedData}
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Client Selection */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Building2 className="w-5 h-5" />
+                    Client Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-4">
+                    {!showNewClientForm && !selectedClient && (
+                      <div>
+                        <Label>Client</Label>
+
+                        <div className="flex items-center gap-2 mb-2">
+
+                          <div className="w-[80%]"> {/* ✅ 80% width */}
+                            <ClientSearchInput
+                              value={clientSearchText}
+                              onValueChange={setClientSearchText}
+                              onClientSelected={handleClientSelected}
+                              onShowNewClient={() => setShowNewClientForm(true)}
+                              selectedClient={selectedClient}
+                            />
+                          </div>
                           <Button
                             type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-9 w-9 text-slate-500 hover:bg-slate-200 flex-shrink-0"
-                            onClick={handleClearCourtSelection}
-                            title="Cancel edit"
+                            variant="default" // ✅ Changed from "outline" to "default" (blue)
+                            size="sm"
+                            onClick={() => setShowNewClientDialog(true)}
+                            className="gap-2 w-[20%] flex-shrink-0 bg-blue-600 hover:bg-blue-700 text-white" // ✅ Blue background
                           >
-                            <X className="w-4 h-4" />
+                            <Plus className="w-4 h-4" />
+                            Add Client
                           </Button>
-                        )}
-                        {selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew && !isEditingExistingCourt && (
+
+                        </div>
+
+                      </div>
+                    )}
+
+                    {selectedClient && !showNewClientForm && (
+                      <SelectedClientBox
+                        client={selectedClient}
+                        contacts={clientContacts}
+                        selectedContactId={formData.contact_id}
+                        onContactChange={(contactId) => {
+                          const selectedContact = clientContacts.find(c => c.id === contactId);
+                          if (selectedContact) {
+                            setFormData(prev => ({
+                              ...prev,
+                              contact_id: selectedContact.id,
+                              contact_email: selectedContact.email
+                            }));
+                          }
+                        }}
+                        onRemoveClient={handleRemoveClient}
+                        onAddContact={() => setShowNewContactDialog(true)}
+                      />
+                    )}
+
+                    <div>
+                      <Label htmlFor="client_job_number">Client Reference Number</Label>
+                      <Input
+                        id="client_job_number"
+                        value={formData.client_job_number}
+                        onChange={(e) => handleInputChange('client_job_number', e.target.value)}
+                        placeholder="Client's internal job/ref #"
+                      />
+                    </div>
+                  </div>
+
+                  <Dialog open={showNewClientDialog} onOpenChange={setShowNewClientDialog} >
+                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto  [&>button]:hidden p-0">
+
+                      <NewClientQuickForm
+                        onClientCreated={(newClient) => {
+                          handleNewClientCreated(newClient);
+                          setShowNewClientDialog(false); // ✅ Close modal
+                        }}
+                        onCancel={() => {
+                          setShowNewClientDialog(false); // ✅ Close modal
+                          setClientSearchText("");
+                        }}
+                        initialCompanyName={clientSearchText}
+                      />
+                    </DialogContent>
+                  </Dialog>
+                </CardContent>
+              </Card>
+
+              {/* Case Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Case Information</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {selectedCase && !isEditingCase ? (
+                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h4 className="font-semibold text-slate-900">{selectedCase.case_number}</h4>
+                          <p className="text-sm text-slate-600">{selectedCase.case_name}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="gap-2 flex-shrink-0"
+                            className="gap-2"
                             onClick={async () => {
-                              // Count cases linked to this court
+                              // Count jobs linked to this case
                               try {
-                                const cases = await CourtCase.filter({ court_id: selectedCourtFromAutocomplete.id });
-                                setAssociatedJobsCount(cases.length);
-                                setShowCourtEditWarning(true);
+                                const jobs = await Job.filter({ court_case_id: selectedCase.id });
+                                setAssociatedJobsCount(jobs.length);
                               } catch (error) {
-                                console.error('Error counting linked cases:', error);
-                                // Proceed with edit even if count fails
+                                console.error('Error counting linked jobs:', error);
                                 setAssociatedJobsCount(0);
-                                setShowCourtEditWarning(true);
                               }
+                              setShowCaseEditWarning(true);
                             }}
                           >
                             <Pencil className="w-4 h-4" />
-                            Edit Court
+                            Edit Case
                           </Button>
-                        )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-500 hover:bg-slate-200"
+                            onClick={handleClearCaseSelection}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
+                  ) : (
+                    <>
+                      <div>
+                        <Label htmlFor="case_number">Case Number</Label>
+                        <CaseNumberAutocomplete
+                          id="case_number"
+                          value={formData.case_number}
+                          onChange={(value) => handleInputChange('case_number', value)}
+                          onCaseSelect={isEditingCase ? undefined : handleCaseSelect}
+                          placeholder="Enter case number or search existing cases..."
+                          disabled={selectedCase && !isEditingCase}
+                        />
+                      </div>
+                    </>
+                  )}
 
-                    {formData.court_name && (
-                      <div className="flex justify-start">
+                  <div>
+                    <Label htmlFor="plaintiff">Plaintiff</Label>
+                    <Textarea
+                      id="plaintiff"
+                      value={formData.plaintiff}
+                      onChange={(e) => handleInputChange('plaintiff', e.target.value)}
+                      rows={2}
+                      placeholder="Enter plaintiff name(s)"
+                      className="resize-none"
+                      disabled={selectedCase && !isEditingCase}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-center py-2">
+                    <div className="text-lg font-semibold text-slate-600 bg-slate-100 px-4 py-1 rounded-full">
+                      vs
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="defendant">Defendant</Label>
+                    <Textarea
+                      id="defendant"
+                      value={formData.defendant}
+                      onChange={(e) => handleInputChange('defendant', e.target.value)}
+                      rows={2}
+                      placeholder="Enter defendant name(s)"
+                      className="resize-none"
+                      disabled={selectedCase && !isEditingCase}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Court Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Landmark className="w-5 h-5" />
+                    Court Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {selectedCourtFromAutocomplete ? (
+                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h4 className="font-semibold text-slate-900">{selectedCourtFromAutocomplete.branch_name}</h4>
+                          <p className="text-sm text-slate-600">{selectedCourtFromAutocomplete.county}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
                           <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            onClick={() => setShowCourtEditWarning(true)}
+                            disabled={selectedCase && !isEditingCase}
+                          >
+                            <Pencil className="w-4 h-4" />
+                            Edit
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-500 hover:bg-slate-200"
+                            onClick={handleClearCourtSelection}
+                            disabled={selectedCase && !isEditingCase}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      {selectedCourtFromAutocomplete.address?.address1 && (
+                        <div className="text-sm text-slate-600 space-y-1">
+                          <p>{selectedCourtFromAutocomplete.address.address1}</p>
+                          {selectedCourtFromAutocomplete.address.address2 && (
+                            <p>{selectedCourtFromAutocomplete.address.address2}</p>
+                          )}
+                          <p>
+                            {selectedCourtFromAutocomplete.address.city}, {selectedCourtFromAutocomplete.address.state} {selectedCourtFromAutocomplete.address.postal_code}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <Label htmlFor="court_name">Court Name</Label>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-grow">
+                            <CourtAutocomplete
+                              id="court_name"
+                              value={formData.court_name}
+                              onChange={(value) => {
+                                handleInputChange('court_name', value);
+                                // Reset flag when user manually types
+                                setCourtFromExtraction(false);
+                              }}
+                              onCourtSelect={handleCourtSelect}
+                              selectedCourt={selectedCourtFromAutocomplete}
+                              onClearSelection={handleClearCourtSelection}
+                              placeholder="e.g., 12th Judicial Circuit Court"
+                              disabled={(selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew) || (selectedCase && !isEditingCase)}
+                              fromExtraction={courtFromExtraction}
+                            />
+                          </div>
+                          {isEditingExistingCourt && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-9 w-9 text-slate-500 hover:bg-slate-200 flex-shrink-0"
+                              onClick={handleClearCourtSelection}
+                              title="Cancel edit"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew && !isEditingExistingCourt && (
+                            <Button
                               type="button"
                               variant="outline"
                               size="sm"
-                              className="gap-2 border-dashed border-slate-300 hover:border-slate-400 text-slate-600 hover:text-slate-700"
-                              onClick={() => setShowCourtDetails(!showCourtDetails)}
-                              disabled={selectedCase && !isEditingCase}
-                          >
-                              <Plus className="w-4 h-4" />
-                              {showCourtDetails ? 'Hide Additional Court Information' : 'Add Additional Court Information'}
-                          </Button>
+                              className="gap-2 flex-shrink-0"
+                              onClick={async () => {
+                                // Count cases linked to this court
+                                try {
+                                  const cases = await CourtCase.filter({ court_id: selectedCourtFromAutocomplete.id });
+                                  setAssociatedJobsCount(cases.length);
+                                  setShowCourtEditWarning(true);
+                                } catch (error) {
+                                  console.error('Error counting linked cases:', error);
+                                  // Proceed with edit even if count fails
+                                  setAssociatedJobsCount(0);
+                                  setShowCourtEditWarning(true);
+                                }
+                              }}
+                            >
+                              <Pencil className="w-4 h-4" />
+                              Edit Court
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    )}
 
-                    <div className={!showCourtDetails ? "hidden" : "block"}>
+                      {formData.court_name && (
+                        <div className="flex justify-start">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 border-dashed border-slate-300 hover:border-slate-400 text-slate-600 hover:text-slate-700"
+                            onClick={() => setShowCourtDetails(!showCourtDetails)}
+                            disabled={selectedCase && !isEditingCase}
+                          >
+                            <Plus className="w-4 h-4" />
+                            {showCourtDetails ? 'Hide Additional Court Information' : 'Add Additional Court Information'}
+                          </Button>
+                        </div>
+                      )}
+
+                      <div className={!showCourtDetails ? "hidden" : "block"}>
                         <div className="space-y-4 pt-4 border-t border-slate-200">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="md:col-span-2">
-                                    <Label htmlFor="court_address1">Street Address</Label>
-                                    <AddressAutocomplete
-                                        id="court_address1"
-                                        value={formData.court_address?.address1 || ''}
-                                        onChange={(value) => handleCourtAddressChange('address1', value)}
-                                        onAddressSelect={handleCourtAddressSelect}
-                                        onLoadingChange={setIsCourtAddressLoading}
-                                        placeholder="Start typing court address..."
-                                        disabled={selectedCase && !isEditingCase}
-                                    />
-                                </div>
-                                <div>
-                                    <Label htmlFor="court_address2">Suite / Courtroom</Label>
-                                    <Input
-                                        id="court_address2"
-                                        value={formData.court_address?.address2 || ''}
-                                        onChange={(e) => handleCourtAddressChange('address2', e.target.value)}
-                                        placeholder="Suite, courtroom, etc."
-                                        disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
-                                        autoComplete="nope"
-                                    />
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <div className="relative">
-                                <Label htmlFor="court_city">City</Label>
-                                <Input
-                                  id="court_city"
-                                  value={formData.court_address?.city || ''}
-                                  onChange={(e) => handleCourtAddressChange('city', e.target.value)}
-                                  disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
-                                  autoComplete="nope"
-                                />
-                                {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
-                              </div>
-                              <div className="relative">
-                                <Label htmlFor="court_state">State</Label>
-                                <Input
-                                  id="court_state"
-                                  value={formData.court_address?.state || ''}
-                                  onChange={(e) => handleCourtAddressChange('state', e.target.value)}
-                                  disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
-                                  autoComplete="nope"
-                                />
-                                {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
-                              </div>
-                              <div className="relative">
-                                <Label htmlFor="court_zip">ZIP Code</Label>
-                                <Input
-                                  id="court_zip"
-                                  value={formData.court_address?.postal_code || ''}
-                                  onChange={(e) => handleCourtAddressChange('postal_code', e.target.value)}
-                                  disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
-                                  autoComplete="nope"
-                                />
-                                {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
-                              </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="md:col-span-2">
+                              <Label htmlFor="court_address1">Street Address</Label>
+                              <AddressAutocomplete
+                                id="court_address1"
+                                value={formData.court_address?.address1 || ''}
+                                onChange={(value) => handleCourtAddressChange('address1', value)}
+                                onAddressSelect={handleCourtAddressSelect}
+                                onLoadingChange={setIsCourtAddressLoading}
+                                placeholder="Start typing court address..."
+                                disabled={selectedCase && !isEditingCase}
+                              />
                             </div>
                             <div>
-                                <Label htmlFor="court_county">County</Label>
-                                <Input
-                                    id="court_county"
-                                    value={formData.court_county}
-                                    onChange={(e) => handleInputChange('court_county', e.target.value)}
-                                    placeholder="e.g., Cook County"
-                                    autoComplete="nope"
-                                    disabled={selectedCase && !isEditingCase}
-                                />
+                              <Label htmlFor="court_address2">Suite / Courtroom</Label>
+                              <Input
+                                id="court_address2"
+                                value={formData.court_address?.address2 || ''}
+                                onChange={(e) => handleCourtAddressChange('address2', e.target.value)}
+                                placeholder="Suite, courtroom, etc."
+                                disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
+                                autoComplete="nope"
+                              />
                             </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="relative">
+                              <Label htmlFor="court_city">City</Label>
+                              <Input
+                                id="court_city"
+                                value={formData.court_address?.city || ''}
+                                onChange={(e) => handleCourtAddressChange('city', e.target.value)}
+                                disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
+                                autoComplete="nope"
+                              />
+                              {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
+                            </div>
+                            <div className="relative">
+                              <Label htmlFor="court_state">State</Label>
+                              <Input
+                                id="court_state"
+                                value={formData.court_address?.state || ''}
+                                onChange={(e) => handleCourtAddressChange('state', e.target.value)}
+                                disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
+                                autoComplete="nope"
+                              />
+                              {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
+                            </div>
+                            <div className="relative">
+                              <Label htmlFor="court_zip">ZIP Code</Label>
+                              <Input
+                                id="court_zip"
+                                value={formData.court_address?.postal_code || ''}
+                                onChange={(e) => handleCourtAddressChange('postal_code', e.target.value)}
+                                disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
+                                autoComplete="nope"
+                              />
+                              {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
+                            </div>
+                          </div>
+                          <div>
+                            <Label htmlFor="court_county">County</Label>
+                            <Input
+                              id="court_county"
+                              value={formData.court_county}
+                              onChange={(e) => handleInputChange('court_county', e.target.value)}
+                              placeholder="e.g., Cook County"
+                              autoComplete="nope"
+                              disabled={selectedCase && !isEditingCase}
+                            />
+                          </div>
                         </div>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Recipient & Service Address */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recipient & Service Address</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2">
+                      <Label htmlFor="recipient_name">Recipient Name</Label>
+                      <Input
+                        id="recipient_name"
+                        value={formData.recipient_name}
+                        onChange={(e) => handleInputChange('recipient_name', e.target.value)}
+                        placeholder="Name of person/entity to be served"
+                        autoComplete="off"
+                      />
                     </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-            
-            {/* Recipient & Service Address */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Recipient & Service Address</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="md:col-span-2">
-                    <Label htmlFor="recipient_name">Recipient Name</Label>
-                    <Input
-                      id="recipient_name"
-                      value={formData.recipient_name}
-                      onChange={(e) => handleInputChange('recipient_name', e.target.value)}
-                      placeholder="Name of person/entity to be served"
-                      autoComplete="off"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="recipient_type">Recipient Type</Label>
-                    <select
-                      id="recipient_type"
-                      value={formData.recipient_type}
-                      onChange={(e) => handleInputChange('recipient_type', e.target.value)}
-                      className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <option value="individual">Individual</option>
-                      <option value="company">Company</option>
-                      <option value="government">Government</option>
-                    </select>
-                  </div>
-                </div>
-
-                <AddressListManager
-                  addresses={formData.addresses}
-                  onChange={(addresses) => {
-                    console.log('[CreateJob] Updating addresses:', addresses);
-                    setFormData(prev => {
-                      const updated = { ...prev, addresses };
-                      console.log('[CreateJob] Updated formData:', updated);
-                      return updated;
-                    });
-                  }}
-                  isAddressLoading={isAddressLoading}
-                  setIsAddressLoading={setIsAddressLoading}
-                />
-              </CardContent>
-            </Card>
-
-            {/* Service Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Service Details</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <Label htmlFor="priority">Priority</Label>
-                    <select
-                      id="priority"
-                      value={formData.priority}
-                      onChange={(e) => handleInputChange('priority', e.target.value)}
-                      className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {prioritySettings.map(priority => (
-                        <option key={priority.name} value={priority.name}>
-                          {priority.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <Label htmlFor="due_date">Due Date</Label>
-                    <Input
-                      id="due_date"
-                      type="date"
-                      value={formData.due_date}
-                      onChange={(e) => handleInputChange('due_date', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="first_attempt_due_date">First Attempt Due</Label>
-                    <Input
-                      id="first_attempt_due_date"
-                      type="date"
-                      value={formData.first_attempt_due_date}
-                      onChange={(e) => handleInputChange('first_attempt_due_date', e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="service_instructions">Service Instructions</Label>
-                  <Textarea
-                    id="service_instructions"
-                    value={formData.service_instructions}
-                    onChange={(e) => handleInputChange('service_instructions', e.target.value)}
-                    rows={4}
-                    placeholder="Special instructions for the process server..."
-                    className="resize-none"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Server Assignment */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Server</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label>Server Type</Label>
-                  <div className="grid grid-cols-3 gap-2 rounded-md bg-slate-100 p-1 mt-1">
-                      <Button
-                          type="button"
-                          onClick={() => {
-                              handleInputChange('server_type', 'employee');
-                              setSelectedContractor(null);
-                              setContractorSearchText("");
-                              const defaultServer = employees.find(e => e.is_default_server === true);
-                              if (defaultServer) {
-                                  handleInputChange('assigned_server_id', String(defaultServer.id));
-                              } else {
-                                  handleInputChange('assigned_server_id', 'unassigned');
-                              }
-                          }}
-                          className={`gap-2 justify-center transition-colors ${
-                              formData.server_type === 'employee'
-                                  ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
-                                  : 'bg-transparent text-slate-600 hover:bg-slate-200'
-                          }`}
-                          variant="ghost"
+                    <div>
+                      <Label htmlFor="recipient_type">Recipient Type</Label>
+                      <select
+                        id="recipient_type"
+                        value={formData.recipient_type}
+                        onChange={(e) => handleInputChange('recipient_type', e.target.value)}
+                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                          <UserIcon className="w-4 h-4" />
-                          Employee
+                        <option value="individual">Individual</option>
+                        <option value="company">Company</option>
+                        <option value="government">Government</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <AddressListManager
+                    addresses={formData.addresses}
+                    onChange={(addresses) => {
+                      console.log('[CreateJob] Updating addresses:', addresses);
+                      setFormData(prev => {
+                        const updated = { ...prev, addresses };
+                        console.log('[CreateJob] Updated formData:', updated);
+                        return updated;
+                      });
+                    }}
+                    isAddressLoading={isAddressLoading}
+                    setIsAddressLoading={setIsAddressLoading}
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Service Details */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Service Details</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="priority">Priority</Label>
+                      <select
+                        id="priority"
+                        value={formData.priority}
+                        onChange={(e) => handleInputChange('priority', e.target.value)}
+                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {prioritySettings.map(priority => (
+                          <option key={priority.name} value={priority.name}>
+                            {priority.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label htmlFor="due_date">Due Date</Label>
+                      <Input
+                        id="due_date"
+                        type="date"
+                        value={formData.due_date}
+                        onChange={(e) => handleInputChange('due_date', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="first_attempt_due_date">First Attempt Due</Label>
+                      <Input
+                        id="first_attempt_due_date"
+                        type="date"
+                        value={formData.first_attempt_due_date}
+                        onChange={(e) => handleInputChange('first_attempt_due_date', e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="service_instructions">Service Instructions</Label>
+                    <Textarea
+                      id="service_instructions"
+                      value={formData.service_instructions}
+                      onChange={(e) => handleInputChange('service_instructions', e.target.value)}
+                      rows={4}
+                      placeholder="Special instructions for the process server..."
+                      className="resize-none"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Server Assignment */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Server</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label>Server Type</Label>
+                    <div className="grid grid-cols-3 gap-2 rounded-md bg-slate-100 p-1 mt-1">
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          handleInputChange('server_type', 'employee');
+                          setSelectedContractor(null);
+                          setContractorSearchText("");
+                          const defaultServer = employees.find(e => e.is_default_server === true);
+                          if (defaultServer) {
+                            handleInputChange('assigned_server_id', String(defaultServer.id));
+                          } else {
+                            handleInputChange('assigned_server_id', 'unassigned');
+                          }
+                        }}
+                        className={`gap-2 justify-center transition-colors ${formData.server_type === 'employee'
+                          ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
+                          : 'bg-transparent text-slate-600 hover:bg-slate-200'
+                          }`}
+                        variant="ghost"
+                      >
+                        <UserIcon className="w-4 h-4" />
+                        Employee
                       </Button>
                       <Button
-                          type="button"
-                          onClick={() => {
-                              handleInputChange('server_type', 'contractor');
-                              handleInputChange('assigned_server_id', 'unassigned');
-                              setSelectedContractor(null);
-                              setContractorSearchText("");
-                          }}
-                          className={`gap-2 justify-center transition-colors ${
-                              formData.server_type === 'contractor'
-                                  ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
-                                  : 'bg-transparent text-slate-600 hover:bg-slate-200'
+                        type="button"
+                        onClick={() => {
+                          handleInputChange('server_type', 'contractor');
+                          handleInputChange('assigned_server_id', 'unassigned');
+                          setSelectedContractor(null);
+                          setContractorSearchText("");
+                        }}
+                        className={`gap-2 justify-center transition-colors ${formData.server_type === 'contractor'
+                          ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
+                          : 'bg-transparent text-slate-600 hover:bg-slate-200'
                           }`}
-                          variant="ghost"
+                        variant="ghost"
                       >
-                          <HardHat className="w-4 h-4" />
-                          Contractor
+                        <HardHat className="w-4 h-4" />
+                        Contractor
                       </Button>
                       <Tooltip delayDuration={0}>
                         <TooltipTrigger asChild>
@@ -2031,23 +2055,22 @@ export default function CreateJobPage() {
                             style={!isMarketplaceAvailable() ? { cursor: 'not-allowed' } : undefined}
                           >
                             <Button
-                                type="button"
-                                onClick={() => {
-                                    handleInputChange('server_type', 'marketplace');
-                                    handleInputChange('assigned_server_id', 'marketplace');
-                                    setSelectedContractor(null);
-                                    setContractorSearchText("");
-                                }}
-                                disabled={!isMarketplaceAvailable()}
-                                className={`w-full gap-2 justify-center transition-colors ${
-                                    formData.server_type === 'marketplace'
-                                        ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
-                                        : 'bg-transparent text-slate-600 hover:bg-slate-200'
+                              type="button"
+                              onClick={() => {
+                                handleInputChange('server_type', 'marketplace');
+                                handleInputChange('assigned_server_id', 'marketplace');
+                                setSelectedContractor(null);
+                                setContractorSearchText("");
+                              }}
+                              disabled={!isMarketplaceAvailable()}
+                              className={`w-full gap-2 justify-center transition-colors ${formData.server_type === 'marketplace'
+                                ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
+                                : 'bg-transparent text-slate-600 hover:bg-slate-200'
                                 }`}
-                                variant="ghost"
+                              variant="ghost"
                             >
-                                <Store className="w-4 h-4" />
-                                Marketplace
+                              <Store className="w-4 h-4" />
+                              Marketplace
                             </Button>
                           </span>
                         </TooltipTrigger>
@@ -2059,42 +2082,42 @@ export default function CreateJobPage() {
                           )}
                         </TooltipContent>
                       </Tooltip>
+                    </div>
                   </div>
-                </div>
 
-                {formData.server_type !== 'marketplace' && (
-                  <div>
-                    <Label htmlFor="assigned_server_id">
-                      Assign To {formData.server_type === 'employee' ? 'Employee' : 'Contractor'}
-                    </Label>
-                    {formData.server_type === 'employee' ? (
-                      <select
-                        id="assigned_server_id"
-                        value={String(formData.assigned_server_id || 'unassigned')}
-                        onChange={(e) => handleInputChange('assigned_server_id', e.target.value)}
-                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <option value="unassigned">Unassigned</option>
-                        {employees.map(employee => (
-                          <option key={employee.id} value={String(employee.id)}>
-                            {employee.first_name} {employee.last_name} {employee.is_default_server ? '★' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <ContractorSearchInput
-                        value={contractorSearchText}
-                        onValueChange={setContractorSearchText}
-                        onContractorSelected={handleContractorSelected}
-                        selectedContractor={selectedContractor}
-                        currentClientId={formData.client_id}
-                      />
-                    )}
-                  </div>
-                )}
+                  {formData.server_type !== 'marketplace' && (
+                    <div>
+                      <Label htmlFor="assigned_server_id">
+                        Assign To {formData.server_type === 'employee' ? 'Employee' : 'Contractor'}
+                      </Label>
+                      {formData.server_type === 'employee' ? (
+                        <select
+                          id="assigned_server_id"
+                          value={String(formData.assigned_server_id || 'unassigned')}
+                          onChange={(e) => handleInputChange('assigned_server_id', e.target.value)}
+                          className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <option value="unassigned">Unassigned</option>
+                          {employees.map(employee => (
+                            <option key={employee.id} value={String(employee.id)}>
+                              {employee.first_name} {employee.last_name} {employee.is_default_server ? '★' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <ContractorSearchInput
+                          value={contractorSearchText}
+                          onValueChange={setContractorSearchText}
+                          onContractorSelected={handleContractorSelected}
+                          selectedContractor={selectedContractor}
+                          currentClientId={formData.client_id}
+                        />
+                      )}
+                    </div>
+                  )}
 
-                {formData.server_type === 'marketplace' && (
-                  <div className={`transition-all duration-300 ease-in-out rounded-lg border p-4 space-y-3 ${isMarketplaceAvailable() ? "bg-blue-50 border-blue-200" : "bg-amber-50 border-amber-200"}`}>
+                  {formData.server_type === 'marketplace' && (
+                    <div className={`transition-all duration-300 ease-in-out rounded-lg border p-4 space-y-3 ${isMarketplaceAvailable() ? "bg-blue-50 border-blue-200" : "bg-amber-50 border-amber-200"}`}>
                       {!isMarketplaceAvailable() ? (
                         <div className="flex items-start gap-3">
                           <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -2136,159 +2159,159 @@ export default function CreateJobPage() {
                           </div>
                         </div>
                       )}
-                  </div>
-                )}
+                    </div>
+                  )}
 
-                {formData.server_type !== 'marketplace' && (
-                  <div className="transition-all duration-300 ease-in-out">
-                    <ServerPayItems
-                      items={formData.server_pay_items}
-                      onItemsChange={(newItems) => handleInputChange('server_pay_items', newItems)}
-                      defaultItems={
-                        formData.server_type === 'employee'
-                          ? employees.find(e => String(e.id) === formData.assigned_server_id)?.default_pay_items || []
-                          : selectedContractor && String(selectedContractor.id) === formData.assigned_server_id
-                            ? selectedContractor.default_pay_items || []
-                            : []
-                      }
-                    />
-                  </div>
-                )}
+                  {formData.server_type !== 'marketplace' && (
+                    <div className="transition-all duration-300 ease-in-out">
+                      <ServerPayItems
+                        items={formData.server_pay_items}
+                        onItemsChange={(newItems) => handleInputChange('server_pay_items', newItems)}
+                        defaultItems={
+                          formData.server_type === 'employee'
+                            ? employees.find(e => String(e.id) === formData.assigned_server_id)?.default_pay_items || []
+                            : selectedContractor && String(selectedContractor.id) === formData.assigned_server_id
+                              ? selectedContractor.default_pay_items || []
+                              : []
+                        }
+                      />
+                    </div>
+                  )}
 
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            {/* Quick Invoice */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Quick Invoice</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <QuickInvoice
-                  documents={uploadedDocuments}
-                  priority={formData.priority}
-                  invoiceSettings={companyData?.invoice_settings}
-                  onChange={setInvoiceData}
-                  recipientName={formData.recipient_name}
-                  serviceAddress={formData.addresses?.[0] ?
-                    `${formData.addresses[0].address1}${formData.addresses[0].city ? `, ${formData.addresses[0].city}` : ''}${formData.addresses[0].state ? `, ${formData.addresses[0].state}` : ''}` :
-                    ''}
-                />
-              </CardContent>
-            </Card>
+              {/* Quick Invoice */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Quick Invoice</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <QuickInvoice
+                    documents={uploadedDocuments}
+                    priority={formData.priority}
+                    invoiceSettings={companyData?.invoice_settings}
+                    onChange={setInvoiceData}
+                    recipientName={formData.recipient_name}
+                    serviceAddress={formData.addresses?.[0] ?
+                      `${formData.addresses[0].address1}${formData.addresses[0].city ? `, ${formData.addresses[0].city}` : ''}${formData.addresses[0].state ? `, ${formData.addresses[0].state}` : ''}` :
+                      ''}
+                  />
+                </CardContent>
+              </Card>
 
-            {/* Actions */}
-            <div className="flex justify-end gap-3 pt-6">
-              <Link to={createPageUrl("Jobs")}>
-                <Button type="button" variant="outline">
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-6">
+                <Link to={createPageUrl("Jobs")}>
+                  <Button type="button" variant="outline">
+                    Cancel
+                  </Button>
+                </Link>
+                <Button
+                  type="submit"
+                  disabled={isSubmitting || !isFormValid}
+                  className="bg-slate-900 hover:bg-slate-800"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Creating Job...
+                    </>
+                  ) : (
+                    'Create Job'
+                  )}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <NewContactDialog
+          open={showNewContactDialog}
+          onOpenChange={setShowNewContactDialog}
+          client={selectedClient}
+          onContactCreated={handleNewContactCreated}
+        />
+
+        {/* Case Edit Warning Dialog */}
+        {showCaseEditWarning && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
+              <div className="flex items-start gap-3 mb-4">
+                <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-slate-900 mb-2">Edit Case Information</h3>
+                  <p className="text-sm text-slate-600 mb-3">
+                    You are about to edit a case that is linked to <strong>{associatedJobsCount} other jobs</strong>.
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    Any changes you make will be reflected on all associated jobs. Are you sure you want to proceed?
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowCaseEditWarning(false)}
+                >
                   Cancel
                 </Button>
-              </Link>
-              <Button
-                type="submit"
-                disabled={isSubmitting || !isFormValid}
-                className="bg-slate-900 hover:bg-slate-800"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Creating Job...
-                  </>
-                ) : (
-                  'Create Job'
-                )}
-              </Button>
-            </div>
-          </form>
-        </div>
-      </div>
-      <NewContactDialog
-        open={showNewContactDialog}
-        onOpenChange={setShowNewContactDialog}
-        client={selectedClient}
-        onContactCreated={handleNewContactCreated}
-      />
-
-      {/* Case Edit Warning Dialog */}
-      {showCaseEditWarning && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
-            <div className="flex items-start gap-3 mb-4">
-              <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="font-semibold text-slate-900 mb-2">Edit Case Information</h3>
-                <p className="text-sm text-slate-600 mb-3">
-                  You are about to edit a case that is linked to <strong>{associatedJobsCount} other jobs</strong>.
-                </p>
-                <p className="text-sm text-slate-600">
-                  Any changes you make will be reflected on all associated jobs. Are you sure you want to proceed?
-                </p>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setShowCaseEditWarning(false);
+                    setIsEditingCase(true);
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700"
+                >
+                  Yes, Edit Case
+                </Button>
               </div>
             </div>
-            <div className="flex justify-end gap-3">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowCaseEditWarning(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  setShowCaseEditWarning(false);
-                  setIsEditingCase(true);
-                }}
-                className="bg-amber-600 hover:bg-amber-700"
-              >
-                Yes, Edit Case
-              </Button>
-            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Court Edit Warning Dialog */}
-      {showCourtEditWarning && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
-            <div className="flex items-start gap-3 mb-4">
-              <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="font-semibold text-slate-900 mb-2">Edit Court Information</h3>
-                <p className="text-sm text-slate-600 mb-3">
-                  Editing this court will also update <strong>{associatedJobsCount} {associatedJobsCount === 1 ? 'case' : 'cases'}</strong> that {associatedJobsCount === 1 ? 'is' : 'are'} linked to this court.
-                </p>
-                <p className="text-sm text-slate-600">
-                  If you need changes only for this case, click <strong>Cancel</strong> and clear the selection
-                  to manually enter court details instead.
-                </p>
+        {/* Court Edit Warning Dialog */}
+        {showCourtEditWarning && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
+              <div className="flex items-start gap-3 mb-4">
+                <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-slate-900 mb-2">Edit Court Information</h3>
+                  <p className="text-sm text-slate-600 mb-3">
+                    Editing this court will also update <strong>{associatedJobsCount} {associatedJobsCount === 1 ? 'case' : 'cases'}</strong> that {associatedJobsCount === 1 ? 'is' : 'are'} linked to this court.
+                  </p>
+                  <p className="text-sm text-slate-600">
+                    If you need changes only for this case, click <strong>Cancel</strong> and clear the selection
+                    to manually enter court details instead.
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowCourtEditWarning(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setShowCourtEditWarning(false);
+                    setShowCourtDetails(true);
+                    setIsEditingExistingCourt(true);
+                    setSelectedCourtFromAutocomplete(null);
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700"
+                >
+                  Proceed to Edit
+                </Button>
               </div>
             </div>
-            <div className="flex justify-end gap-3">
-            <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowCourtEditWarning(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  setShowCourtEditWarning(false);
-                  setShowCourtDetails(true);
-                  setIsEditingExistingCourt(true);
-                  setSelectedCourtFromAutocomplete(null);
-                }}
-                className="bg-amber-600 hover:bg-amber-700"
-              >
-                Proceed to Edit
-              </Button>
-            </div>
           </div>
-        </div>
-      )}
+        )}
       </div>
 
       {/* PDF Viewer */}
