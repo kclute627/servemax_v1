@@ -74,7 +74,10 @@ import {
   Target, // New icon for GPS accuracy
   Combine, // Icon for merge PDFs
   Send, // Icon for invoice issued
-  CreditCard // Icon for payment applied
+  CreditCard, // Icon for payment applied
+  Save, // Icon for save
+  ChevronDown, // ✅ YEH ADD KARO
+  ChevronUp // ✅ YEH ADD KARO
 } from 'lucide-react';
 import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
@@ -91,7 +94,7 @@ import { JobShareChain } from '@/components/JobSharing';
 import { useToast } from '@/components/ui/use-toast';
 import { InvoiceManager } from '@/firebase/invoiceManager';
 import InvoicePreview from '@/components/invoicing/InvoicePreview';
-
+import html2pdf from 'html2pdf.js';
 // --- Configuration Objects ---
 // These are UI-specific and will likely remain unchanged during migration.
 const statusConfig = {
@@ -557,11 +560,13 @@ export default function JobDetailsPage() {
   // Line 555 ke baad add karo
   const [isEditingInvoice, setIsEditingInvoice] = useState(false);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const [saveInvoiceTrigger, setSaveInvoiceTrigger] = useState(0);
+  const [showPDFPreview, setShowPDFPreview] = useState(false); // ✅ YEH ADD KARO
 
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { jobs: contextJobs, clients: contextClients, employees: contextEmployees, companySettings, refreshData } = useGlobalData();
+  const { jobs: contextJobs, clients: contextClients, employees: contextEmployees, companySettings, companyData, refreshData } = useGlobalData();
 
   // --- "Dirty" State Checks ---
   // These useMemo hooks compare the original data with the data in the edit form
@@ -1976,6 +1981,7 @@ export default function JobDetailsPage() {
       }));
 
       toast({ title: 'Invoice Issued', description: 'Invoice has been issued successfully.' });
+      await refreshData();
     } catch (error) {
       console.error('Error issuing invoice:', error);
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to issue invoice.' });
@@ -2052,6 +2058,7 @@ export default function JobDetailsPage() {
           due_date: invoice.due_date
         });
         toast({ title: 'Invoice Issued & Email Queued', description: `Invoice issued and email queued for ${clientEmail}` });
+        await refreshData();
       } else {
         toast({ title: 'Invoice Issued', description: 'Invoice issued but no email address found for client.' });
       }
@@ -2063,118 +2070,294 @@ export default function JobDetailsPage() {
     setIsEmailingInvoice(false);
   };
 
-  // Line 2030 ke area mein add karo - Invoice Save Handler
-// Line 2067 - Complete function replace karo
-const handleSaveInvoiceEdit = async (updatedData) => {
-  if (!job?.id) return;
-  
-  setIsSavingInvoice(true);
+
+
+  // Line 2120 ke baad add karo - Download PDF Handler
+const handleDownloadInvoicePDF = async () => {
   try {
     const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
     if (!jobInvoice) {
-      throw new Error('Invoice not found');
-    }
-
-    // ✅ VALIDATION
-    if (!updatedData.line_items || updatedData.line_items.length === 0) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Invoice must have at least one line item.'
+        description: 'Invoice not found'
       });
-      setIsSavingInvoice(false);
       return;
     }
 
-    // ✅ SPEED FIX 1: UI immediately update (user ko wait nahi karna)
-    const optimisticInvoice = {
-      ...jobInvoice,
-      invoice_date: updatedData.invoice_date || jobInvoice.invoice_date,
-      due_date: updatedData.due_date || jobInvoice.due_date,
-      tax_rate: updatedData.tax_rate,
-      tax_amount: updatedData.tax_amount,
-      total_tax_amount: updatedData.tax_amount,
-      line_items: updatedData.line_items,
-      subtotal: updatedData.subtotal,
-      total_amount: updatedData.total_amount,
-      total: updatedData.total_amount,
-      balance_due: updatedData.balance_due,
-      updated_at: new Date().toISOString()
-    };
-    setInvoices([optimisticInvoice]); // ✅ INSTANT UPDATE!
-    setIsEditingInvoice(false); // ✅ INSTANT - Edit mode close!
+    toast({
+      title: 'Generating PDF',
+      description: 'Please wait while we generate your PDF...' ,
+      variant: 'default',
+      className: 'border-blue-200 bg-blue-50 text-blue-900' 
+    });
 
-    // ✅ SPEED FIX 2: Database update (background - user ko wait nahi karna)
-    Invoice.update(jobInvoice.id, {
-      invoice_date: updatedData.invoice_date || jobInvoice.invoice_date,
-      due_date: updatedData.due_date || jobInvoice.due_date,
-      tax_rate: updatedData.tax_rate,
-      tax_amount: updatedData.tax_amount,
-      total_tax_amount: updatedData.tax_amount,
-      line_items: updatedData.line_items,
-      subtotal: updatedData.subtotal,
-      total_amount: updatedData.total_amount,
-      total: updatedData.total_amount,
-      balance_due: updatedData.balance_due,
-      updated_at: new Date().toISOString()
-    }).catch(err => {
-      console.error('Invoice update failed:', err);
-      // Revert on error
-      setInvoices([jobInvoice]);
-      setIsEditingInvoice(true);
+    // ✅ Wait for invoice preview to render
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    const element = document.getElementById('invoice-pdf-preview');
+    if (!element) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to save invoice. Please try again.'
+        description: 'Invoice preview not found. Please try again.'
       });
-    });
-
-    // ✅ SPEED FIX 3: Activity log (fire and forget - don't wait)
-    const newLogEntry = {
-      timestamp: new Date().toISOString(),
-      event_type: 'invoice_updated',
-      description: `Invoice ${jobInvoice.invoice_number} updated`,
-      user_name: user?.displayName || user?.email || 'Unknown'
-    };
-    const currentActivityLog = Array.isArray(job?.activity_log) ? job.activity_log : [];
-    
-    // Don't wait - update in background
-    Job.update(job.id, {
-      activity_log: [...currentActivityLog, newLogEntry]
-    }).catch(err => console.error('Activity log update failed:', err));
-
-    // Update local job state
-    setJob(prev => ({
-      ...prev,
-      activity_log: [...currentActivityLog, newLogEntry]
-    }));
-
-    // ✅ SUCCESS MESSAGE (instant)
-    toast({
-      title: '✅ Invoice Updated',
-      description: 'Your changes have been saved successfully.'
-    });
-
-    setIsSavingInvoice(false); // ✅ INSTANT - Loading state off!
-    
-  } catch (error) {
-    console.error('Error saving invoice:', error);
-    
-    // Revert optimistic update
-    const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
-    if (jobInvoice) {
-      setInvoices([jobInvoice]);
+      return;
     }
-    setIsEditingInvoice(true);
-    
+
+    const opt = {
+      margin: [0.15, 0.25], // ✅ Smaller margins: [top/bottom, left/right] in inches
+      filename: `Invoice-${jobInvoice.invoice_number}.pdf`,
+      image: { type: 'jpeg', quality: 0.95 }, // ✅ Slightly lower quality for smaller file
+      html2canvas: { 
+        scale: 1.0, // ✅ Much smaller scale
+        useCORS: true,
+        logging: false,
+        letterRendering: true,
+        windowWidth: 800,
+        height: 1000, // ✅ Fixed height (11in = ~1000px at 96dpi, minus margins)
+        width: 800,
+        scrollX: 0,
+        scrollY: 0
+      },
+      jsPDF: { 
+        unit: 'in', 
+        format: 'letter', 
+        orientation: 'portrait',
+        compress: true
+      },
+      pagebreak: { 
+        mode: 'avoid-all', // ✅ Avoid all page breaks
+        before: '.page-break-before',
+        after: '.page-break-after',
+        avoid: ['.invoice-header', '.invoice-details', '.invoice-line-items', '.invoice-totals']
+      },
+      enableLinks: false // ✅ Disable links to save space
+    };
+
+    // ✅ Generate PDF and download (browser download)
+    await html2pdf().set(opt).from(element).save();
+
+    toast({
+      title: 'PDF Downloaded',
+      description: `Invoice ${jobInvoice.invoice_number} has been downloaded.`
+    });
+  } catch (error) {
+    console.error('Error generating PDF:', error);
     toast({
       variant: 'destructive',
       title: 'Error',
-      description: error.message || 'Failed to save invoice changes.'
+      description: 'Failed to generate PDF. Please try again.'
     });
-    setIsSavingInvoice(false);
   }
 };
+
+  // Line 2070 ke baad add karo - PDF Download Handler
+  const handleViewInvoicePDF = async () => {
+    try {
+      const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
+      if (!jobInvoice) {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Invoice not found'
+        });
+        return;
+      }
+  
+      toast({
+        title: 'Generating PDF',
+        description: 'Please wait while we generate your PDF...',
+        variant: 'default',
+        className: 'border-blue-200 bg-blue-50 text-blue-900' 
+      });
+  
+      // ✅ Wait for invoice preview to render (if not already rendered)
+      await new Promise(resolve => setTimeout(resolve, 300));
+  
+      const element = document.getElementById('invoice-pdf-preview');
+      if (!element) {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Invoice preview not found. Please try again.'
+        });
+        return;
+      }
+  
+
+const opt = {
+  margin: [0.15, 0.25], // ✅ Very small margins
+  filename: `Invoice-${jobInvoice.invoice_number}.pdf`,
+  image: { type: 'jpeg', quality: 0.9 },
+  html2canvas: { 
+    scale: 1.0, // ✅ Smaller scale
+    useCORS: true,
+    logging: false,
+    letterRendering: true,
+    windowWidth: 800,
+    height: 1000, // ✅ Fixed height
+    width: 800,
+    scrollX: 0,
+    scrollY: 0
+  },
+  jsPDF: { 
+    unit: 'in', 
+    format: 'letter', 
+    orientation: 'portrait',
+    compress: true
+  },
+  pagebreak: { 
+    mode: 'avoid-all',
+    before: '.page-break-before',
+    after: '.page-break-after',
+    avoid: ['.invoice-header', '.invoice-details', '.invoice-line-items', '.invoice-totals', '.bill-to-section']
+  },
+  enableLinks: false // ✅ Disable links
+};
+  
+      // ✅ Generate PDF as blob
+      const pdfBlob = await html2pdf().set(opt).from(element).outputPdf('blob');
+      
+      // ✅ Create object URL and open in new tab
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      window.open(pdfUrl, '_blank');
+      
+      // ✅ Cleanup after a delay
+      setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
+  
+      toast({
+        title: 'PDF Opened',
+        description: 'Invoice PDF opened in new tab.',
+        variant: 'default',
+        className: 'border-green-200 bg-green-50 text-green-900' 
+      });
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to generate PDF. Please try again.'
+      });
+    }
+  };
+
+
+
+  // Line 2030 ke area mein add karo - Invoice Save Handler
+  // Line 2067 - Complete function replace karo
+  const handleSaveInvoiceEdit = async (updatedData) => {
+    if (!job?.id) return;
+
+    setIsSavingInvoice(true);
+    try {
+      const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
+      if (!jobInvoice) {
+        throw new Error('Invoice not found');
+      }
+
+      // ✅ VALIDATION
+      if (!updatedData.line_items || updatedData.line_items.length === 0) {
+        toast({
+          variant: 'default',
+          title: 'Note',
+          description: 'Invoice must have at least one line item.',
+          className: 'border-yellow-200 bg-yellow-50 text-yellow-900' // ✅ YEH ADD KARO
+        });
+        setIsSavingInvoice(false);
+        return;
+      }
+
+      // ✅ SPEED FIX 1: UI immediately update (user ko wait nahi karna)
+      const optimisticInvoice = {
+        ...jobInvoice,
+        invoice_date: updatedData.invoice_date || jobInvoice.invoice_date,
+        due_date: updatedData.due_date || jobInvoice.due_date,
+        tax_rate: updatedData.tax_rate,
+        tax_amount: updatedData.tax_amount,
+        total_tax_amount: updatedData.tax_amount,
+        line_items: updatedData.line_items,
+        subtotal: updatedData.subtotal,
+        total_amount: updatedData.total_amount,
+        total: updatedData.total_amount,
+        balance_due: updatedData.balance_due,
+        updated_at: new Date().toISOString()
+      };
+      setInvoices([optimisticInvoice]); // ✅ INSTANT UPDATE!
+      setIsEditingInvoice(false); // ✅ INSTANT - Edit mode close!
+
+      // ✅ SPEED FIX 2: Database update (background - user ko wait nahi karna)
+      Invoice.update(jobInvoice.id, {
+        invoice_date: updatedData.invoice_date || jobInvoice.invoice_date,
+        due_date: updatedData.due_date || jobInvoice.due_date,
+        tax_rate: updatedData.tax_rate,
+        tax_amount: updatedData.tax_amount,
+        total_tax_amount: updatedData.tax_amount,
+        line_items: updatedData.line_items,
+        subtotal: updatedData.subtotal,
+        total_amount: updatedData.total_amount,
+        total: updatedData.total_amount,
+        balance_due: updatedData.balance_due,
+        updated_at: new Date().toISOString()
+      }).catch(err => {
+        console.error('Invoice update failed:', err);
+        // Revert on error
+        setInvoices([jobInvoice]);
+        setIsEditingInvoice(true);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Failed to save invoice. Please try again.'
+        });
+      });
+
+      // ✅ SPEED FIX 3: Activity log (fire and forget - don't wait)
+      const newLogEntry = {
+        timestamp: new Date().toISOString(),
+        event_type: 'invoice_updated',
+        description: `Invoice ${jobInvoice.invoice_number} updated`,
+        user_name: user?.displayName || user?.email || 'Unknown'
+      };
+      const currentActivityLog = Array.isArray(job?.activity_log) ? job.activity_log : [];
+
+      // Don't wait - update in background
+      Job.update(job.id, {
+        activity_log: [...currentActivityLog, newLogEntry]
+      }).catch(err => console.error('Activity log update failed:', err));
+
+      // Update local job state
+      setJob(prev => ({
+        ...prev,
+        activity_log: [...currentActivityLog, newLogEntry]
+      }));
+
+      // ✅ SUCCESS MESSAGE (instant)
+      toast({
+        title: '✅ Invoice Updated',
+        description: 'Your changes have been saved successfully.',
+        className: 'border-green-200 bg-green-50 text-white-900' // ✅ YEH ADD KARO
+      });
+
+      setIsSavingInvoice(false); // ✅ INSTANT - Loading state off!
+
+    } catch (error) {
+      console.error('Error saving invoice:', error);
+
+      // Revert optimistic update
+      const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
+      if (jobInvoice) {
+        setInvoices([jobInvoice]);
+      }
+      setIsEditingInvoice(true);
+
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'Failed to save invoice changes.'
+      });
+      setIsSavingInvoice(false);
+    }
+  };
   // --- Render Logic ---
   // The JSX below is for rendering the UI. The structure will remain the same.
   // You will just be passing data fetched from Firebase instead of Base44.
@@ -2975,6 +3158,75 @@ const handleSaveInvoiceEdit = async (updatedData) => {
               </CardContent>
             </Card>
 
+   
+
+            {/* ✅ Invoice PDF Preview Card - Only show when editing */}
+            {isEditingInvoice && (() => {
+              const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
+              if (!jobInvoice) return null;
+
+              return (
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="w-5 h-5" />
+                      Invoice PDF Preview
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={handleDownloadInvoicePDF}
+                      >
+                        <Download className="w-4 h-4" />
+                        Download PDF
+                      </Button>
+                      <Button
+    variant="default" // ✅ Changed from "ghost" to "default"
+    size="sm"
+    className="gap-2 bg-slate-900 hover:bg-slate-800"
+    onClick={handleViewInvoicePDF} // ✅ Changed to handleViewInvoicePDF
+  >
+    <Eye className="w-4 h-4" /> {/* ✅ Changed icon */}
+    View PDF Preview
+  </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="hidden"> {/* ✅ Hidden but still in DOM for PDF generation */}
+  <div id="invoice-pdf-preview" className="bg-white"  style={{ maxHeight: '10.5in', overflow: 'hidden' }}>
+    <InvoicePreview
+      invoice={jobInvoice}
+      client={client}
+      job={job}
+      companyInfo={(() => {
+        if (!companyData) return null;
+        
+        // Get primary address from addresses array or fallback to legacy fields
+        const primaryAddress = companyData.addresses?.find(addr => addr.primary) || companyData.addresses?.[0];
+        
+        return {
+          company_name: companyData.name || '',
+          address1: primaryAddress?.address1 || companyData.address || '',
+          address2: primaryAddress?.address2 || '',
+          city: primaryAddress?.city || companyData.city || '',
+          state: primaryAddress?.state || companyData.state || '',
+          zip: primaryAddress?.postal_code || companyData.zip || '',
+          phone: companyData.phone || '',
+          email: companyData.email || ''
+        };
+      })()}
+      isEditing={false}
+      invoiceSettings={invoiceSettings}
+    />
+  </div>
+</CardContent>
+                </Card>
+              );
+            })()}
+
+
+
             {/* Live Invoice Card */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -2993,7 +3245,7 @@ const handleSaveInvoiceEdit = async (updatedData) => {
                       );
                     }
 
-                    
+
 
                     const invoiceStatusConfig = { // Renamed to avoid conflict with global statusConfig
                       draft: { color: "bg-slate-100 text-slate-700", label: "Draft" },
@@ -3041,8 +3293,32 @@ const handleSaveInvoiceEdit = async (updatedData) => {
                               Cancel
                             </Button>
                             {/* Save button InvoicePreview component mein already hai */}
+
+                            <Button
+                          variant="default"
+                          size="sm"
+                          className="gap-2 bg-slate-900 hover:bg-slate-800"
+                          onClick={() => {
+                            setSaveInvoiceTrigger(prev => prev + 1); // ✅ Trigger increment karo
+                          }}
+                          disabled={isSavingInvoice}
+                        >
+                          {isSavingInvoice ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-4 h-4" />
+                              Save
+                            </>
+                          )}
+                        </Button>
                           </>
                         )}
+
+
 
                         {/* ✅ EDIT BUTTON - YEH ADD KARO */}
                         {!isEditingInvoice && jobInvoice.status?.toLowerCase() !== 'paid' && !jobInvoice.locked && (
@@ -3151,6 +3427,7 @@ const handleSaveInvoiceEdit = async (updatedData) => {
                           onCancel={() => setIsEditingInvoice(false)}
                           isSaving={isSavingInvoice}
                           invoiceSettings={invoiceSettings}
+                          saveTrigger={saveInvoiceTrigger} 
                         />
                       </div>
                     );

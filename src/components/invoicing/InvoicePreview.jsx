@@ -14,7 +14,8 @@ export default function InvoicePreview({
   onSave,
   onCancel,
   isSaving = false,
-  invoiceSettings
+  invoiceSettings,
+  saveTrigger
 }) {
   if (!invoice) return null;
 
@@ -45,6 +46,12 @@ export default function InvoicePreview({
       });
     }
   }, [invoice]);
+
+  useEffect(() => {
+    if (saveTrigger > 0 && isEditing) {
+      handleSubmit();
+    }
+  }, [saveTrigger, isEditing]);
 
   console.log('[InvoicePreview] Company Info:', companyInfo);
   console.log('[InvoicePreview] Invoice Data:', invoice);
