@@ -40,11 +40,13 @@ import {
   Loader2,
   FileText,
   AlertCircle,
-  Handshake
+  Handshake,
+  Eye
 } from 'lucide-react';
 import { format } from 'date-fns';
 import AddressAutocomplete from '@/components/jobs/AddressAutocomplete';
 import { useToast } from '@/components/ui/use-toast';
+import { FirebaseFunctions } from '@/firebase/functions';
 
 const statusConfig = {
   active: { color: "bg-green-100 text-green-700", label: "Active" },
@@ -100,6 +102,9 @@ export default function ClientDetails() {
 
   // State for delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState({ open: false, type: null, index: -1 });
+
+  // State for portal preview
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
 
   // Helper function to safely convert Firestore timestamps to Date objects
   const toDate = (dateValue) => {
@@ -291,6 +296,26 @@ export default function ClientDetails() {
     setShowDeleteConfirm({ open: false, type: null, index: -1 });
   };
 
+  const handlePreviewPortal = async () => {
+    setIsGeneratingPreview(true);
+    try {
+      const result = await FirebaseFunctions.generateClientPortalPreview(client.id);
+      if (result.success) {
+        sessionStorage.setItem('admin_preview_data', JSON.stringify(result.previewData));
+        window.open(result.portalUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Portal preview error:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'Failed to generate portal preview'
+      });
+    } finally {
+      setIsGeneratingPreview(false);
+    }
+  };
+
   const getPrimaryContact = () => {
     return client?.contacts?.find(c => c.primary) || client?.contacts?.[0];
   };
@@ -450,10 +475,25 @@ export default function ClientDetails() {
                   </Button>
                 </>
               ) : (
-                <Button onClick={() => setIsEditing(true)} className="gap-2">
-                  <Edit className="w-4 h-4" />
-                  Edit Client
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={handlePreviewPortal}
+                    disabled={isGeneratingPreview}
+                    className="gap-2"
+                  >
+                    {isGeneratingPreview ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                    Preview Portal
+                  </Button>
+                  <Button onClick={() => setIsEditing(true)} className="gap-2">
+                    <Edit className="w-4 h-4" />
+                    Edit Client
+                  </Button>
+                </>
               )}
             </div>
           </div>

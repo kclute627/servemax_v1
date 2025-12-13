@@ -61,6 +61,7 @@ import ClientDashboard from "./portal/ClientDashboard";
 import ClientJobs from "./portal/ClientJobs";
 import ClientInvoices from "./portal/ClientInvoices";
 import AcceptInvite from "./portal/AcceptInvite";
+import AdminPreview from "./portal/AdminPreview";
 
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { GlobalDataProvider } from "../components/GlobalDataContext";
@@ -190,6 +191,9 @@ function PagesContent() {
 function PortalRoutes() {
     return (
         <Routes>
+            {/* Admin Preview - standalone route outside PortalLayout (no client auth) */}
+            <Route path="/portal/:companySlug/admin-preview" element={<AdminPreview />} />
+
             <Route path="/portal/:companySlug" element={<PortalLayout />}>
                 <Route path="login" element={<ClientLogin />} />
                 <Route path="accept-invite" element={<AcceptInvite />} />

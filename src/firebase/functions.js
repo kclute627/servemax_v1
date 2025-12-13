@@ -313,4 +313,16 @@ export class FirebaseFunctions {
       throw error;
     }
   }
+
+  // Generate client portal preview for admin
+  static async generateClientPortalPreview(clientCompanyId) {
+    try {
+      const generateClientPortalPreview = httpsCallable(functions, 'generateClientPortalPreview');
+      const result = await generateClientPortalPreview({ client_company_id: clientCompanyId });
+      return result.data;
+    } catch (error) {
+      console.error('Generate client portal preview error:', error);
+      throw error;
+    }
+  }
 }
