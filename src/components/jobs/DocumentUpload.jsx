@@ -412,6 +412,8 @@ export default function DocumentUpload({ documents, onDocumentsChange, onExtract
     try {
       setIsPreparing(true);
       setExtractedFirstPage(null);
+      setBackgroundExtraction({ status: 'idle', data: null, error: null }); // ✅ Reset background extraction
+      backgroundExtractionPromiseRef.current = null; // ✅ Clear promise ref
 
       // Load PDF from File object (no download needed)
       console.log('[DocumentUpload] Loading PDF from File object...');
@@ -465,26 +467,44 @@ export default function DocumentUpload({ documents, onDocumentsChange, onExtract
   // Note: Removed useEffect that watched documents[0]?.file_url to prevent race conditions.
   // Extraction now only happens from the upload handler.
 
-  // SILENT background extraction with Claude Sonnet when first 3 pages are ready
+  // SILENT background extraction with Claude Haiku when first page is ready
   // User doesn't know this is happening - it's for speed optimization
   useEffect(() => {
     const startBackgroundExtraction = async () => {
-      if (!extractedFirstPage || backgroundExtraction.status !== 'idle') {
-        return; // No pages ready or already processing
+      if (!extractedFirstPage) {
+        return;
       }
-
-      console.log('[DocumentUpload] 🔇 Starting silent background extraction with Claude Sonnet...');
+  
+      // ✅ Prevent duplicate calls
+      if (backgroundExtraction.status !== 'idle') {
+        return;
+      }
+  
+      // ✅ Clear any existing promise before starting new one
+      if (backgroundExtractionPromiseRef.current) {
+        backgroundExtractionPromiseRef.current = null;
+      }
+  
+      console.log('[DocumentUpload] 🔇 Starting silent background extraction with Claude Haiku...');
       setBackgroundExtraction({ status: 'processing', data: null, error: null });
-
-      // Store the promise so button handler can await it
-      const extractionPromise = extractDocumentClaudeVision({
-        first_page_base64: extractedFirstPage
+  
+      // ✅ Capture current first page to prevent stale data
+      const currentFirstPage = extractedFirstPage;
+  
+      const extractionPromise = extractDocumentClaudeHaiku({
+        first_page_base64: currentFirstPage
       });
       backgroundExtractionPromiseRef.current = extractionPromise;
-
+  
       try {
         const result = await extractionPromise;
-
+  
+        // ✅ Verify we're still on the same page
+        if (extractedFirstPage !== currentFirstPage) {
+          console.log('[DocumentUpload] ⚠️ Page changed, discarding result');
+          return;
+        }
+  
         if (result.success && result.extractedData) {
           console.log('[DocumentUpload] ✅ Background extraction completed! Cached', Object.keys(result.extractedData).length, 'fields');
           setBackgroundExtraction({ status: 'completed', data: result.extractedData, error: null });
@@ -492,13 +512,18 @@ export default function DocumentUpload({ documents, onDocumentsChange, onExtract
           throw new Error('No data extracted');
         }
       } catch (error) {
-        console.error('[DocumentUpload] ❌ Background extraction failed:', error);
-        setBackgroundExtraction({ status: 'failed', data: null, error: error.message });
+        // ✅ Only update if still on same page
+        if (extractedFirstPage === currentFirstPage) {
+          console.error('[DocumentUpload] ❌ Background extraction failed:', error);
+          setBackgroundExtraction({ status: 'failed', data: null, error: error.message });
+        }
       } finally {
-        backgroundExtractionPromiseRef.current = null;
+        if (backgroundExtractionPromiseRef.current === extractionPromise) {
+          backgroundExtractionPromiseRef.current = null;
+        }
       }
     };
-
+  
     startBackgroundExtraction();
   }, [extractedFirstPage]);
 
@@ -675,53 +700,99 @@ export default function DocumentUpload({ documents, onDocumentsChange, onExtract
   };
 
   // Extract case information from the main document using Claude Haiku (Fast & Cheap)
-  const handleExtractWithHaiku = async (documentUrl, documentIndex) => {
-    console.time('Claude Haiku Extraction');
-    try {
-      setIsExtractingHaiku(true);
+// Extract case information from the main document using Claude Haiku (Fast & Cheap)
+const handleExtractWithHaiku = async (documentUrl, documentIndex) => {
+  // ✅ Guard: Prevent multiple clicks
+  if (isExtractingHaiku) {
+    console.log('[DocumentUpload] ⚠️ Extraction already in progress, ignoring click');
+    return;
+  }
 
+  console.time('Claude Haiku Extraction');
+  try {
+    setIsExtractingHaiku(true);
+
+    let extractedData = null;
+    let usedCache = false;
+
+    // ✅ Case 1: Background extraction already completed - use cached result
+    if (backgroundExtraction.status === 'completed' && backgroundExtraction.data) {
+      console.log('[DocumentUpload] ⚡ Using cached background extraction result');
+      extractedData = backgroundExtraction.data;
+      usedCache = true; // ✅ Mark as cached
+    }
+    // ✅ Case 2: Background extraction still running - wait for it
+    else if (backgroundExtraction.status === 'processing' && backgroundExtractionPromiseRef.current) {
+      console.log('[DocumentUpload] ⏳ Waiting for background extraction to complete...');
+      // ✅ Show toast only if we're waiting
       toast({
         title: "Extracting document data",
         description: "Processing with Claude Haiku (fast & cheap)...",
       });
-
-      // Call Claude Haiku Cloud Function
-      // Use pre-extracted first 3 pages if available (much faster!)
+      
+      const result = await backgroundExtractionPromiseRef.current;
+      
+      if (result.success && result.extractedData) {
+        console.log('[DocumentUpload] ✅ Background extraction completed!');
+        extractedData = result.extractedData;
+      } else {
+        throw new Error('Background extraction failed');
+      }
+    }
+    // ✅ Case 3: Background extraction not available - do direct extraction
+    else {
+      console.log('[DocumentUpload] Background extraction not available, doing direct extraction...');
+      // ✅ Show toast only if we're doing direct extraction
+      toast({
+        title: "Extracting document data",
+        description: "Processing with Claude Haiku (fast & cheap)...",
+      });
+      
       const result = extractedFirstPage
         ? await extractDocumentClaudeHaiku({ first_page_base64: extractedFirstPage })
         : await extractDocumentClaudeHaiku({ file_url: documentUrl });
-
-      console.timeEnd('Claude Haiku Extraction');
-
+      
       if (result.success && result.extractedData) {
-        console.log('[DocumentUpload] Claude Haiku extracted data:', result.extractedData);
-        console.log(`[DocumentUpload] ⚡ Claude Haiku extraction took ${result.duration}s (server-side)`);
-
-        // Pass extracted data to parent component (CreateJob)
-        if (onExtractedData) {
-          onExtractedData(result.extractedData);
-        }
-
-        toast({
-          variant: "success",
-          title: "Claude Haiku extraction complete",
-          description: `Extracted ${Object.keys(result.extractedData).length} fields in ${result.duration}s`,
-        });
+        extractedData = result.extractedData;
       } else {
         throw new Error('No data extracted from document');
       }
-    } catch (error) {
-      console.timeEnd('Claude Haiku Extraction');
-      console.error('Error extracting document data with Claude Haiku:', error);
-      toast({
-        variant: "destructive",
-        title: "Claude Haiku extraction failed",
-        description: error.message || "Failed to extract document data. Please try again.",
-      });
-    } finally {
-      setIsExtractingHaiku(false);
     }
-  };
+
+    console.timeEnd('Claude Haiku Extraction');
+
+    if (extractedData) {
+      console.log('[DocumentUpload] Claude Haiku extracted data:', extractedData);
+
+      // Pass extracted data to parent component (CreateJob)
+      if (onExtractedData) {
+        onExtractedData(extractedData);
+      }
+
+      // ✅ Only show success toast if we actually did extraction (not cached)
+      if (!usedCache) {
+        toast({
+          variant: "success",
+          title: "Extraction complete",
+          description: `Extracted ${Object.keys(extractedData).length} fields`,
+        });
+      }
+      // ✅ If cached, no toast needed (it's instant)
+    } else {
+      throw new Error('No data extracted from document');
+    }
+  } catch (error) {
+    console.timeEnd('Claude Haiku Extraction');
+    console.error('Error extracting document data with Claude Haiku:', error);
+    toast({
+      variant: "destructive",
+      title: "Extraction failed",
+      description: error.message || "Failed to extract document data. Please try again.",
+    });
+  } finally {
+    setIsExtractingHaiku(false);
+  }
+};
 
   const handleDragStart = () => {
     setIsDragging(true);

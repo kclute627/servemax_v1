@@ -3421,7 +3421,23 @@ const opt = {
                           invoice={jobInvoice}
                           client={client}
                           job={job}
-                          companyInfo={null}
+                          companyInfo={(() => {
+                            if (!companyData) return null;
+                            
+                            // Get primary address from addresses array or fallback to legacy fields
+                            const primaryAddress = companyData.addresses?.find(addr => addr.primary) || companyData.addresses?.[0];
+                            
+                            return {
+                              company_name: companyData.name || '',
+                              address1: primaryAddress?.address1 || companyData.address || '',
+                              address2: primaryAddress?.address2 || '',
+                              city: primaryAddress?.city || companyData.city || '',
+                              state: primaryAddress?.state || companyData.state || '',
+                              zip: primaryAddress?.postal_code || companyData.zip || '',
+                              phone: companyData.phone || '',
+                              email: companyData.email || ''
+                            };
+                          })()}  // ✅ Same logic as PDF preview
                           isEditing={true}
                           onSave={handleSaveInvoiceEdit}
                           onCancel={() => setIsEditingInvoice(false)}

@@ -469,9 +469,9 @@ export default function InvoicePreview({
               // Handle both naming conventions
               const itemName = item.item_name || '-';
               const description = item.description || '';
-              const quantity = item.quantity || 1;
-              const rate = item.rate || item.unit_price || 0;
-              const amount = item.amount || item.total || 0;
+              const quantity = Number(item.quantity) || 1; // ✅ Convert to number
+              const rate = Number(item.rate || item.unit_price || 0); // ✅ Convert to number
+              const amount = Number(item.amount || item.total || 0); // ✅ Convert to number
 
               if (!isEditing) {
                 console.log(`[InvoicePreview] Line Item ${index}:`, {
@@ -517,11 +517,11 @@ export default function InvoicePreview({
                             cursor: 'pointer'
                           }}
                         >
-                          {invoiceSettings?.invoice_presets?.map((preset) => (
-                            <option key={preset.id} value={preset.description}>
-                              {preset.description}
-                            </option>
-                          ))}
+{invoiceSettings?.invoice_presets?.map((preset, presetIndex) => (
+  <option key={preset.id || `preset-${presetIndex}`} value={preset.description}>
+    {preset.description}
+  </option>
+))}
                           <option value="Custom">Custom...</option>
                         </select>
                       )
