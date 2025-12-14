@@ -76,8 +76,8 @@ import {
   Send, // Icon for invoice issued
   CreditCard, // Icon for payment applied
   Save, // Icon for save
-  ChevronDown, // ✅ YEH ADD KARO
-  ChevronUp // ✅ YEH ADD KARO
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
@@ -179,7 +179,6 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees,
         onEmailSent(result);
       }
     } catch (error) {
-      console.error('Error sending attempt notification:', error);
       if (onEmailSent) {
         onEmailSent({ success: false, error: error.message });
       }
@@ -541,7 +540,7 @@ export default function JobDetailsPage() {
   // Invoice-specific state
   const [lineItems, setLineItems] = useState([]);
   const [invoicePresets, setInvoicePresets] = useState([]);
-  const [invoiceSettings, setInvoiceSettings] = useState(null); // ✅ YEH ADD KARO
+  const [invoiceSettings, setInvoiceSettings] = useState(null);
   const [customItem, setCustomItem] = useState(null);
   const [invoiceSaved, setInvoiceSaved] = useState(false);
 
@@ -561,7 +560,7 @@ export default function JobDetailsPage() {
   const [isEditingInvoice, setIsEditingInvoice] = useState(false);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
   const [saveInvoiceTrigger, setSaveInvoiceTrigger] = useState(0);
-  const [showPDFPreview, setShowPDFPreview] = useState(false); // ✅ YEH ADD KARO
+  const [showPDFPreview, setShowPDFPreview] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -670,8 +669,6 @@ export default function JobDetailsPage() {
     let updatePayload = {};
 
     if (updatedJobData.status === 'served' && !hasValidServedAttempt) {
-      console.warn(`Job ${updatedJobData.job_number} marked as served but has no successful attempts. Correcting status.`);
-
       let correctStatus = 'pending';
       if (attempts.length > 0) {
         correctStatus = 'in_progress';
@@ -688,8 +685,6 @@ export default function JobDetailsPage() {
     }
 
     if (updatedJobData.status !== 'served' && hasValidServedAttempt) {
-      console.warn(`Job ${updatedJobData.job_number} has successful attempts but not marked as served. Correcting status.`);
-
       const latestServedAttempt = servedAttempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))[0];
 
       updatePayload = {
@@ -748,16 +743,16 @@ export default function JobDetailsPage() {
         invoiceSettingsData,
       ] = await Promise.all([
         jobData.client_id ? Client.findById(jobData.client_id) : Promise.resolve(null),
-        jobData.court_case_id ? CourtCase.findById(jobData.court_case_id).catch(e => { console.error("Error finding court_cases by ID:", e); return null; }) : Promise.resolve(null),
-        Document.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { console.error("Error loading documents:", e); return []; }),
-        Attempt.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { console.error("Error loading attempts:", e); return []; }),
+        jobData.court_case_id ? CourtCase.findById(jobData.court_case_id).catch(e => { return null; }) : Promise.resolve(null),
+        Document.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { return []; }),
+        Attempt.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { return []; }),
         // Use direct lookup if job has invoice_id, otherwise fallback to filter
         jobData.job_invoice_id
-          ? Invoice.findById(jobData.job_invoice_id).catch(e => { console.error("Error loading invoice:", e); return null; })
-          : Invoice.filter({ job_ids: jobId }).then(invoices => invoices[0] || null).catch(e => { console.error("Error loading invoices:", e); return null; }),
-        Employee.list().catch(e => { console.error("Error loading employees:", e); return []; }),
-        Client.list().catch(e => { console.error("Error loading clients:", e); return []; }),
-        CompanySettings.filter({ setting_key: "invoice_settings" }).catch(e => { console.error("Error loading invoice settings:", e); return []; }),
+          ? Invoice.findById(jobData.job_invoice_id).catch(e => { return null; })
+          : Invoice.filter({ job_ids: jobId }).then(invoices => invoices[0] || null).catch(e => { return null; }),
+        Employee.list().catch(e => { return []; }),
+        Client.list().catch(e => { return []; }),
+        CompanySettings.filter({ setting_key: "invoice_settings" }).catch(e => { return []; }),
       ]);
 
       const validatedJobData = await validateJobStatus(jobData, Array.isArray(attemptsData) ? attemptsData : []);
@@ -778,14 +773,12 @@ export default function JobDetailsPage() {
       );
 
       if (hasSignedAffidavits && !validatedJobData.has_signed_affidavit) {
-        console.log('[Auto-Sync] Job has signed affidavits but flag not set. Updating job...');
         try {
           await Job.update(jobId, { has_signed_affidavit: true });
           // Update local state
           setJob(prev => ({ ...prev, has_signed_affidavit: true }));
-          console.log('[Auto-Sync] Job flag updated successfully');
         } catch (error) {
-          console.error('[Auto-Sync] Failed to update job flag:', error);
+          // Failed to update job flag
         }
       }
 
@@ -824,7 +817,7 @@ export default function JobDetailsPage() {
         // Line 819 ke baad add karo
         setInvoicePresets(normalized);
 
-        // ✅ YEH ADD KARO - Store full invoice settings
+        // Store full invoice settings
         if (
           Array.isArray(invoiceSettingsData) &&
           invoiceSettingsData.length > 0 &&
@@ -879,12 +872,10 @@ export default function JobDetailsPage() {
             if (contractor) {
               setServer({ name: contractor.company_name, type: 'Contractor' });
             } else {
-              console.warn(`Could not find server with ID ${validatedJobData.assigned_server_id}`);
               setServer(null);
             }
           }
         } catch (serverError) {
-          console.error("Error loading server information:", serverError);
           setServer(null);
         }
       } else {
@@ -892,7 +883,6 @@ export default function JobDetailsPage() {
       }
 
     } catch (e) {
-      console.error("Error loading job details:", e);
       setError(e.message);
     }
     setIsLoading(false);
@@ -963,7 +953,7 @@ export default function JobDetailsPage() {
         const user = await User.me();
         setCurrentUser(user);
       } catch (e) {
-        console.error("No user logged in for activity tracking.");
+        // No user logged in for activity tracking
       }
     };
     fetchUser();
@@ -1030,7 +1020,7 @@ export default function JobDetailsPage() {
             setInvoices([invoiceData]);
           }
         } catch (error) {
-          console.error('Error refreshing invoice data:', error);
+          // Error refreshing invoice data
         }
       };
 
@@ -1080,7 +1070,6 @@ export default function JobDetailsPage() {
       await refreshData();
 
     } catch (error) {
-      console.error("Error toggling job closed status:", error);
       alert("Failed to update job status.");
     }
   };
@@ -1252,7 +1241,6 @@ export default function JobDetailsPage() {
             }));
             logDescription = 'Case information updated.';
           } else {
-            console.warn("Cannot update case info: No court case linked to this job.");
             alert("No court case linked to this job to update.");
           }
           break;
@@ -1344,7 +1332,6 @@ export default function JobDetailsPage() {
 
         // FIREBASE TRANSITION: This is the main database write. Replace with `updateDoc(doc(db, 'jobs', job.id), updateData)`.
         await Job.update(job.id, updateData);
-        console.log(`✅ Successfully saved ${section}:`, updateData);
 
         // This local state update is fine.
         setJob(prevJob => ({
@@ -1374,7 +1361,6 @@ export default function JobDetailsPage() {
 
       handleCancelEdit(section);
     } catch (error) {
-      console.error(`❌ Error saving ${section}:`, error);
       alert(`Failed to save changes: ${error.message}`);
     }
   };
@@ -1513,7 +1499,6 @@ export default function JobDetailsPage() {
 
       // FIREBASE TRANSITION: Replace this with `updateDoc`.
       await Job.update(job.id, updateData);
-      console.log("✅ Successfully saved notes:", updateData);
 
       // This local state update is fine.
       setJob(prevJob => ({
@@ -1523,7 +1508,6 @@ export default function JobDetailsPage() {
 
       setIsEditingNotes(false);
     } catch (error) {
-      console.error("❌ Error saving notes:", error);
       alert("Failed to save notes: " + error.message);
     }
   };
@@ -1625,7 +1609,6 @@ export default function JobDetailsPage() {
    */
   const saveInvoiceItems = async () => {
     if (!job?.id || !Array.isArray(lineItems)) {
-      console.warn("⚠️ Cannot save invoice items: missing job ID or invalid line items");
       return;
     }
 
@@ -1638,7 +1621,6 @@ export default function JobDetailsPage() {
 
       // FIREBASE TRANSITION: Replace this with `updateDoc`.
       await Job.update(job.id, updateData);
-      console.log("✅ Successfully saved invoice items:", updateData);
 
       // Local state updates are fine.
       setJob(prevJob => ({
@@ -1653,7 +1635,6 @@ export default function JobDetailsPage() {
       }, 3000);
 
     } catch (error) {
-      console.error("❌ Failed to save invoice items:", error);
       alert('Failed to save invoice items: ' + error.message);
     }
   };
@@ -1701,8 +1682,6 @@ export default function JobDetailsPage() {
         throw new Error(response.message || "Failed to generate field sheet");
       }
 
-      console.log('Field sheet generated successfully:', response);
-
       // Update documents state with new field sheet without refreshing page
       if (response.document) {
         setDocuments(prevDocs => {
@@ -1720,7 +1699,6 @@ export default function JobDetailsPage() {
         description: "Your field sheet has been generated successfully"
       });
     } catch (error) {
-      console.error('Failed to generate field sheet:', error);
       toast({
         variant: "destructive",
         title: "Error generating field sheet",
@@ -1747,12 +1725,8 @@ export default function JobDetailsPage() {
 
     setIsUploadingSignedAffidavit(true);
     try {
-      console.log('[Upload Signed] Starting upload');
-      console.log('[Upload Signed] File:', file.name, file.size, 'bytes');
-
       // Upload the signed PDF to Firebase Storage
       const uploadResult = await UploadFile(file);
-      console.log('[Upload Signed] Upload successful:', uploadResult);
 
       if (!uploadResult || !uploadResult.url) {
         throw new Error('File upload failed - no URL returned');
@@ -1765,9 +1739,8 @@ export default function JobDetailsPage() {
         const arrayBuffer = await file.arrayBuffer();
         const pdfDoc = await PDFLib.load(arrayBuffer);
         pageCount = pdfDoc.getPageCount();
-        console.log('[Upload Signed] Page count:', pageCount);
       } catch (error) {
-        console.warn('[Upload Signed] Could not determine page count:', error);
+        // Could not determine page count
       }
 
       // Create a new document record
@@ -1784,8 +1757,6 @@ export default function JobDetailsPage() {
         received_at: new Date().toISOString()
       });
 
-      console.log('[Upload Signed] Document created successfully:', newDocument);
-
       // Update local state
       setDocuments(prev => [...prev, newDocument]);
 
@@ -1793,12 +1764,10 @@ export default function JobDetailsPage() {
       await Job.update(job.id, {
         has_signed_affidavit: true
       });
-      console.log('[Upload Signed] Job updated with has_signed_affidavit flag');
 
       alert('Signed affidavit uploaded successfully!');
 
     } catch (error) {
-      console.error("Error uploading signed affidavit:", error);
       alert(`Failed to upload signed affidavit: ${error.message || 'Unknown error'}. Please try again.`);
     } finally {
       setIsUploadingSignedAffidavit(false);
@@ -1808,12 +1777,8 @@ export default function JobDetailsPage() {
   const handleUploadExternalAffidavit = async (file) => {
     setIsUploadingExternalAffidavit(true);
     try {
-      console.log('[Upload External] Starting upload');
-      console.log('[Upload External] File:', file.name, file.size, 'bytes');
-
       // Upload the PDF to Firebase Storage
       const uploadResult = await UploadFile(file);
-      console.log('[Upload External] Upload successful:', uploadResult);
 
       if (!uploadResult || !uploadResult.url) {
         throw new Error('File upload failed - no URL returned');
@@ -1823,7 +1788,6 @@ export default function JobDetailsPage() {
       navigate(createPageUrl(`SignExternalAffidavit?jobId=${job.id}&fileUrl=${encodeURIComponent(uploadResult.url)}`));
 
     } catch (error) {
-      console.error("Error uploading external affidavit:", error);
       alert(`Failed to upload affidavit: ${error.message || 'Unknown error'}. Please try again.`);
     } finally {
       setIsUploadingExternalAffidavit(false);
@@ -1832,15 +1796,11 @@ export default function JobDetailsPage() {
 
   const handleMarkAffidavitSigned = async (documentId) => {
     try {
-      console.log('[Mark Signed] Marking document as signed:', documentId);
-
       // Update the document to mark it as signed
       await Document.update(documentId, {
         is_signed: true,
         signed_at: new Date().toISOString()
       });
-
-      console.log('[Mark Signed] Document updated successfully');
 
       // Update local state
       setDocuments(prev => prev.map(doc =>
@@ -1857,20 +1817,16 @@ export default function JobDetailsPage() {
       await Job.update(job.id, {
         has_signed_affidavit: true
       });
-      console.log('[Mark Signed] Job updated with has_signed_affidavit flag');
 
       alert('Affidavit marked as signed!');
 
     } catch (error) {
-      console.error("Error marking affidavit as signed:", error);
       alert(`Failed to mark affidavit as signed: ${error.message || 'Unknown error'}.`);
     }
   };
 
   const handleShareAffidavit = async (doc) => {
     try {
-      console.log('[Share] Sharing document:', doc);
-
       // Check if Web Share API is available
       if (navigator.share) {
         await navigator.share({
@@ -1878,18 +1834,15 @@ export default function JobDetailsPage() {
           text: `View ${doc.title} for Job #${job.job_number}`,
           url: doc.file_url
         });
-        console.log('[Share] Shared successfully via Web Share API');
       } else {
         // Fallback: copy link to clipboard
         await navigator.clipboard.writeText(doc.file_url);
         alert('Link copied to clipboard!');
-        console.log('[Share] Link copied to clipboard');
       }
 
     } catch (error) {
       // User cancelled share or clipboard failed
       if (error.name !== 'AbortError') {
-        console.error("Error sharing affidavit:", error);
         // Try clipboard as fallback
         try {
           await navigator.clipboard.writeText(doc.file_url);
@@ -1940,7 +1893,6 @@ export default function JobDetailsPage() {
       setDocuments(prev => [...prev, mergedDoc]);
 
     } catch (error) {
-      console.error("Error merging service documents:", error);
       alert(`Failed to merge PDFs: ${error.message || 'Unknown error'}. Please try again.`);
     }
     setIsMergingServiceDocs(false);
@@ -1983,7 +1935,6 @@ export default function JobDetailsPage() {
       toast({ title: 'Invoice Issued', description: 'Invoice has been issued successfully.' });
       await refreshData();
     } catch (error) {
-      console.error('Error issuing invoice:', error);
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to issue invoice.' });
     }
     setIsIssuingInvoice(false);
@@ -2008,7 +1959,6 @@ export default function JobDetailsPage() {
 
       toast({ title: 'Email Queued', description: `Invoice email queued for ${clientEmail}` });
     } catch (error) {
-      console.error('Error emailing invoice:', error);
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to queue invoice email.' });
     }
     setIsEmailingInvoice(false);
@@ -2063,7 +2013,6 @@ export default function JobDetailsPage() {
         toast({ title: 'Invoice Issued', description: 'Invoice issued but no email address found for client.' });
       }
     } catch (error) {
-      console.error('Error issuing and emailing invoice:', error);
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to issue and email invoice.' });
     }
     setIsIssuingInvoice(false);
@@ -2073,84 +2022,83 @@ export default function JobDetailsPage() {
 
 
   // Line 2120 ke baad add karo - Download PDF Handler
-const handleDownloadInvoicePDF = async () => {
-  try {
-    const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
-    if (!jobInvoice) {
+  const handleDownloadInvoicePDF = async () => {
+    try {
+      const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
+      if (!jobInvoice) {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Invoice not found'
+        });
+        return;
+      }
+
+      toast({
+        title: 'Generating PDF',
+        description: 'Please wait while we generate your PDF...',
+        variant: 'default',
+        className: 'border-blue-200 bg-blue-50 text-blue-900'
+      });
+
+      // Wait for invoice preview to render
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      const element = document.getElementById('invoice-pdf-preview');
+      if (!element) {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Invoice preview not found. Please try again.'
+        });
+        return;
+      }
+
+      const opt = {
+        margin: [0.15, 0.25],
+        filename: `Invoice-${jobInvoice.invoice_number}.pdf`,
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: {
+          scale: 1.0,
+          useCORS: true,
+          logging: false,
+          letterRendering: true,
+          windowWidth: 800,
+          height: 1000,
+          width: 800,
+          scrollX: 0,
+          scrollY: 0
+        },
+        jsPDF: {
+          unit: 'in',
+          format: 'letter',
+          orientation: 'portrait',
+          compress: true
+        },
+        pagebreak: {
+          mode: 'avoid-all',
+          before: '.page-break-before',
+          after: '.page-break-after',
+          avoid: ['.invoice-header', '.invoice-details', '.invoice-line-items', '.invoice-totals']
+        },
+        enableLinks: false
+      };
+
+      // Generate PDF and download (browser download)
+      await html2pdf().set(opt).from(element).save();
+
+      toast({
+        title: 'PDF Downloaded',
+        description: `Invoice ${jobInvoice.invoice_number} has been downloaded.`
+      });
+    } catch (error) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Invoice not found'
+        description: 'Failed to generate PDF. Please try again.'
       });
-      return;
     }
-
-    toast({
-      title: 'Generating PDF',
-      description: 'Please wait while we generate your PDF...' ,
-      variant: 'default',
-      className: 'border-blue-200 bg-blue-50 text-blue-900' 
-    });
-
-    // ✅ Wait for invoice preview to render
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    const element = document.getElementById('invoice-pdf-preview');
-    if (!element) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Invoice preview not found. Please try again.'
-      });
-      return;
-    }
-
-    const opt = {
-      margin: [0.15, 0.25], // ✅ Smaller margins: [top/bottom, left/right] in inches
-      filename: `Invoice-${jobInvoice.invoice_number}.pdf`,
-      image: { type: 'jpeg', quality: 0.95 }, // ✅ Slightly lower quality for smaller file
-      html2canvas: { 
-        scale: 1.0, // ✅ Much smaller scale
-        useCORS: true,
-        logging: false,
-        letterRendering: true,
-        windowWidth: 800,
-        height: 1000, // ✅ Fixed height (11in = ~1000px at 96dpi, minus margins)
-        width: 800,
-        scrollX: 0,
-        scrollY: 0
-      },
-      jsPDF: { 
-        unit: 'in', 
-        format: 'letter', 
-        orientation: 'portrait',
-        compress: true
-      },
-      pagebreak: { 
-        mode: 'avoid-all', // ✅ Avoid all page breaks
-        before: '.page-break-before',
-        after: '.page-break-after',
-        avoid: ['.invoice-header', '.invoice-details', '.invoice-line-items', '.invoice-totals']
-      },
-      enableLinks: false // ✅ Disable links to save space
-    };
-
-    // ✅ Generate PDF and download (browser download)
-    await html2pdf().set(opt).from(element).save();
-
-    toast({
-      title: 'PDF Downloaded',
-      description: `Invoice ${jobInvoice.invoice_number} has been downloaded.`
-    });
-  } catch (error) {
-    console.error('Error generating PDF:', error);
-    toast({
-      variant: 'destructive',
-      title: 'Error',
-      description: 'Failed to generate PDF. Please try again.'
-    });
-  }
-};
+  };
 
   // Line 2070 ke baad add karo - PDF Download Handler
   const handleViewInvoicePDF = async () => {
@@ -2164,17 +2112,17 @@ const handleDownloadInvoicePDF = async () => {
         });
         return;
       }
-  
+
       toast({
         title: 'Generating PDF',
         description: 'Please wait while we generate your PDF...',
         variant: 'default',
-        className: 'border-blue-200 bg-blue-50 text-blue-900' 
+        className: 'border-blue-200 bg-blue-50 text-blue-900'
       });
-  
-      // ✅ Wait for invoice preview to render (if not already rendered)
+
+      // Wait for invoice preview to render (if not already rendered)
       await new Promise(resolve => setTimeout(resolve, 300));
-  
+
       const element = document.getElementById('invoice-pdf-preview');
       if (!element) {
         toast({
@@ -2184,56 +2132,55 @@ const handleDownloadInvoicePDF = async () => {
         });
         return;
       }
-  
 
-const opt = {
-  margin: [0.15, 0.25], // ✅ Very small margins
-  filename: `Invoice-${jobInvoice.invoice_number}.pdf`,
-  image: { type: 'jpeg', quality: 0.9 },
-  html2canvas: { 
-    scale: 1.0, // ✅ Smaller scale
-    useCORS: true,
-    logging: false,
-    letterRendering: true,
-    windowWidth: 800,
-    height: 1000, // ✅ Fixed height
-    width: 800,
-    scrollX: 0,
-    scrollY: 0
-  },
-  jsPDF: { 
-    unit: 'in', 
-    format: 'letter', 
-    orientation: 'portrait',
-    compress: true
-  },
-  pagebreak: { 
-    mode: 'avoid-all',
-    before: '.page-break-before',
-    after: '.page-break-after',
-    avoid: ['.invoice-header', '.invoice-details', '.invoice-line-items', '.invoice-totals', '.bill-to-section']
-  },
-  enableLinks: false // ✅ Disable links
-};
-  
-      // ✅ Generate PDF as blob
+
+      const opt = {
+        margin: [0.15, 0.25],
+        filename: `Invoice-${jobInvoice.invoice_number}.pdf`,
+        image: { type: 'jpeg', quality: 0.9 },
+        html2canvas: {
+          scale: 1.0,
+          useCORS: true,
+          logging: false,
+          letterRendering: true,
+          windowWidth: 800,
+          height: 1000,
+          width: 800,
+          scrollX: 0,
+          scrollY: 0
+        },
+        jsPDF: {
+          unit: 'in',
+          format: 'letter',
+          orientation: 'portrait',
+          compress: true
+        },
+        pagebreak: {
+          mode: 'avoid-all',
+          before: '.page-break-before',
+          after: '.page-break-after',
+          avoid: ['.invoice-header', '.invoice-details', '.invoice-line-items', '.invoice-totals', '.bill-to-section']
+        },
+        enableLinks: false
+      };
+
+      // Generate PDF as blob
       const pdfBlob = await html2pdf().set(opt).from(element).outputPdf('blob');
-      
-      // ✅ Create object URL and open in new tab
+
+      // Create object URL and open in new tab
       const pdfUrl = URL.createObjectURL(pdfBlob);
       window.open(pdfUrl, '_blank');
-      
-      // ✅ Cleanup after a delay
+
+      // Cleanup after a delay
       setTimeout(() => URL.revokeObjectURL(pdfUrl), 1000);
-  
+
       toast({
         title: 'PDF Opened',
         description: 'Invoice PDF opened in new tab.',
         variant: 'default',
-        className: 'border-green-200 bg-green-50 text-green-900' 
+        className: 'border-green-200 bg-green-50 text-green-900'
       });
     } catch (error) {
-      console.error('Error generating PDF:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
@@ -2256,19 +2203,19 @@ const opt = {
         throw new Error('Invoice not found');
       }
 
-      // ✅ VALIDATION
+      // VALIDATION
       if (!updatedData.line_items || updatedData.line_items.length === 0) {
         toast({
           variant: 'default',
           title: 'Note',
           description: 'Invoice must have at least one line item.',
-          className: 'border-yellow-200 bg-yellow-50 text-yellow-900' // ✅ YEH ADD KARO
+          className: 'border-yellow-200 bg-yellow-50 text-yellow-900'
         });
         setIsSavingInvoice(false);
         return;
       }
 
-      // ✅ SPEED FIX 1: UI immediately update (user ko wait nahi karna)
+      // SPEED FIX 1: UI immediately update
       const optimisticInvoice = {
         ...jobInvoice,
         invoice_date: updatedData.invoice_date || jobInvoice.invoice_date,
@@ -2283,10 +2230,10 @@ const opt = {
         balance_due: updatedData.balance_due,
         updated_at: new Date().toISOString()
       };
-      setInvoices([optimisticInvoice]); // ✅ INSTANT UPDATE!
-      setIsEditingInvoice(false); // ✅ INSTANT - Edit mode close!
+      setInvoices([optimisticInvoice]);
+      setIsEditingInvoice(false);
 
-      // ✅ SPEED FIX 2: Database update (background - user ko wait nahi karna)
+      // SPEED FIX 2: Database update (background)
       Invoice.update(jobInvoice.id, {
         invoice_date: updatedData.invoice_date || jobInvoice.invoice_date,
         due_date: updatedData.due_date || jobInvoice.due_date,
@@ -2300,7 +2247,6 @@ const opt = {
         balance_due: updatedData.balance_due,
         updated_at: new Date().toISOString()
       }).catch(err => {
-        console.error('Invoice update failed:', err);
         // Revert on error
         setInvoices([jobInvoice]);
         setIsEditingInvoice(true);
@@ -2311,7 +2257,7 @@ const opt = {
         });
       });
 
-      // ✅ SPEED FIX 3: Activity log (fire and forget - don't wait)
+      // SPEED FIX 3: Activity log (fire and forget - don't wait)
       const newLogEntry = {
         timestamp: new Date().toISOString(),
         event_type: 'invoice_updated',
@@ -2323,7 +2269,9 @@ const opt = {
       // Don't wait - update in background
       Job.update(job.id, {
         activity_log: [...currentActivityLog, newLogEntry]
-      }).catch(err => console.error('Activity log update failed:', err));
+      }).catch(err => {
+        // Activity log update failed
+      });
 
       // Update local job state
       setJob(prev => ({
@@ -2331,17 +2279,16 @@ const opt = {
         activity_log: [...currentActivityLog, newLogEntry]
       }));
 
-      // ✅ SUCCESS MESSAGE (instant)
+      // SUCCESS MESSAGE
       toast({
-        title: '✅ Invoice Updated',
+        title: 'Invoice Updated',
         description: 'Your changes have been saved successfully.',
-        className: 'border-green-200 bg-green-50 text-white-900' // ✅ YEH ADD KARO
+        className: 'border-green-200 bg-green-50 text-green-900'
       });
 
-      setIsSavingInvoice(false); // ✅ INSTANT - Loading state off!
+      setIsSavingInvoice(false);
 
     } catch (error) {
-      console.error('Error saving invoice:', error);
 
       // Revert optimistic update
       const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
@@ -3158,7 +3105,7 @@ const opt = {
               </CardContent>
             </Card>
 
-   
+
 
             {/* ✅ Invoice PDF Preview Card - Only show when editing */}
             {isEditingInvoice && (() => {
@@ -3183,44 +3130,44 @@ const opt = {
                         Download PDF
                       </Button>
                       <Button
-    variant="default" // ✅ Changed from "ghost" to "default"
-    size="sm"
-    className="gap-2 bg-slate-900 hover:bg-slate-800"
-    onClick={handleViewInvoicePDF} // ✅ Changed to handleViewInvoicePDF
-  >
-    <Eye className="w-4 h-4" /> {/* ✅ Changed icon */}
-    View PDF Preview
-  </Button>
+                        variant="default"
+                        size="sm"
+                        className="gap-2 bg-slate-900 hover:bg-slate-800"
+                        onClick={handleViewInvoicePDF}
+                      >
+                        <Eye className="w-4 h-4" />
+                        View PDF Preview
+                      </Button>
                     </div>
                   </CardHeader>
-                  <CardContent className="hidden"> {/* ✅ Hidden but still in DOM for PDF generation */}
-  <div id="invoice-pdf-preview" className="bg-white"  style={{ maxHeight: '10.5in', overflow: 'hidden' }}>
-    <InvoicePreview
-      invoice={jobInvoice}
-      client={client}
-      job={job}
-      companyInfo={(() => {
-        if (!companyData) return null;
-        
-        // Get primary address from addresses array or fallback to legacy fields
-        const primaryAddress = companyData.addresses?.find(addr => addr.primary) || companyData.addresses?.[0];
-        
-        return {
-          company_name: companyData.name || '',
-          address1: primaryAddress?.address1 || companyData.address || '',
-          address2: primaryAddress?.address2 || '',
-          city: primaryAddress?.city || companyData.city || '',
-          state: primaryAddress?.state || companyData.state || '',
-          zip: primaryAddress?.postal_code || companyData.zip || '',
-          phone: companyData.phone || '',
-          email: companyData.email || ''
-        };
-      })()}
-      isEditing={false}
-      invoiceSettings={invoiceSettings}
-    />
-  </div>
-</CardContent>
+                  <CardContent className="hidden"> {/*  Hidden but still in DOM for PDF generation */}
+                    <div id="invoice-pdf-preview" className="bg-white" style={{ maxHeight: '10.5in', overflow: 'hidden' }}>
+                      <InvoicePreview
+                        invoice={jobInvoice}
+                        client={client}
+                        job={job}
+                        companyInfo={(() => {
+                          if (!companyData) return null;
+
+                          // Get primary address from addresses array or fallback to legacy fields
+                          const primaryAddress = companyData.addresses?.find(addr => addr.primary) || companyData.addresses?.[0];
+
+                          return {
+                            company_name: companyData.name || '',
+                            address1: primaryAddress?.address1 || companyData.address || '',
+                            address2: primaryAddress?.address2 || '',
+                            city: primaryAddress?.city || companyData.city || '',
+                            state: primaryAddress?.state || companyData.state || '',
+                            zip: primaryAddress?.postal_code || companyData.zip || '',
+                            phone: companyData.phone || '',
+                            email: companyData.email || ''
+                          };
+                        })()}
+                        isEditing={false}
+                        invoiceSettings={invoiceSettings}
+                      />
+                    </div>
+                  </CardContent>
                 </Card>
               );
             })()}
@@ -3295,26 +3242,26 @@ const opt = {
                             {/* Save button InvoicePreview component mein already hai */}
 
                             <Button
-                          variant="default"
-                          size="sm"
-                          className="gap-2 bg-slate-900 hover:bg-slate-800"
-                          onClick={() => {
-                            setSaveInvoiceTrigger(prev => prev + 1); // ✅ Trigger increment karo
-                          }}
-                          disabled={isSavingInvoice}
-                        >
-                          {isSavingInvoice ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Saving...
-                            </>
-                          ) : (
-                            <>
-                              <Save className="w-4 h-4" />
-                              Save
-                            </>
-                          )}
-                        </Button>
+                              variant="default"
+                              size="sm"
+                              className="gap-2 bg-slate-900 hover:bg-slate-800"
+                              onClick={() => {
+                                setSaveInvoiceTrigger(prev => prev + 1);
+                              }}
+                              disabled={isSavingInvoice}
+                            >
+                              {isSavingInvoice ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  Saving...
+                                </>
+                              ) : (
+                                <>
+                                  <Save className="w-4 h-4" />
+                                  Save
+                                </>
+                              )}
+                            </Button>
                           </>
                         )}
 
@@ -3413,7 +3360,7 @@ const opt = {
                 const jobInvoice = invoices.find(inv => inv.job_ids?.includes(job.id));
 
                 if (jobInvoice) {
-                  // ✅ EDITING MODE - Agar isEditingInvoice true hai
+                  // EDITING MODE
                   if (isEditingInvoice) {
                     return (
                       <div className="bg-white rounded-lg p-4">
@@ -3423,10 +3370,10 @@ const opt = {
                           job={job}
                           companyInfo={(() => {
                             if (!companyData) return null;
-                            
+
                             // Get primary address from addresses array or fallback to legacy fields
                             const primaryAddress = companyData.addresses?.find(addr => addr.primary) || companyData.addresses?.[0];
-                            
+
                             return {
                               company_name: companyData.name || '',
                               address1: primaryAddress?.address1 || companyData.address || '',
@@ -3437,19 +3384,19 @@ const opt = {
                               phone: companyData.phone || '',
                               email: companyData.email || ''
                             };
-                          })()}  // ✅ Same logic as PDF preview
+                          })()}
                           isEditing={true}
                           onSave={handleSaveInvoiceEdit}
                           onCancel={() => setIsEditingInvoice(false)}
                           isSaving={isSavingInvoice}
                           invoiceSettings={invoiceSettings}
-                          saveTrigger={saveInvoiceTrigger} 
+                          saveTrigger={saveInvoiceTrigger}
                         />
                       </div>
                     );
                   }
 
-                  // ✅ READ-ONLY MODE - Normal display (existing code)
+                  // READ-ONLY MODE
                   const total = jobInvoice.total || jobInvoice.total_amount || 0;
                   const totalPaid = jobInvoice.total_paid || 0;
                   const balanceDue = jobInvoice.balance_due || (total - totalPaid);

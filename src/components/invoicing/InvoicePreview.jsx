@@ -53,16 +53,6 @@ export default function InvoicePreview({
     }
   }, [saveTrigger, isEditing]);
 
-  console.log('[InvoicePreview] Company Info:', companyInfo);
-  console.log('[InvoicePreview] Invoice Data:', invoice);
-  console.log('[InvoicePreview] Client Data:', client);
-  console.log('[InvoicePreview] Job Data:', job);
-  console.log('[InvoicePreview] Client Contacts:', client?.contacts);
-  console.log('[InvoicePreview] Job Contact ID:', job?.contact_id);
-  console.log('[InvoicePreview] Line Items:', invoice.line_items);
-  console.log('[InvoicePreview] Line Items Type:', typeof invoice.line_items);
-  console.log('[InvoicePreview] Line Items Length:', invoice.line_items?.length);
-
   const handleLineItemChange = (index, field, value) => {
     const newLineItems = [...formData.line_items];
     newLineItems[index][field] = value;
@@ -469,16 +459,9 @@ export default function InvoicePreview({
               // Handle both naming conventions
               const itemName = item.item_name || '-';
               const description = item.description || '';
-              const quantity = Number(item.quantity) || 1; // ✅ Convert to number
-              const rate = Number(item.rate || item.unit_price || 0); // ✅ Convert to number
-              const amount = Number(item.amount || item.total || 0); // ✅ Convert to number
-
-              if (!isEditing) {
-                console.log(`[InvoicePreview] Line Item ${index}:`, {
-                  raw: item,
-                  parsed: { itemName, description, quantity, rate, amount }
-                });
-              }
+              const quantity = Number(item.quantity) || 1;
+              const rate = Number(item.rate || item.unit_price || 0);
+              const amount = Number(item.amount || item.total || 0);
 
               return (
                 <tr key={index} className={isEditing ? 'editable-row' : ''}>
