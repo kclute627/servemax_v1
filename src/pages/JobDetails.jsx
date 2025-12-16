@@ -76,8 +76,8 @@ import {
   Send, // Icon for invoice issued
   CreditCard, // Icon for payment applied
   Save, // Icon for save
-  ChevronDown, // ✅ YEH ADD KARO
-  ChevronUp // ✅ YEH ADD KARO
+  ChevronDown, //  Icon for expand and collapse
+  ChevronUp //  Icon for expand and collapse
 } from 'lucide-react';
 import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
@@ -2268,7 +2268,7 @@ const opt = {
         return;
       }
 
-      // ✅ SPEED FIX 1: UI immediately update (user ko wait nahi karna)
+      // ✅ SPEED FIX 1: UI immediately update 
       const optimisticInvoice = {
         ...jobInvoice,
         invoice_date: updatedData.invoice_date || jobInvoice.invoice_date,
@@ -2286,7 +2286,7 @@ const opt = {
       setInvoices([optimisticInvoice]); // ✅ INSTANT UPDATE!
       setIsEditingInvoice(false); // ✅ INSTANT - Edit mode close!
 
-      // ✅ SPEED FIX 2: Database update (background - user ko wait nahi karna)
+      // ✅ SPEED FIX 2: Database update (background)
       Invoice.update(jobInvoice.id, {
         invoice_date: updatedData.invoice_date || jobInvoice.invoice_date,
         due_date: updatedData.due_date || jobInvoice.due_date,
