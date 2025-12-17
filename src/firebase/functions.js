@@ -290,6 +290,30 @@ export class FirebaseFunctions {
     }
   }
 
+  // Self-register as a client portal user (creates company + user)
+  static async selfRegisterClient(data) {
+    try {
+      const selfRegisterClientUser = httpsCallable(functions, 'selfRegisterClientUser');
+      const result = await selfRegisterClientUser(data);
+      return result.data;
+    } catch (error) {
+      console.error('Self register client error:', error);
+      throw error;
+    }
+  }
+
+  // Acknowledge a client registration notification
+  static async acknowledgeClientRegistration(notificationId) {
+    try {
+      const acknowledgeClientRegistration = httpsCallable(functions, 'acknowledgeClientRegistration');
+      const result = await acknowledgeClientRegistration({ notificationId });
+      return result.data;
+    } catch (error) {
+      console.error('Acknowledge client registration error:', error);
+      throw error;
+    }
+  }
+
   // Get client portal data for authenticated client user
   static async getClientPortalData() {
     try {
@@ -322,6 +346,30 @@ export class FirebaseFunctions {
       return result.data;
     } catch (error) {
       console.error('Generate client portal preview error:', error);
+      throw error;
+    }
+  }
+
+  // Create a job from the client portal
+  static async createClientJob(jobData) {
+    try {
+      const createClientJob = httpsCallable(functions, 'createClientJob');
+      const result = await createClientJob(jobData);
+      return result.data;
+    } catch (error) {
+      console.error('Create client job error:', error);
+      throw error;
+    }
+  }
+
+  // Send password reset email to a client user
+  static async sendClientPasswordReset(data) {
+    try {
+      const sendClientPasswordReset = httpsCallable(functions, 'sendClientPasswordReset');
+      const result = await sendClientPasswordReset(data);
+      return result.data;
+    } catch (error) {
+      console.error('Send client password reset error:', error);
       throw error;
     }
   }

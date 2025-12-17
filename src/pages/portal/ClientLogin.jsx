@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { Building2, Eye, EyeOff, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -181,13 +181,26 @@ export default function ClientLogin() {
           </form>
 
           <div className="mt-6 text-center text-sm text-slate-500">
-            <p>
-              Don't have an account? Contact{" "}
-              <span className="font-medium text-slate-700">
-                {companyData?.name || 'the company'}
-              </span>{" "}
-              to request access.
-            </p>
+            {companyData?.portalSettings?.allow_self_registration ? (
+              <p>
+                Don't have an account?{" "}
+                <Link
+                  to={`/portal/${companySlug}/signup`}
+                  className="font-medium hover:underline"
+                  style={{ color: primaryColor }}
+                >
+                  Create one here
+                </Link>
+              </p>
+            ) : (
+              <p>
+                Don't have an account? Contact{" "}
+                <span className="font-medium text-slate-700">
+                  {companyData?.name || 'the company'}
+                </span>{" "}
+                to request access.
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>

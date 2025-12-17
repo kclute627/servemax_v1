@@ -9,7 +9,7 @@ import {
   sendPasswordResetEmail,
   confirmPasswordReset
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, deleteDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from './config';
 import {
   createUserSchema,
@@ -50,6 +50,31 @@ export class FirebaseAuth {
                 break;
               }
               retries++;
+            }
+
+            // If still no user_type after retries, check if this is a client portal user
+            // Client portal users are stored in client_users, not users
+            if (!userData.user_type) {
+              try {
+                const clientUserQuery = query(
+                  collection(db, 'client_users'),
+                  where('uid', '==', user.uid),
+                  where('is_active', '==', true)
+                );
+                const clientUserSnapshot = await getDocs(clientUserQuery);
+
+                if (!clientUserSnapshot.empty) {
+                  // This is a client portal user - they should not access the main app
+                  // Set currentUser to null so they get redirected to login
+                  this.currentUser = null;
+                  this.authStateChangeCallbacks.forEach(callback => callback(this.currentUser));
+                  return;
+                }
+              } catch (clientCheckError) {
+                // If we can't check client_users (permission denied), that's fine
+                // Just continue with the normal flow
+                console.warn('Could not check client_users:', clientCheckError);
+              }
             }
           }
 

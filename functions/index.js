@@ -4368,6 +4368,269 @@ exports.inviteClientUser = onCall(async (request) => {
 });
 
 /**
+ * Self-registration for client portal users
+ * Creates a new client company and client_user record
+ * @param {Object} data - { email, password, companyName, contactName, phone, address, city, state, zip, portalSlug }
+ * @returns {Object} - { success: boolean, message: string }
+ */
+exports.selfRegisterClientUser = onCall(async (request) => {
+  try {
+    const {
+      email,
+      password,
+      companyName,
+      contactName,
+      phone,
+      address,
+      city,
+      state,
+      zip,
+      portalSlug,
+    } = request.data;
+
+    // Validate required fields
+    if (!email) throw new HttpsError("invalid-argument", "Email is required");
+    if (!password) throw new HttpsError("invalid-argument", "Password is required");
+    if (!companyName) throw new HttpsError("invalid-argument", "Company name is required");
+    if (!contactName) throw new HttpsError("invalid-argument", "Contact name is required");
+    if (!phone) throw new HttpsError("invalid-argument", "Phone number is required");
+    if (!portalSlug) throw new HttpsError("invalid-argument", "Portal slug is required");
+
+    console.log(`[selfRegisterClientUser] Self-registration attempt for ${email} on portal ${portalSlug}`);
+
+    // Find parent company by portal slug
+    const companiesSnapshot = await admin.firestore()
+        .collection("companies")
+        .where("portal_settings.portal_slug", "==", portalSlug)
+        .limit(1)
+        .get();
+
+    if (companiesSnapshot.empty) {
+      throw new HttpsError("not-found", "Portal not found");
+    }
+
+    const parentCompanyDoc = companiesSnapshot.docs[0];
+    const parentCompanyData = parentCompanyDoc.data();
+    const parentCompanyId = parentCompanyDoc.id;
+
+    // Check if self-registration is enabled
+    if (!parentCompanyData.portal_settings?.allow_self_registration) {
+      throw new HttpsError("permission-denied", "Self-registration is not enabled for this portal");
+    }
+
+    // Duplicate detection by email domain
+    const emailDomain = email.split("@")[1]?.toLowerCase();
+    const freeEmailProviders = [
+      "gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
+      "aol.com", "icloud.com", "mail.com", "protonmail.com",
+      "live.com", "msn.com", "ymail.com",
+    ];
+
+    if (!freeEmailProviders.includes(emailDomain)) {
+      // Check for existing clients with same email domain (clients are stored in companies collection)
+      const existingClientsSnapshot = await admin.firestore()
+          .collection("companies")
+          .where("created_by", "==", parentCompanyId)
+          .get();
+
+      for (const doc of existingClientsSnapshot.docs) {
+        const clientData = doc.data();
+        // Check contacts array for matching domain
+        const hasMatchingDomain = clientData.contacts?.some((c) =>
+          c.email?.toLowerCase().endsWith("@" + emailDomain)
+        );
+        if (hasMatchingDomain) {
+          throw new HttpsError(
+              "already-exists",
+              `An account with @${emailDomain} already exists. Please contact your company administrator or our support team.`
+          );
+        }
+      }
+
+      // Also check existing client_users for matching domain
+      const existingUsersSnapshot = await admin.firestore()
+          .collection("client_users")
+          .where("parent_company_id", "==", parentCompanyId)
+          .get();
+
+      for (const doc of existingUsersSnapshot.docs) {
+        const userData = doc.data();
+        if (userData.email?.toLowerCase().endsWith("@" + emailDomain)) {
+          throw new HttpsError(
+              "already-exists",
+              `An account with @${emailDomain} already exists. Please contact your company administrator.`
+          );
+        }
+      }
+    }
+
+    // Check if email is already registered in Firebase Auth
+    try {
+      await admin.auth().getUserByEmail(email);
+      throw new HttpsError("already-exists", "This email is already registered. Please try logging in instead.");
+    } catch (error) {
+      if (error.code !== "auth/user-not-found") {
+        if (error instanceof HttpsError) throw error;
+        throw new HttpsError("internal", `Failed to check email: ${error.message}`);
+      }
+      // User not found - good, we can proceed
+    }
+
+    // Create Firebase Auth user
+    const firebaseUser = await admin.auth().createUser({
+      email: email,
+      password: password,
+      displayName: contactName,
+    });
+    console.log(`[selfRegisterClientUser] Created Firebase Auth user: ${firebaseUser.uid}`);
+
+    // Create client company record (in companies collection, not deprecated clients collection)
+    const clientData = {
+      name: companyName, // Main field used by the app
+      company_name: companyName, // Keep for backwards compatibility
+      company_type: "law_firm",
+      status: "active",
+      created_by: parentCompanyId,
+      created_by_user: null, // Self-registered, no user created it
+      contacts: [{
+        first_name: contactName.split(" ")[0] || contactName,
+        last_name: contactName.split(" ").slice(1).join(" ") || "",
+        email: email,
+        phone: phone,
+        primary: true,
+      }],
+      addresses: address ? [{
+        label: "Main Office",
+        address1: address,
+        city: city || "",
+        state: state || "",
+        postal_code: zip || "",
+        primary: true,
+      }] : [],
+      registration_type: "self_registered",
+      self_registered_at: admin.firestore.FieldValue.serverTimestamp(),
+      self_registered_by_email: email,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const clientRef = await admin.firestore().collection("companies").add(clientData);
+    console.log(`[selfRegisterClientUser] Created client company: ${clientRef.id}`);
+
+    // Create company_stats document for the new client
+    await admin.firestore().collection("company_stats").doc(clientRef.id).set({
+      company_id: clientRef.id,
+      total_jobs: 0,
+      active_jobs: 0,
+      completed_jobs: 0,
+    });
+    console.log(`[selfRegisterClientUser] Created company_stats for client: ${clientRef.id}`);
+
+    // Set custom claims
+    await admin.auth().setCustomUserClaims(firebaseUser.uid, {
+      client_portal_user: true,
+      client_company_id: clientRef.id,
+      parent_company_id: parentCompanyId,
+    });
+
+    // Create client_user record
+    const clientUserData = {
+      email: email,
+      name: contactName,
+      uid: firebaseUser.uid,
+      client_company_id: clientRef.id,
+      parent_company_id: parentCompanyId,
+      role: "manager", // Self-registered users get manager role to submit jobs
+      is_active: true,
+      invited_by: null, // Self-registered
+      invited_at: null,
+      invitation_token: null,
+      invitation_status: "self_registered",
+      last_login: null,
+      login_count: 0,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const clientUserRef = await admin.firestore().collection("client_users").add(clientUserData);
+    console.log(`[selfRegisterClientUser] Created client_user: ${clientUserRef.id}`);
+
+    // Create notification for the parent company dashboard
+    const notificationData = {
+      parent_company_id: parentCompanyId,
+      client_company_id: clientRef.id,
+      client_user_id: clientUserRef.id,
+      company_name: companyName,
+      contact_name: contactName,
+      contact_email: email,
+      email_domain: emailDomain,
+      status: "pending",
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      acknowledged_at: null,
+      acknowledged_by: null,
+    };
+
+    await admin.firestore().collection("client_registration_notifications").add(notificationData);
+    console.log(`[selfRegisterClientUser] Created registration notification`);
+
+    console.log(`[selfRegisterClientUser] ✅ Successfully registered ${email} for ${companyName}`);
+
+    return {
+      success: true,
+      client_company_id: clientRef.id,
+      client_user_id: clientUserRef.id,
+      message: "Account created successfully. You can now log in.",
+    };
+  } catch (error) {
+    console.error("[selfRegisterClientUser] Error:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to register: ${error.message}`);
+  }
+});
+
+/**
+ * Acknowledge a client registration notification
+ * @param {Object} data - { notificationId: string }
+ * @returns {Object} - { success: boolean }
+ */
+exports.acknowledgeClientRegistration = onCall(async (request) => {
+  try {
+    const {notificationId} = request.data;
+
+    if (!notificationId) {
+      throw new HttpsError("invalid-argument", "Notification ID is required");
+    }
+
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const notificationRef = admin.firestore().collection("client_registration_notifications").doc(notificationId);
+    const notificationDoc = await notificationRef.get();
+
+    if (!notificationDoc.exists) {
+      throw new HttpsError("not-found", "Notification not found");
+    }
+
+    await notificationRef.update({
+      status: "acknowledged",
+      acknowledged_at: admin.firestore.FieldValue.serverTimestamp(),
+      acknowledged_by: callerUid,
+    });
+
+    return {success: true};
+  } catch (error) {
+    console.error("[acknowledgeClientRegistration] Error:", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", `Failed to acknowledge: ${error.message}`);
+  }
+});
+
+/**
  * Accepts a client portal invitation and activates the account
  * @param {Object} data - { token: string }
  * @returns {Object} - { success: boolean, redirect_url: string }
@@ -4441,19 +4704,70 @@ exports.acceptClientInvitation = onCall(async (request) => {
 exports.getClientPortalData = onCall(async (request) => {
   try {
     const callerUid = request.auth?.uid;
+    console.log(`[getClientPortalData] Called with UID: ${callerUid}`);
+
     if (!callerUid) {
       throw new HttpsError("unauthenticated", "User must be authenticated");
     }
 
-    // Get the client user record
-    const clientUserQuery = await admin.firestore()
+    // First, let's check if ANY client_user exists with this UID (ignoring is_active)
+    const debugQuery = await admin.firestore()
         .collection("client_users")
         .where("uid", "==", callerUid)
-        .where("is_active", "==", true)
         .limit(1)
         .get();
 
+    console.log(`[getClientPortalData] Debug query (uid only): found ${debugQuery.size} documents`);
+    if (!debugQuery.empty) {
+      const debugData = debugQuery.docs[0].data();
+      console.log(`[getClientPortalData] Found client_user: is_active=${debugData.is_active}, type=${typeof debugData.is_active}`);
+    }
+
+    // Get the client user record with retry logic for eventual consistency
+    let clientUserQuery;
+    const maxRetries = 3;
+    const retryDelay = 1500; // 1.5 seconds
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      clientUserQuery = await admin.firestore()
+          .collection("client_users")
+          .where("uid", "==", callerUid)
+          .where("is_active", "==", true)
+          .limit(1)
+          .get();
+
+      console.log(`[getClientPortalData] Attempt ${attempt + 1}: found ${clientUserQuery.size} documents`);
+
+      if (!clientUserQuery.empty) {
+        break; // Found the user, exit retry loop
+      }
+
+      if (attempt < maxRetries - 1) {
+        console.log(`[getClientPortalData] Retrying in ${retryDelay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      }
+    }
+
     if (clientUserQuery.empty) {
+      // Last resort: try to find by uid only and check is_active manually
+      const fallbackQuery = await admin.firestore()
+          .collection("client_users")
+          .where("uid", "==", callerUid)
+          .limit(1)
+          .get();
+
+      if (!fallbackQuery.empty) {
+        const userData = fallbackQuery.docs[0].data();
+        console.log(`[getClientPortalData] Fallback found user, is_active=${userData.is_active}`);
+        if (userData.is_active === true || userData.is_active === "true") {
+          // Use this document
+          clientUserQuery = fallbackQuery;
+        }
+      }
+    }
+
+    if (clientUserQuery.empty) {
+      console.log(`[getClientPortalData] No client_user found for UID: ${callerUid}`);
       throw new HttpsError("permission-denied", "No active client portal access found");
     }
 
@@ -4792,3 +5106,286 @@ exports.sendAttemptNotification = onCall(
       }
     },
 );
+
+/**
+ * Create a job from the client portal
+ * Called by authenticated client portal users to submit new jobs
+ */
+exports.createClientJob = onCall(async (request) => {
+  try {
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    // Get the client user record
+    const clientUserQuery = await admin.firestore()
+        .collection("client_users")
+        .where("uid", "==", callerUid)
+        .where("is_active", "==", true)
+        .limit(1)
+        .get();
+
+    if (clientUserQuery.empty) {
+      throw new HttpsError("permission-denied", "No active client portal access found");
+    }
+
+    const clientUser = clientUserQuery.docs[0].data();
+    const parentCompanyId = clientUser.parent_company_id;
+    const clientCompanyId = clientUser.client_company_id;
+
+    console.log(`[createClientJob] Creating job for client ${clientCompanyId} under company ${parentCompanyId}`);
+
+    const jobData = request.data;
+
+    // Validate required fields
+    if (!jobData.recipient_name) {
+      throw new HttpsError("invalid-argument", "Recipient name is required");
+    }
+
+    // Get next job number for the company
+    const companyRef = admin.firestore().collection("companies").doc(parentCompanyId);
+    const companyDoc = await companyRef.get();
+
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Company not found");
+    }
+
+    const companyData = companyDoc.data();
+    const nextJobNumber = (companyData.next_job_number || 1000) + 1;
+
+    // Update company's next job number
+    await companyRef.update({
+      next_job_number: nextJobNumber,
+    });
+
+    // Create the job
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const newJob = {
+      // Core fields
+      company_id: parentCompanyId,
+      client_id: clientCompanyId,
+      job_number: nextJobNumber,
+      status: "pending",
+
+      // Case info
+      case_number: jobData.case_number || "",
+      case_caption: jobData.plaintiff && jobData.defendant_name ?
+        `${jobData.plaintiff} v. ${jobData.defendant_name}` : "",
+      plaintiff: jobData.plaintiff || "",
+
+      // Court info
+      court_name: jobData.court_name || "",
+      court_county: jobData.court_county || "",
+
+      // Recipients array (matching existing job structure)
+      recipients: [{
+        name: jobData.recipient_name,
+        type: jobData.recipient_type || "individual",
+        addresses: jobData.addresses || [],
+      }],
+
+      // Service details
+      priority: jobData.priority || "standard",
+      service_instructions: jobData.service_instructions || "",
+      client_job_number: jobData.client_job_number || "",
+
+      // Documents
+      uploaded_documents: jobData.uploaded_documents || [],
+      document_count: jobData.document_count || 0,
+
+      // Metadata
+      source: "client_portal",
+      submitted_by_client_user_id: clientUserQuery.docs[0].id,
+      created_at: now,
+      updated_at: now,
+    };
+
+    const jobRef = await admin.firestore().collection("jobs").add(newJob);
+
+    console.log(`[createClientJob] Created job ${jobRef.id} (job #${nextJobNumber})`);
+
+    return {
+      success: true,
+      job_id: jobRef.id,
+      job_number: nextJobNumber,
+    };
+  } catch (error) {
+    console.error("[createClientJob] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to create job: ${error.message}`);
+  }
+});
+
+/**
+ * Generate a preview token for admin to view client portal
+ */
+exports.generateClientPortalPreview = onCall(async (request) => {
+  try {
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {client_company_id} = request.data;
+
+    if (!client_company_id) {
+      throw new HttpsError("invalid-argument", "client_company_id is required");
+    }
+
+    // Verify the caller is an admin of the parent company
+    const userDoc = await admin.firestore().collection("users").doc(callerUid).get();
+    if (!userDoc.exists) {
+      throw new HttpsError("permission-denied", "User not found");
+    }
+
+    const userData = userDoc.data();
+    const companyId = userData.company_id;
+
+    // Verify this client belongs to the caller's company
+    const clientDoc = await admin.firestore().collection("clients").doc(client_company_id).get();
+    if (!clientDoc.exists) {
+      throw new HttpsError("not-found", "Client not found");
+    }
+
+    const clientData = clientDoc.data();
+    if (clientData.created_by !== companyId) {
+      throw new HttpsError("permission-denied", "This client does not belong to your company");
+    }
+
+    // Get company portal settings
+    const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Company not found");
+    }
+
+    const companyData = companyDoc.data();
+    const portalSlug = companyData.portal_settings?.portal_slug;
+
+    if (!portalSlug) {
+      throw new HttpsError("failed-precondition", "Portal is not configured for this company");
+    }
+
+    // Generate preview data
+    const previewData = {
+      client_company_id: client_company_id,
+      parent_company_id: companyId,
+      company_name: companyData.name,
+      company_logo: companyData.logo_url || null,
+      client_name: clientData.name || clientData.company_name,
+      preview_mode: true,
+      expires_at: Date.now() + (30 * 60 * 1000), // 30 minutes
+    };
+
+    const portalUrl = `https://www.servemax.pro/portal/${portalSlug}/admin-preview`;
+
+    console.log(`[generateClientPortalPreview] Generated preview for client ${client_company_id}`);
+
+    return {
+      success: true,
+      portalUrl: portalUrl,
+      previewData: previewData,
+    };
+  } catch (error) {
+    console.error("[generateClientPortalPreview] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to generate preview: ${error.message}`);
+  }
+});
+
+/**
+ * Send password reset email to a client portal user
+ */
+exports.sendClientPasswordReset = onCall(async (request) => {
+  try {
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {client_user_id, email} = request.data;
+
+    if (!client_user_id || !email) {
+      throw new HttpsError("invalid-argument", "client_user_id and email are required");
+    }
+
+    // Verify the caller is an admin of the parent company
+    const userDoc = await admin.firestore().collection("users").doc(callerUid).get();
+    if (!userDoc.exists) {
+      throw new HttpsError("permission-denied", "User not found");
+    }
+
+    const userData = userDoc.data();
+    const companyId = userData.company_id;
+
+    // Verify this client user belongs to the caller's company
+    const clientUserDoc = await admin.firestore().collection("client_users").doc(client_user_id).get();
+    if (!clientUserDoc.exists) {
+      throw new HttpsError("not-found", "Client user not found");
+    }
+
+    const clientUserData = clientUserDoc.data();
+    if (clientUserData.parent_company_id !== companyId) {
+      throw new HttpsError("permission-denied", "This client user does not belong to your company");
+    }
+
+    // Send password reset email via Firebase Auth
+    const resetLink = await admin.auth().generatePasswordResetLink(email);
+
+    // Send email with the reset link
+    const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+    const companyData = companyDoc.data();
+    const companyName = companyData?.name || "ServeMax";
+
+    // Use the sendEmail function if available, or just log for now
+    console.log(`[sendClientPasswordReset] Password reset link for ${email}: ${resetLink}`);
+
+    // Try to send via email function
+    try {
+      await sendEmailWithTemplate({
+        to: email,
+        subject: `Reset Your Password - ${companyName} Client Portal`,
+        templateName: "password-reset",
+        templateData: {
+          reset_link: resetLink,
+          company_name: companyName,
+          user_name: clientUserData.name || clientUserData.email,
+        },
+        companyId: companyId,
+      });
+    } catch (emailError) {
+      // If template doesn't exist, send plain email
+      console.log("[sendClientPasswordReset] Template not found, sending basic email");
+      const {Resend} = require("resend");
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      await resend.emails.send({
+        from: "ServeMax <noreply@servemax.pro>",
+        to: email,
+        subject: `Reset Your Password - ${companyName} Client Portal`,
+        html: `
+          <h2>Password Reset Request</h2>
+          <p>Hello,</p>
+          <p>You requested a password reset for your ${companyName} client portal account.</p>
+          <p><a href="${resetLink}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Reset Password</a></p>
+          <p>If you didn't request this, you can safely ignore this email.</p>
+          <p>This link will expire in 1 hour.</p>
+        `,
+      });
+    }
+
+    return {
+      success: true,
+      message: `Password reset email sent to ${email}`,
+    };
+  } catch (error) {
+    console.error("[sendClientPasswordReset] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to send password reset: ${error.message}`);
+  }
+});

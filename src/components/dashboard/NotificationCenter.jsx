@@ -16,7 +16,9 @@ import {
   Loader2,
   Building,
   MapPin,
-  Clock
+  Clock,
+  UserPlus,
+  Eye
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -24,11 +26,12 @@ const NotificationCenter = ({ companyId }) => {
   const { toast } = useToast();
   const [partnershipRequests, setPartnershipRequests] = useState([]);
   const [jobShareRequests, setJobShareRequests] = useState([]);
+  const [clientRegistrations, setClientRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(true);
   const [responding, setResponding] = useState(null);
 
-  const totalNotifications = partnershipRequests.length + jobShareRequests.length;
+  const totalNotifications = partnershipRequests.length + jobShareRequests.length + clientRegistrations.length;
 
   useEffect(() => {
     if (!companyId) {
@@ -70,9 +73,27 @@ const NotificationCenter = ({ companyId }) => {
       setLoading(false);
     });
 
+    // Listen to client registration notifications
+    const clientRegQuery = query(
+      collection(db, 'client_registration_notifications'),
+      where('parent_company_id', '==', companyId),
+      where('status', '==', 'pending')
+    );
+
+    const unsubClientReg = onSnapshot(clientRegQuery, (snapshot) => {
+      const registrations = snapshot.docs.map(doc => ({
+        id: doc.id,
+        type: 'client_registration',
+        ...doc.data()
+      }));
+      setClientRegistrations(registrations);
+      setLoading(false);
+    });
+
     return () => {
       unsubPartnership();
       unsubJobShare();
+      unsubClientReg();
     };
   }, [companyId]);
 
@@ -118,6 +139,29 @@ const NotificationCenter = ({ companyId }) => {
         variant: "destructive",
         title: "Error",
         description: `Failed to respond: ${error.message}`,
+      });
+    } finally {
+      setResponding(null);
+    }
+  };
+
+  const handleAcknowledgeRegistration = async (notificationId) => {
+    setResponding(notificationId);
+    try {
+      const acknowledge = httpsCallable(functions, 'acknowledgeClientRegistration');
+      await acknowledge({ notificationId });
+
+      toast({
+        title: "Notification Acknowledged",
+        description: "New client registration has been acknowledged.",
+        variant: "success",
+      });
+    } catch (error) {
+      console.error('Error acknowledging registration:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: `Failed to acknowledge: ${error.message}`,
       });
     } finally {
       setResponding(null);
@@ -283,6 +327,69 @@ const NotificationCenter = ({ companyId }) => {
                     disabled={responding === request.id}
                   >
                     <XCircle className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Client Registration Notifications */}
+          {clientRegistrations.map((registration) => (
+            <div
+              key={registration.id}
+              className="bg-white rounded-lg border border-green-200 p-4 hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3 flex-1">
+                  <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <UserPlus className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                        New Client Signup
+                      </Badge>
+                    </div>
+                    <h4 className="font-semibold text-slate-900 mb-1">
+                      {registration.company_name}
+                    </h4>
+                    <div className="space-y-1 mb-2">
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <Users className="w-3 h-3" />
+                        <span>{registration.contact_name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <span className="text-slate-500">{registration.contact_email}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {registration.created_at?.toDate &&
+                        format(registration.created_at.toDate(), 'MMM d, yyyy h:mm a')
+                      }
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => window.location.href = `/clients/${registration.client_company_id}`}
+                    className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    View
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleAcknowledgeRegistration(registration.id)}
+                    disabled={responding === registration.id}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {responding === registration.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CheckCircle className="w-4 h-4" />
+                    )}
                   </Button>
                 </div>
               </div>
