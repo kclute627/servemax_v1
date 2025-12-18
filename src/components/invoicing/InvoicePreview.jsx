@@ -30,12 +30,12 @@ export default function InvoicePreview({
     if (invoice) {
       const normalizedLineItems = invoice.line_items && invoice.line_items.length > 0
         ? invoice.line_items.map(item => ({
-            item_name: item.item_name || '',
-            description: item.description || '',
-            quantity: item.quantity || 1,
-            rate: item.rate || item.unit_price || 0,
-            amount: item.amount || item.total || 0
-          }))
+          item_name: item.item_name || '',
+          description: item.description || '',
+          quantity: item.quantity || 1,
+          rate: item.rate || item.unit_price || 0,
+          amount: item.amount || item.total || 0
+        }))
         : [{ item_name: '', description: '', quantity: 1, rate: 0, amount: 0 }];
 
       setFormData({
@@ -52,16 +52,6 @@ export default function InvoicePreview({
       handleSubmit();
     }
   }, [saveTrigger, isEditing]);
-
-  console.log('[InvoicePreview] Company Info:', companyInfo);
-  console.log('[InvoicePreview] Invoice Data:', invoice);
-  console.log('[InvoicePreview] Client Data:', client);
-  console.log('[InvoicePreview] Job Data:', job);
-  console.log('[InvoicePreview] Client Contacts:', client?.contacts);
-  console.log('[InvoicePreview] Job Contact ID:', job?.contact_id);
-  console.log('[InvoicePreview] Line Items:', invoice.line_items);
-  console.log('[InvoicePreview] Line Items Type:', typeof invoice.line_items);
-  console.log('[InvoicePreview] Line Items Length:', invoice.line_items?.length);
 
   const handleLineItemChange = (index, field, value) => {
     const newLineItems = [...formData.line_items];
@@ -469,16 +459,9 @@ export default function InvoicePreview({
               // Handle both naming conventions
               const itemName = item.item_name || '-';
               const description = item.description || '';
-              const quantity = item.quantity || 1;
-              const rate = item.rate || item.unit_price || 0;
-              const amount = item.amount || item.total || 0;
-
-              if (!isEditing) {
-                console.log(`[InvoicePreview] Line Item ${index}:`, {
-                  raw: item,
-                  parsed: { itemName, description, quantity, rate, amount }
-                });
-              }
+              const quantity = Number(item.quantity) || 1;
+              const rate = Number(item.rate || item.unit_price || 0);
+              const amount = Number(item.amount || item.total || 0);
 
               return (
                 <tr key={index} className={isEditing ? 'editable-row' : ''}>
@@ -517,8 +500,8 @@ export default function InvoicePreview({
                             cursor: 'pointer'
                           }}
                         >
-                          {invoiceSettings?.invoice_presets?.map((preset) => (
-                            <option key={preset.id} value={preset.description}>
+                          {invoiceSettings?.invoice_presets?.map((preset, presetIndex) => (
+                            <option key={preset.id || `preset-${presetIndex}`} value={preset.description}>
                               {preset.description}
                             </option>
                           ))}

@@ -20,7 +20,7 @@ export default function CourtAutocomplete({
   const [isLoading, setIsLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
-  
+
   const justSelectedRef = useRef(false);
   const inputRef = useRef(null);
   const suggestionsRef = useRef(null);
@@ -90,6 +90,14 @@ export default function CourtAutocomplete({
         console.log('[CourtAutocomplete] Exact match found, auto-selecting:', exactMatch.branch_name);
         handleSuggestionSelect(exactMatch);
         return; // Don't show dropdown
+      }
+
+      // If no matches found, clear suggestions and hide dropdown (hint will show)
+      if (filtered.length === 0) {
+        setSuggestions([]);
+        setShowSuggestions(false);
+        setIsLoading(false);
+        return;
       }
 
       // Otherwise, show dropdown with fuzzy matches (don't auto-select)
@@ -177,10 +185,10 @@ export default function CourtAutocomplete({
             )}
           </div>
         </div>
-        <Button 
-          type="button" 
-          variant="ghost" 
-          size="icon" 
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
           className="h-7 w-7 text-slate-500 hover:bg-slate-200"
           onClick={onClearSelection}
         >
@@ -206,7 +214,7 @@ export default function CourtAutocomplete({
           disabled={disabled}
           {...props}
         />
-        
+
         <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-2">
           {isLoading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
           {!isLoading && showSuggestions && !disabled && (
@@ -233,9 +241,8 @@ export default function CourtAutocomplete({
             {suggestions.map((court, index) => (
               <div
                 key={court.id}
-                className={`flex items-start gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors ${
-                  selectedIndex === index ? 'bg-slate-100' : ''
-                }`}
+                className={`flex items-start gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors ${selectedIndex === index ? 'bg-slate-100' : ''
+                  }`}
                 onMouseDown={() => handleSuggestionSelect(court)}
               >
                 <Landmark className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
@@ -251,6 +258,22 @@ export default function CourtAutocomplete({
           </CardContent>
         </Card>
       )}
+
+
+      {/* Show hint when DB has no data - hide when data is found */}
+      {value &&
+        value.length >= 3 &&
+        !isLoading &&
+        !showSuggestions &&
+        suggestions.length === 0 &&
+        !disabled && (
+          <div className="mt-2 inline-flex items-start gap-1 bg-blue-50 border border-blue-200 rounded-lg p-1 shadow-sm">
+            <Plus className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+            <span className="text-sm text-blue-700 leading-relaxed">
+            A new court will be created automatically when you create the job.
+            </span>
+          </div>
+        )}
     </div>
   );
 }
