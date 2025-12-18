@@ -30,12 +30,12 @@ export default function InvoicePreview({
     if (invoice) {
       const normalizedLineItems = invoice.line_items && invoice.line_items.length > 0
         ? invoice.line_items.map(item => ({
-            item_name: item.item_name || '',
-            description: item.description || '',
-            quantity: item.quantity || 1,
-            rate: item.rate || item.unit_price || 0,
-            amount: item.amount || item.total || 0
-          }))
+          item_name: item.item_name || '',
+          description: item.description || '',
+          quantity: item.quantity || 1,
+          rate: item.rate || item.unit_price || 0,
+          amount: item.amount || item.total || 0
+        }))
         : [{ item_name: '', description: '', quantity: 1, rate: 0, amount: 0 }];
 
       setFormData({
@@ -500,11 +500,11 @@ export default function InvoicePreview({
                             cursor: 'pointer'
                           }}
                         >
-{invoiceSettings?.invoice_presets?.map((preset, presetIndex) => (
-  <option key={preset.id || `preset-${presetIndex}`} value={preset.description}>
-    {preset.description}
-  </option>
-))}
+                          {invoiceSettings?.invoice_presets?.map((preset, presetIndex) => (
+                            <option key={preset.id || `preset-${presetIndex}`} value={preset.description}>
+                              {preset.description}
+                            </option>
+                          ))}
                           <option value="Custom">Custom...</option>
                         </select>
                       )
