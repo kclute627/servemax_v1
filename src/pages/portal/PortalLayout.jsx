@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ClientAuthProvider, useClientAuth } from "@/components/auth/ClientAuthProvider";
 import { entities } from "@/firebase/database";
+import { Toaster } from "@/components/ui/toaster";
 
 // Navigation items for client portal
 const getPortalNavItems = (companySlug) => [
@@ -29,8 +30,8 @@ const getPortalNavItems = (companySlug) => [
     icon: LayoutDashboard
   },
   {
-    title: "Jobs",
-    url: `/portal/${companySlug}/jobs`,
+    title: "Orders",
+    url: `/portal/${companySlug}/orders`,
     icon: Briefcase
   },
   {
@@ -317,6 +318,7 @@ export default function PortalLayout() {
   return (
     <ClientAuthProvider companySlug={companySlug}>
       <PortalContent />
+      <Toaster />
     </ClientAuthProvider>
   );
 }

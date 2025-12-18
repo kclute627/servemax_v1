@@ -24,6 +24,27 @@ import {
 import { useClientAuth } from "@/components/auth/ClientAuthProvider";
 import { format } from "date-fns";
 
+// Safe date formatter that handles Firestore Timestamps and various formats
+const safeFormatDate = (timestamp, formatStr = 'MMM d, yyyy') => {
+  if (!timestamp) return 'No date';
+  try {
+    let date;
+    if (timestamp.seconds) {
+      date = new Date(timestamp.seconds * 1000);
+    } else if (timestamp._seconds) {
+      date = new Date(timestamp._seconds * 1000);
+    } else if (typeof timestamp === 'string') {
+      date = new Date(timestamp);
+    } else {
+      date = new Date(timestamp);
+    }
+    if (isNaN(date.getTime())) return 'No date';
+    return format(date, formatStr);
+  } catch {
+    return 'No date';
+  }
+};
+
 const getStatusColor = (status) => {
   const statusColors = {
     pending: "bg-yellow-100 text-yellow-800",
@@ -38,7 +59,7 @@ const getStatusColor = (status) => {
   return statusColors[status?.toLowerCase()] || "bg-slate-100 text-slate-800";
 };
 
-export default function ClientJobs() {
+export default function ClientOrders() {
   const { companySlug } = useParams();
   const navigate = useNavigate();
   const { clientUser, portalData } = useClientAuth();
@@ -71,17 +92,17 @@ export default function ClientJobs() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Jobs</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Orders</h1>
           <p className="text-slate-500">View and track your service requests</p>
         </div>
 
         {clientUser?.role !== 'viewer' && (
           <Button
-            onClick={() => navigate(`/portal/${companySlug}/jobs/new`)}
+            onClick={() => navigate(`/portal/${companySlug}/orders/new`)}
             style={{ backgroundColor: primaryColor }}
           >
             <FileText className="w-4 h-4 mr-2" />
-            Submit New Job
+            Submit New Order
           </Button>
         )}
       </div>
@@ -117,23 +138,23 @@ export default function ClientJobs() {
         </CardContent>
       </Card>
 
-      {/* Jobs List */}
+      {/* Orders List */}
       {filteredJobs.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <Briefcase className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-            <h3 className="text-lg font-medium text-slate-900 mb-1">No Jobs Found</h3>
+            <h3 className="text-lg font-medium text-slate-900 mb-1">No Orders Found</h3>
             <p className="text-slate-500 mb-4">
               {searchQuery || statusFilter !== 'all'
-                ? "No jobs match your search criteria."
-                : "You don't have any jobs yet."}
+                ? "No orders match your search criteria."
+                : "You don't have any orders yet."}
             </p>
             {clientUser?.role !== 'viewer' && (
               <Button
-                onClick={() => navigate(`/portal/${companySlug}/jobs/new`)}
+                onClick={() => navigate(`/portal/${companySlug}/orders/new`)}
                 style={{ backgroundColor: primaryColor }}
               >
-                Submit Your First Job
+                Submit Your First Order
               </Button>
             )}
           </CardContent>
@@ -147,14 +168,14 @@ export default function ClientJobs() {
               <Card
                 key={job.id}
                 className="hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => navigate(`/portal/${companySlug}/jobs/${job.id}`)}
+                onClick={() => navigate(`/portal/${companySlug}/orders/${job.id}`)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2">
                         <h3 className="font-semibold text-slate-900 truncate">
-                          {job.defendant_name || `Job #${job.id.slice(-6)}`}
+                          {job.defendant_name || `Order #${job.id.slice(-6)}`}
                         </h3>
                         <Badge className={getStatusColor(job.status)}>
                           {job.status?.replace(/_/g, ' ') || 'Pending'}
@@ -181,12 +202,7 @@ export default function ClientJobs() {
                         {job.created_at && (
                           <div className="flex items-center gap-1.5">
                             <Calendar className="w-4 h-4" />
-                            <span>
-                              {format(
-                                new Date(job.created_at.seconds ? job.created_at.seconds * 1000 : job.created_at),
-                                'MMM d, yyyy'
-                              )}
-                            </span>
+                            <span>{safeFormatDate(job.created_at)}</span>
                           </div>
                         )}
 
@@ -211,7 +227,7 @@ export default function ClientJobs() {
       {/* Summary */}
       {filteredJobs.length > 0 && (
         <p className="text-sm text-slate-500 text-center">
-          Showing {filteredJobs.length} of {jobs.length} jobs
+          Showing {filteredJobs.length} of {jobs.length} orders
         </p>
       )}
     </div>

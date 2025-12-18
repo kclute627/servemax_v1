@@ -58,11 +58,12 @@ import InvoiceDetail from "./InvoiceDetail";
 import PortalLayout from "./portal/PortalLayout";
 import ClientLogin from "./portal/ClientLogin";
 import ClientDashboard from "./portal/ClientDashboard";
-import ClientJobs from "./portal/ClientJobs";
+import ClientOrders from "./portal/ClientOrders";
 import ClientInvoices from "./portal/ClientInvoices";
 import AcceptInvite from "./portal/AcceptInvite";
 import AdminPreview from "./portal/AdminPreview";
 import ClientSignup from "./portal/ClientSignup";
+import ClientOrderForm from "./portal/ClientOrderForm";
 
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { GlobalDataProvider } from "../components/GlobalDataContext";
@@ -200,8 +201,9 @@ function PortalRoutes() {
                 <Route path="login" element={<ClientLogin />} />
                 <Route path="accept-invite" element={<AcceptInvite />} />
                 <Route path="dashboard" element={<ClientDashboard />} />
-                <Route path="jobs" element={<ClientJobs />} />
-                <Route path="jobs/:jobId" element={<ClientJobs />} />
+                <Route path="orders" element={<ClientOrders />} />
+                <Route path="orders/new" element={<ClientOrderForm />} />
+                <Route path="orders/:orderId" element={<ClientOrders />} />
                 <Route path="invoices" element={<ClientInvoices />} />
                 <Route path="invoices/:invoiceId" element={<ClientInvoices />} />
                 <Route index element={<ClientLogin />} />

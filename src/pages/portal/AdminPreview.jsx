@@ -56,7 +56,7 @@ export default function AdminPreview() {
   const { toast } = useToast();
 
   const [previewData, setPreviewData] = useState(null);
-  const [activeTab, setActiveTab] = useState("jobs");
+  const [activeTab, setActiveTab] = useState("orders");
   const [error, setError] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   const [selectedJobIds, setSelectedJobIds] = useState([]);
@@ -272,8 +272,8 @@ export default function AdminPreview() {
 
           <nav className="p-2 space-y-1">
             {[
-              { id: "jobs", label: "Jobs", icon: Briefcase },
-              { id: "submit_job", label: "Submit Job", icon: Plus },
+              { id: "orders", label: "Orders", icon: Briefcase },
+              { id: "submit_order", label: "Submit Order", icon: Plus },
               { id: "invoices", label: "Invoices", icon: Receipt },
             ].map((item) => (
               <button
@@ -331,7 +331,7 @@ export default function AdminPreview() {
                       </div>
                       <div>
                         <p className="text-2xl font-bold">{activeJobs}</p>
-                        <p className="text-sm text-slate-500">Active Jobs</p>
+                        <p className="text-sm text-slate-500">Active Orders</p>
                       </div>
                     </div>
                   </CardContent>
@@ -377,10 +377,10 @@ export default function AdminPreview() {
                 </Card>
               </div>
 
-              {/* Recent Jobs */}
+              {/* Recent Orders */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Recent Jobs</CardTitle>
+                  <CardTitle>Recent Orders</CardTitle>
                 </CardHeader>
                 <CardContent>
                   {jobs?.length > 0 ? (
@@ -391,12 +391,12 @@ export default function AdminPreview() {
                           className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 cursor-pointer transition-colors"
                           onClick={() => {
                             setSelectedJob(job);
-                            setActiveTab("jobs");
+                            setActiveTab("orders");
                           }}
                         >
                           <div>
                             <p className="font-medium text-slate-900">
-                              {job.defendant_name || job.case_number || `Job #${job.job_number || job.id.slice(0,6)}`}
+                              {job.defendant_name || job.case_number || `Order #${job.job_number || job.id.slice(0,6)}`}
                             </p>
                             <p className="text-sm text-slate-500">
                               {formatDate(job.created_at)}
@@ -410,14 +410,14 @@ export default function AdminPreview() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-slate-500 text-center py-8">No jobs yet</p>
+                    <p className="text-slate-500 text-center py-8">No orders yet</p>
                   )}
                 </CardContent>
               </Card>
             </div>
           )}
 
-          {activeTab === "jobs" && (
+          {activeTab === "orders" && (
             selectedJob ? (
               <JobDetailPanel
                 job={selectedJob}
@@ -433,8 +433,8 @@ export default function AdminPreview() {
             ) : (
               <div className="space-y-6">
                 <div>
-                  <h1 className="text-2xl font-bold text-slate-900">Jobs</h1>
-                  <p className="text-slate-500">View all jobs for this client. Click a row to see details.</p>
+                  <h1 className="text-2xl font-bold text-slate-900">Orders</h1>
+                  <p className="text-slate-500">View all orders for this client. Click a row to see details.</p>
                 </div>
 
                 {/* Filters */}
@@ -481,7 +481,7 @@ export default function AdminPreview() {
                                 onCheckedChange={toggleAllJobs}
                               />
                             </TableHead>
-                            <TableHead>Job #</TableHead>
+                            <TableHead>Order #</TableHead>
                             <TableHead>Client Ref #</TableHead>
                             <TableHead>Recipient</TableHead>
                             <TableHead>Case #</TableHead>
@@ -629,8 +629,8 @@ export default function AdminPreview() {
                       <Briefcase className="w-12 h-12 mx-auto mb-3 text-slate-300" />
                       <p className="text-slate-500">
                         {jobSearch || jobStatusFilter !== "all"
-                          ? "No jobs match your search criteria"
-                          : "No jobs found for this client"}
+                          ? "No orders match your search criteria"
+                          : "No orders found for this client"}
                       </p>
                     </CardContent>
                   </Card>
@@ -639,30 +639,30 @@ export default function AdminPreview() {
                 {/* Summary */}
                 {filteredJobs.length > 0 && (
                   <p className="text-sm text-slate-500 text-center">
-                    Showing {filteredJobs.length} of {jobs?.length || 0} jobs
+                    Showing {filteredJobs.length} of {jobs?.length || 0} orders
                   </p>
                 )}
               </div>
             )
           )}
 
-          {activeTab === "submit_job" && (
+          {activeTab === "submit_order" && (
             <div className="space-y-6">
               <div>
-                <h1 className="text-2xl font-bold text-slate-900">Submit New Job</h1>
-                <p className="text-slate-500">This is where clients can submit new jobs</p>
+                <h1 className="text-2xl font-bold text-slate-900">Submit New Order</h1>
+                <p className="text-slate-500">This is where clients can submit new orders</p>
               </div>
 
               <Card>
                 <CardContent className="py-12 text-center">
                   <Plus className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                  <h3 className="text-lg font-medium text-slate-900 mb-2">Job Submission Form</h3>
+                  <h3 className="text-lg font-medium text-slate-900 mb-2">Order Submission Form</h3>
                   <p className="text-slate-500 mb-4 max-w-md mx-auto">
-                    In the real client portal, clients can submit single jobs, bulk jobs via form, or upload a CSV file with multiple jobs.
+                    In the real client portal, clients can submit single orders, bulk orders via form, or upload a CSV file with multiple orders.
                   </p>
                   <p className="text-sm text-amber-600 bg-amber-50 rounded-lg p-3 inline-block">
                     <Shield className="w-4 h-4 inline mr-1" />
-                    Admin Preview Mode - Job submission is disabled
+                    Admin Preview Mode - Order submission is disabled
                   </p>
                 </CardContent>
               </Card>

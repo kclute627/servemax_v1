@@ -240,7 +240,7 @@ const CSV_TEMPLATE = `recipient_name,recipient_type,address1,address2,city,state
 "Jane Smith Corp",business,"456 Oak Ave","Suite 100","San Diego",CA,92101,"2024-CV-67890","San Diego Superior Court","XYZ Inc","Jane Smith Corp",rush,"Call before arriving","REF-002"`;
 
 // Multi-row bulk entry form component
-function BulkJobForm({ onSubmit, isSubmitting, primaryColor }) {
+function BulkOrderForm({ onSubmit, isSubmitting, primaryColor }) {
   const [rows, setRows] = useState([createEmptyRow()]);
 
   function createEmptyRow() {
@@ -314,7 +314,7 @@ function BulkJobForm({ onSubmit, isSubmitting, primaryColor }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-600">
-          Add multiple jobs at once. Each row creates a separate job.
+          Add multiple orders at once. Each row creates a separate order.
         </p>
         <Button variant="outline" size="sm" onClick={addRow}>
           <Plus className="w-4 h-4 mr-2" />
@@ -327,7 +327,7 @@ function BulkJobForm({ onSubmit, isSubmitting, primaryColor }) {
           <Card key={row.id} className="relative">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Job #{index + 1}</CardTitle>
+                <CardTitle className="text-base">Order #{index + 1}</CardTitle>
                 <div className="flex items-center gap-1">
                   <Button
                     variant="ghost"
@@ -471,7 +471,7 @@ function BulkJobForm({ onSubmit, isSubmitting, primaryColor }) {
 
       <div className="flex items-center justify-between pt-4 border-t">
         <p className="text-sm text-slate-500">
-          {rows.length} job(s) ready to submit
+          {rows.length} order(s) ready to submit
         </p>
         <Button
           onClick={handleSubmit}
@@ -481,12 +481,12 @@ function BulkJobForm({ onSubmit, isSubmitting, primaryColor }) {
           {isSubmitting ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Submitting {rows.length} Jobs...
+              Submitting {rows.length} Orders...
             </>
           ) : (
             <>
               <Check className="w-4 h-4 mr-2" />
-              Submit {rows.length} Job{rows.length > 1 ? 's' : ''}
+              Submit {rows.length} Order{rows.length > 1 ? 's' : ''}
             </>
           )}
         </Button>
@@ -507,7 +507,7 @@ function CSVUploadForm({ onSubmit, isSubmitting, primaryColor }) {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'job_upload_template.csv';
+    a.download = 'order_upload_template.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -685,7 +685,7 @@ function CSVUploadForm({ onSubmit, isSubmitting, primaryColor }) {
                   <div>
                     <p className="font-medium text-slate-900">{fileName}</p>
                     <p className="text-sm text-slate-500">
-                      {parsedData.length} job(s) found
+                      {parsedData.length} order(s) found
                     </p>
                   </div>
                 </div>
@@ -720,7 +720,7 @@ function CSVUploadForm({ onSubmit, isSubmitting, primaryColor }) {
       {parsedData.length > 0 && parseErrors.length === 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Preview ({parsedData.length} jobs)</CardTitle>
+            <CardTitle className="text-base">Preview ({parsedData.length} orders)</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto max-h-64">
@@ -771,12 +771,12 @@ function CSVUploadForm({ onSubmit, isSubmitting, primaryColor }) {
             {isSubmitting ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Submitting {parsedData.length} Jobs...
+                Submitting {parsedData.length} Orders...
               </>
             ) : (
               <>
                 <Check className="w-4 h-4 mr-2" />
-                Submit {parsedData.length} Jobs
+                Submit {parsedData.length} Orders
               </>
             )}
           </Button>
@@ -786,11 +786,11 @@ function CSVUploadForm({ onSubmit, isSubmitting, primaryColor }) {
   );
 }
 
-export default function ClientJobForm() {
+export default function ClientOrderForm() {
   const { companySlug } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { clientUser, portalData } = useClientAuth();
+  const { clientUser, portalData, refreshPortalData } = useClientAuth();
 
   const [activeTab, setActiveTab] = useState("single");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -950,19 +950,22 @@ export default function ClientJobForm() {
 
       if (result.success) {
         toast({
-          title: "Job submitted successfully!",
-          description: `Job #${result.job_number || result.job_id} has been created.`
+          title: "Order submitted successfully!",
+          description: `Order #${result.job_number || result.job_id} has been created.`
         });
-        navigate(`/portal/${companySlug}/jobs`);
+        // Wait for Firestore eventual consistency before refreshing
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        await refreshPortalData();
+        navigate(`/portal/${companySlug}/orders`);
       } else {
-        throw new Error(result.error || "Failed to create job");
+        throw new Error(result.error || "Failed to create order");
       }
     } catch (error) {
-      console.error('Error submitting job:', error);
+      console.error('Error submitting order:', error);
       toast({
         variant: "destructive",
         title: "Submission failed",
-        description: error.message || "Failed to submit job. Please try again."
+        description: error.message || "Failed to submit order. Please try again."
       });
     } finally {
       setIsSubmitting(false);
@@ -983,8 +986,8 @@ export default function ClientJobForm() {
     if (!jobs || jobs.length === 0) {
       toast({
         variant: "destructive",
-        title: "No jobs to submit",
-        description: "Please add at least one job"
+        title: "No orders to submit",
+        description: "Please add at least one order"
       });
       return;
     }
@@ -1036,14 +1039,17 @@ export default function ClientJobForm() {
 
       if (successCount > 0) {
         toast({
-          title: `${successCount} job(s) submitted successfully!`,
-          description: errorCount > 0 ? `${errorCount} job(s) failed to submit.` : undefined
+          title: `${successCount} order(s) submitted successfully!`,
+          description: errorCount > 0 ? `${errorCount} order(s) failed to submit.` : undefined
         });
-        navigate(`/portal/${companySlug}/jobs`);
+        // Wait for Firestore eventual consistency before refreshing
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        await refreshPortalData();
+        navigate(`/portal/${companySlug}/orders`);
       } else {
         toast({
           variant: "destructive",
-          title: "All jobs failed to submit",
+          title: "All orders failed to submit",
           description: "Please try again or contact support."
         });
       }
@@ -1052,28 +1058,28 @@ export default function ClientJobForm() {
       toast({
         variant: "destructive",
         title: "Submission failed",
-        description: error.message || "Failed to submit jobs. Please try again."
+        description: error.message || "Failed to submit orders. Please try again."
       });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Check if user has permission to create jobs
+  // Check if user has permission to create orders
   if (clientUser?.role === 'viewer') {
     return (
       <div className="max-w-2xl mx-auto text-center py-12">
         <Briefcase className="w-16 h-16 mx-auto mb-4 text-slate-300" />
         <h1 className="text-2xl font-bold text-slate-900 mb-2">Access Restricted</h1>
         <p className="text-slate-600 mb-6">
-          You don't have permission to submit new jobs. Please contact your administrator.
+          You don't have permission to submit new orders. Please contact your administrator.
         </p>
         <Button
           variant="outline"
-          onClick={() => navigate(`/portal/${companySlug}/jobs`)}
+          onClick={() => navigate(`/portal/${companySlug}/orders`)}
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
-          Back to Jobs
+          Back to Orders
         </Button>
       </div>
     );
@@ -1086,14 +1092,14 @@ export default function ClientJobForm() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate(`/portal/${companySlug}/jobs`)}
+          onClick={() => navigate(`/portal/${companySlug}/orders`)}
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Submit New Job</h1>
-          <p className="text-slate-500">Choose how you want to submit jobs</p>
+          <h1 className="text-2xl font-bold text-slate-900">Submit New Order</h1>
+          <p className="text-slate-500">Choose how you want to submit orders</p>
         </div>
       </div>
 
@@ -1102,7 +1108,7 @@ export default function ClientJobForm() {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="single" className="flex items-center gap-2">
             <User className="w-4 h-4" />
-            <span className="hidden sm:inline">Single Job</span>
+            <span className="hidden sm:inline">Single Order</span>
             <span className="sm:hidden">Single</span>
           </TabsTrigger>
           <TabsTrigger value="bulk" className="flex items-center gap-2">
@@ -1117,7 +1123,7 @@ export default function ClientJobForm() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Single Job Form Tab */}
+        {/* Single Order Form Tab */}
         <TabsContent value="single" className="space-y-6 mt-6">
           {/* Document Upload Section */}
           <Card>
@@ -1169,7 +1175,7 @@ export default function ClientJobForm() {
                 onValueChange={(value) => handleInputChange('recipient_type', value)}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select type" />
                 </SelectTrigger>
                 <SelectContent>
                   {recipientTypes.map(type => (
@@ -1252,62 +1258,6 @@ export default function ClientJobForm() {
         </CardContent>
       </Card>
 
-      {/* Case Information (Optional) */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Building2 className="w-5 h-5" />
-            Case Information
-          </CardTitle>
-          <CardDescription>
-            Court and case details (optional but recommended)
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="case_number">Case Number</Label>
-              <Input
-                id="case_number"
-                value={formData.case_number}
-                onChange={(e) => handleInputChange('case_number', e.target.value)}
-                placeholder="e.g., 2024-CV-12345"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="court_name">Court Name</Label>
-              <CourtAutocomplete
-                value={formData.court_name}
-                onChange={(value) => handleInputChange('court_name', value)}
-                onCourtSelect={handleCourtSelect}
-                placeholder="Start typing court name..."
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="plaintiff">Plaintiff</Label>
-              <Input
-                id="plaintiff"
-                value={formData.plaintiff}
-                onChange={(e) => handleInputChange('plaintiff', e.target.value)}
-                placeholder="Plaintiff name(s)"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="defendant">Defendant</Label>
-              <Input
-                id="defendant"
-                value={formData.defendant}
-                onChange={(e) => handleInputChange('defendant', e.target.value)}
-                placeholder="Defendant name(s)"
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Service Options */}
       <Card>
         <CardHeader>
@@ -1345,13 +1295,14 @@ export default function ClientJobForm() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="service_instructions">Service Instructions</Label>
+            <Label htmlFor="service_instructions">Service Instructions (optional)</Label>
             <Textarea
               id="service_instructions"
               value={formData.service_instructions}
               onChange={(e) => handleInputChange('service_instructions', e.target.value)}
               placeholder="Any special instructions for the process server..."
               rows={3}
+              className="resize-none"
             />
           </div>
 
@@ -1371,7 +1322,7 @@ export default function ClientJobForm() {
           <div className="flex justify-end gap-4 pb-8">
             <Button
               variant="outline"
-              onClick={() => navigate(`/portal/${companySlug}/jobs`)}
+              onClick={() => navigate(`/portal/${companySlug}/orders`)}
               disabled={isSubmitting}
             >
               Cancel
@@ -1389,7 +1340,7 @@ export default function ClientJobForm() {
               ) : (
                 <>
                   <Check className="w-4 h-4 mr-2" />
-                  Submit Job
+                  Submit Order
                 </>
               )}
             </Button>
@@ -1402,14 +1353,14 @@ export default function ClientJobForm() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Table className="w-5 h-5" />
-                Bulk Job Entry
+                Bulk Order Entry
               </CardTitle>
               <CardDescription>
-                Enter multiple jobs using an easy-to-use form. Great for 2-20 jobs.
+                Enter multiple orders using an easy-to-use form. Great for 2-20 orders.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <BulkJobForm
+              <BulkOrderForm
                 onSubmit={handleBulkSubmit}
                 isSubmitting={isSubmitting}
                 primaryColor={primaryColor}
@@ -1427,7 +1378,7 @@ export default function ClientJobForm() {
                 CSV Upload
               </CardTitle>
               <CardDescription>
-                Upload a CSV file with multiple jobs. Best for 10+ jobs.
+                Upload a CSV file with multiple orders. Best for 10+ orders.
               </CardDescription>
             </CardHeader>
             <CardContent>

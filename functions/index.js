@@ -4493,6 +4493,7 @@ exports.selfRegisterClientUser = onCall(async (request) => {
       created_by: parentCompanyId,
       created_by_user: null, // Self-registered, no user created it
       contacts: [{
+        id: require("crypto").randomUUID(),
         first_name: contactName.split(" ")[0] || contactName,
         last_name: contactName.split(" ").slice(1).join(" ") || "",
         email: email,
@@ -4500,6 +4501,7 @@ exports.selfRegisterClientUser = onCall(async (request) => {
         primary: true,
       }],
       addresses: address ? [{
+        id: require("crypto").randomUUID(),
         label: "Main Office",
         address1: address,
         city: city || "",
@@ -5143,72 +5145,254 @@ exports.createClientJob = onCall(async (request) => {
       throw new HttpsError("invalid-argument", "Recipient name is required");
     }
 
-    // Get next job number for the company
-    const companyRef = admin.firestore().collection("companies").doc(parentCompanyId);
-    const companyDoc = await companyRef.get();
+    // Use global job number counter (same as CreateJob.jsx)
+    const counterRef = admin.firestore().doc("counters/job_number");
+    const nextNumber = await admin.firestore().runTransaction(async (transaction) => {
+      const counterDoc = await transaction.get(counterRef);
 
-    if (!companyDoc.exists) {
-      throw new HttpsError("not-found", "Company not found");
-    }
+      if (!counterDoc.exists) {
+        transaction.set(counterRef, {
+          current_value: 1,
+          created_at: new Date().toISOString(),
+          last_updated: new Date().toISOString(),
+        });
+        return 1;
+      }
 
-    const companyData = companyDoc.data();
-    const nextJobNumber = (companyData.next_job_number || 1000) + 1;
+      const currentValue = counterDoc.data().current_value || 0;
+      const newValue = currentValue + 1;
 
-    // Update company's next job number
-    await companyRef.update({
-      next_job_number: nextJobNumber,
+      transaction.update(counterRef, {
+        current_value: newValue,
+        last_updated: new Date().toISOString(),
+      });
+
+      return newValue;
     });
 
+    // Format as 6-digit string (e.g., "000026")
+    const jobNumber = nextNumber.toString().padStart(6, "0");
+
+    console.log(`[createClientJob] Generated job number: ${jobNumber}`);
+
+    // Calculate due dates based on priority
+    const priorityDays = {standard: 10, rush: 3, same_day: 2};
+    const daysToAdd = priorityDays[jobData.priority] || 10;
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + daysToAdd);
+
+    const firstAttemptDays = {standard: 3, rush: 1, same_day: 0};
+    const firstDays = firstAttemptDays[jobData.priority] || 3;
+    const firstAttemptDate = new Date();
+    firstAttemptDate.setDate(firstAttemptDate.getDate() + firstDays);
+
     // Create the job
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const nowTimestamp = admin.firestore.FieldValue.serverTimestamp();
+    const nowIso = new Date().toISOString();
     const newJob = {
       // Core fields
       company_id: parentCompanyId,
       client_id: clientCompanyId,
-      job_number: nextJobNumber,
+      job_number: jobNumber,
       status: "pending",
 
-      // Case info
-      case_number: jobData.case_number || "",
-      case_caption: jobData.plaintiff && jobData.defendant_name ?
-        `${jobData.plaintiff} v. ${jobData.defendant_name}` : "",
-      plaintiff: jobData.plaintiff || "",
+      // Recipient at root level (for JobDetails display)
+      recipient: {
+        name: jobData.recipient_name,
+        type: jobData.recipient_type || "individual",
+      },
+      defendant_name: jobData.recipient_name,
+      recipient_name: jobData.recipient_name,
+
+      // Addresses at root level (for JobDetails display)
+      addresses: jobData.addresses || [],
+
+      // Case info (empty initially, will be extracted from documents)
+      case_number: "",
+      case_caption: "",
+      plaintiff: "",
+      defendant: jobData.recipient_name,
 
       // Court info
-      court_name: jobData.court_name || "",
-      court_county: jobData.court_county || "",
+      court_name: "",
+      court_county: "",
 
-      // Recipients array (matching existing job structure)
+      // Recipients array (for compatibility)
       recipients: [{
         name: jobData.recipient_name,
         type: jobData.recipient_type || "individual",
         addresses: jobData.addresses || [],
       }],
 
-      // Service details
+      // Calculated dates
       priority: jobData.priority || "standard",
+      due_date: dueDate.toISOString().split("T")[0],
+      first_attempt_due_date: firstAttemptDate.toISOString().split("T")[0],
+
+      // Service details
       service_instructions: jobData.service_instructions || "",
-      client_job_number: jobData.client_job_number || "",
+      client_job_number: jobData.client_reference || "",
 
       // Documents
       uploaded_documents: jobData.uploaded_documents || [],
-      document_count: jobData.document_count || 0,
+      document_count: (jobData.uploaded_documents || []).length,
+
+      // Activity log
+      activity_log: [{
+        timestamp: nowIso,
+        user_name: clientUser.name || "Client Portal",
+        event_type: "job_created",
+        description: "Order submitted via client portal.",
+      }],
 
       // Metadata
       source: "client_portal",
       submitted_by_client_user_id: clientUserQuery.docs[0].id,
-      created_at: now,
-      updated_at: now,
+      created_at: nowTimestamp,
+      updated_at: nowTimestamp,
     };
 
     const jobRef = await admin.firestore().collection("jobs").add(newJob);
 
-    console.log(`[createClientJob] Created job ${jobRef.id} (job #${nextJobNumber})`);
+    console.log(`[createClientJob] Created job ${jobRef.id} (job #${jobNumber})`);
+
+    // Create notification for the parent company (persistent toast)
+    try {
+      await admin.firestore().collection("notifications").add({
+        company_id: parentCompanyId,
+        type: "new_portal_order",
+        title: "New Order Received",
+        message: `New order #${jobNumber} submitted by ${clientUser.name || "client"} via portal.`,
+        job_id: jobRef.id,
+        job_number: jobNumber,
+        client_name: clientUser.name || "Client",
+        read: false,
+        persistent: true,
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log(`[createClientJob] Created notification for company ${parentCompanyId}`);
+    } catch (notifError) {
+      console.error("[createClientJob] Failed to create notification:", notifError);
+      // Don't fail the job creation if notification fails
+    }
+
+    // Trigger document extraction if documents were uploaded
+    if (jobData.uploaded_documents && jobData.uploaded_documents.length > 0) {
+      const firstDoc = jobData.uploaded_documents[0];
+      console.log(`[createClientJob] Triggering document extraction for: ${firstDoc.url || firstDoc.file_url}`);
+
+      try {
+        // Call extractDocumentClaudeVision internally
+        const extractionPrompt = `You are assisting with legitimate legal document processing for a professional process serving company.
+Extract structured information from a legal document (summons, complaint, subpoena) to facilitate proper service of legal documents.
+
+Return ONLY a JSON object with fields that are present.
+
+FIELDS TO RETURN (only if found):
+- caseNumber: Case/docket number (preserve exact format)
+- plaintiff: Plaintiff/petitioner full name
+- defendant: Defendant/respondent full name
+- full_court_name: Complete court name
+- county_court: County name
+
+OUTPUT FORMAT - Return ONLY the raw JSON object, no markdown.`;
+
+        const fileUrl = firstDoc.url || firstDoc.file_url;
+        const response = await fetch(fileUrl);
+        if (response.ok) {
+          const pdfBytes = await response.arrayBuffer();
+          const pdfDoc = await PDFDocument.load(pdfBytes);
+          const originalPageCount = pdfDoc.getPageCount();
+
+          // Extract first 3 pages
+          const pagesToExtract = Math.min(3, originalPageCount);
+          const extractedPdf = await PDFDocument.create();
+          const pageIndices = Array.from({length: pagesToExtract}, (_, i) => i);
+          const copiedPages = await extractedPdf.copyPages(pdfDoc, pageIndices);
+          copiedPages.forEach((page) => extractedPdf.addPage(page));
+          const firstPageBytes = await extractedPdf.save();
+
+          const pdfBase64 = Buffer.from(firstPageBytes).toString("base64");
+
+          // Call Claude API
+          const anthropic = new Anthropic({
+            apiKey: anthropicApiKey.value(),
+          });
+
+          const message = await anthropic.messages.create({
+            model: "claude-sonnet-4-5-20250929",
+            max_tokens: 2048,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "document",
+                    source: {
+                      type: "base64",
+                      media_type: "application/pdf",
+                      data: pdfBase64,
+                    },
+                  },
+                  {
+                    type: "text",
+                    text: extractionPrompt,
+                  },
+                ],
+              },
+            ],
+          });
+
+          if (message.stop_reason !== "refusal" && message.content[0]) {
+            const responseText = message.content[0].text;
+            const cleanedText = responseText
+                .replace(/```json/gi, "")
+                .replace(/```/g, "")
+                .trim();
+
+            let extractedData = {};
+            try {
+              extractedData = JSON.parse(cleanedText);
+            } catch (parseErr) {
+              const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                extractedData = JSON.parse(jsonMatch[0]);
+              }
+            }
+
+            // Update job with extracted case info
+            const updateData = {};
+            if (extractedData.caseNumber) updateData.case_number = extractedData.caseNumber;
+            if (extractedData.plaintiff) updateData.plaintiff = extractedData.plaintiff;
+            if (extractedData.defendant) updateData.defendant = extractedData.defendant;
+            if (extractedData.full_court_name) updateData.court_name = extractedData.full_court_name;
+            if (extractedData.county_court) updateData.court_county = extractedData.county_court;
+
+            if (Object.keys(updateData).length > 0) {
+              // Build case caption if we have plaintiff and defendant
+              if (updateData.plaintiff || updateData.defendant) {
+                const plaintiff = updateData.plaintiff || extractedData.plaintiff || "";
+                const defendant = updateData.defendant || extractedData.defendant || jobData.recipient_name;
+                if (plaintiff && defendant) {
+                  updateData.case_caption = `${plaintiff} v. ${defendant}`;
+                }
+              }
+
+              await jobRef.update(updateData);
+              console.log(`[createClientJob] Updated job with extracted case info:`, Object.keys(updateData));
+            }
+          }
+        }
+      } catch (extractError) {
+        console.log(`[createClientJob] Document extraction failed (job still created):`, extractError.message);
+        // Don't fail the job creation if extraction fails
+      }
+    }
 
     return {
       success: true,
       job_id: jobRef.id,
-      job_number: nextJobNumber,
+      job_number: jobNumber,
     };
   } catch (error) {
     console.error("[createClientJob] Error:", error);

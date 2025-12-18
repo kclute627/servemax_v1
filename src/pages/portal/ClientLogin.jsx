@@ -115,7 +115,7 @@ export default function ClientLogin() {
           <CardTitle className="text-xl">Client Portal Login</CardTitle>
           <CardDescription>
             {companyData?.portalSettings?.welcome_message ||
-              "Sign in to view your jobs and invoices"}
+              "Sign in to view your orders and invoices"}
           </CardDescription>
         </CardHeader>
 
