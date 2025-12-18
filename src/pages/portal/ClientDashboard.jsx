@@ -16,6 +16,27 @@ import { Badge } from "@/components/ui/badge";
 import { useClientAuth } from "@/components/auth/ClientAuthProvider";
 import { format } from "date-fns";
 
+// Safe date formatter that handles Firestore Timestamps and various formats
+const safeFormatDate = (timestamp, formatStr = 'MMM d, yyyy') => {
+  if (!timestamp) return 'No date';
+  try {
+    let date;
+    if (timestamp.seconds) {
+      date = new Date(timestamp.seconds * 1000);
+    } else if (timestamp._seconds) {
+      date = new Date(timestamp._seconds * 1000);
+    } else if (typeof timestamp === 'string') {
+      date = new Date(timestamp);
+    } else {
+      date = new Date(timestamp);
+    }
+    if (isNaN(date.getTime())) return 'No date';
+    return format(date, formatStr);
+  } catch {
+    return 'No date';
+  }
+};
+
 const getStatusColor = (status) => {
   const statusColors = {
     pending: "bg-yellow-100 text-yellow-800",
@@ -64,7 +85,7 @@ export default function ClientDashboard() {
       {/* Welcome Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
-          Welcome back, {clientUser?.name?.split(' ')[0] || 'Client'}
+          {clientUser?.login_count <= 1 ? 'Welcome' : 'Welcome back'}, {clientUser?.name?.split(' ')[0] || 'Client'}
         </h1>
         <p className="text-slate-500">Here's an overview of your account activity.</p>
       </div>
@@ -79,7 +100,7 @@ export default function ClientDashboard() {
               </div>
               <div>
                 <p className="text-2xl font-bold text-slate-900">{activeJobs}</p>
-                <p className="text-sm text-slate-500">Active Jobs</p>
+                <p className="text-sm text-slate-500">Active Orders</p>
               </div>
             </div>
           </CardContent>
@@ -93,7 +114,7 @@ export default function ClientDashboard() {
               </div>
               <div>
                 <p className="text-2xl font-bold text-slate-900">{completedJobs}</p>
-                <p className="text-sm text-slate-500">Completed Jobs</p>
+                <p className="text-sm text-slate-500">Completed Orders</p>
               </div>
             </div>
           </CardContent>
@@ -132,18 +153,18 @@ export default function ClientDashboard() {
 
       {/* Recent Activity Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Jobs */}
+        {/* Recent Orders */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-lg">Recent Jobs</CardTitle>
+                <CardTitle className="text-lg">Recent Orders</CardTitle>
                 <CardDescription>Your latest service requests</CardDescription>
               </div>
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => navigate(`/portal/${companySlug}/jobs`)}
+                onClick={() => navigate(`/portal/${companySlug}/orders`)}
               >
                 View All
                 <ArrowRight className="w-4 h-4 ml-1" />
@@ -154,7 +175,7 @@ export default function ClientDashboard() {
             {recentJobs.length === 0 ? (
               <div className="text-center py-8 text-slate-500">
                 <Briefcase className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                <p>No jobs yet</p>
+                <p>No orders yet</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -162,16 +183,14 @@ export default function ClientDashboard() {
                   <div
                     key={job.id}
                     className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 cursor-pointer transition-colors"
-                    onClick={() => navigate(`/portal/${companySlug}/jobs/${job.id}`)}
+                    onClick={() => navigate(`/portal/${companySlug}/orders/${job.id}`)}
                   >
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-slate-900 truncate">
-                        {job.defendant_name || job.case_number || `Job #${job.id.slice(-6)}`}
+                        {job.defendant_name || job.case_number || `Order #${job.id.slice(-6)}`}
                       </p>
                       <p className="text-sm text-slate-500">
-                        {job.created_at
-                          ? format(new Date(job.created_at.seconds ? job.created_at.seconds * 1000 : job.created_at), 'MMM d, yyyy')
-                          : 'No date'}
+                        {safeFormatDate(job.created_at)}
                       </p>
                     </div>
                     <Badge className={getStatusColor(job.status)}>
@@ -244,11 +263,11 @@ export default function ClientDashboard() {
           <CardContent>
             <div className="flex flex-wrap gap-3">
               <Button
-                onClick={() => navigate(`/portal/${companySlug}/jobs/new`)}
+                onClick={() => navigate(`/portal/${companySlug}/orders/new`)}
                 style={{ backgroundColor: primaryColor }}
               >
                 <FileText className="w-4 h-4 mr-2" />
-                Submit New Job
+                Submit New Order
               </Button>
             </div>
           </CardContent>

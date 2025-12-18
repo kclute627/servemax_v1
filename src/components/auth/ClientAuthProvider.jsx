@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { auth } from '@/firebase/config';
-import { entities } from '@/firebase/database';
 import { FirebaseFunctions } from '@/firebase/functions';
 
 const ClientAuthContext = createContext({
@@ -60,28 +59,16 @@ export function ClientAuthProvider({ children, companySlug }) {
       if (!isMounted) return;
 
       if (firebaseUser) {
-        // Check if this user has client portal access
+        // Try to load portal data - the cloud function validates access
         try {
-          const clientUsers = await entities.ClientUser.filter({
-            uid: firebaseUser.uid,
-            is_active: true
-          });
-
-          if (clientUsers.length > 0) {
-            // User has client portal access
-            const loaded = await loadPortalData(firebaseUser.uid);
-            if (!loaded) {
-              // Failed to load portal data, clear state
-              setClientUser(null);
-              setPortalData(null);
-            }
-          } else {
-            // User doesn't have client portal access
+          const loaded = await loadPortalData(firebaseUser.uid);
+          if (!loaded) {
+            // Failed to load portal data (no access), clear state
             setClientUser(null);
             setPortalData(null);
           }
         } catch (err) {
-          console.error('Error checking client user:', err);
+          console.error('Error loading portal data:', err);
           setClientUser(null);
           setPortalData(null);
         }
@@ -106,20 +93,14 @@ export function ClientAuthProvider({ children, companySlug }) {
 
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
-      // Check if user has client portal access
-      const clientUsers = await entities.ClientUser.filter({
-        uid: userCredential.user.uid,
-        is_active: true
-      });
+      // Load portal data - the cloud function validates access
+      const loaded = await loadPortalData(userCredential.user.uid);
 
-      if (clientUsers.length === 0) {
+      if (!loaded) {
         // User doesn't have client portal access
         await signOut(auth);
         throw new Error('You do not have access to this portal. Please contact the company administrator.');
       }
-
-      // Load portal data
-      await loadPortalData(userCredential.user.uid);
 
     } catch (error) {
       setError(error.message);
