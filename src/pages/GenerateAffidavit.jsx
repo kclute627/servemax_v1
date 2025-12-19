@@ -1171,6 +1171,7 @@ export default function GenerateAffidavitPage() {
                   template={selectedTemplate}
                   isEditing={isEditing}
                   onDataChange={handleAffidavitDataChange}
+                  selectedPhotos={selectedPhotos}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full">
