@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign, Users, Star, Mail } from "lucide-react";
+import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign, Users, Star, Mail, Globe } from "lucide-react";
 import { User } from "@/api/entities";
 import { isSuperAdmin } from "@/utils/permissions";
 import CompanySettingsPanel from "../components/settings/CompanySettingsPanel";
@@ -13,6 +13,7 @@ import AgentsSettingsPanel from "../components/settings/AgentsSettingsPanel";
 import PricingConfigPanel from "../components/settings/PricingConfigPanel";
 import ServerRatingSettingsPanel from "../components/settings/ServerRatingSettingsPanel";
 import EmailTemplatesPanel from "../components/settings/EmailTemplatesPanel";
+import PortalSettingsPanel from "../components/settings/PortalSettingsPanel";
 import { PartnerManagement, PartnershipDirectory, PartnershipRequests } from "@/components/JobSharing";
 
 export default function SettingsPage() {
@@ -77,6 +78,7 @@ export default function SettingsPage() {
                 {!isSuperAdminUser && (
                   <>
                     <TabButton tabName="company" label="Company" icon={Building} />
+                    <TabButton tabName="portal" label="Portal" icon={Globe} />
                     <TabButton tabName="invoice" label="Invoice" icon={Receipt} />
                     <TabButton tabName="user" label="My Settings" icon={UserIcon} />
                     <TabButton tabName="service" label="Service" icon={ListChecks} />
@@ -102,6 +104,7 @@ export default function SettingsPage() {
           {/* Content Area */}
           <div>
             {activeTab === 'company' && !isSuperAdminUser && <CompanySettingsPanel />}
+            {activeTab === 'portal' && !isSuperAdminUser && <PortalSettingsPanel />}
             {activeTab === 'invoice' && !isSuperAdminUser && <InvoiceSettingsPanel />}
             {activeTab === 'user' && !isSuperAdminUser && <UserSettingsPanel />}
             {activeTab === 'service' && !isSuperAdminUser && <ServiceSettingsPanel />}

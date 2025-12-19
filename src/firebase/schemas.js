@@ -159,6 +159,7 @@ export const createCompanySchema = (data) => ({
     portal_enabled: false,
     portal_slug: '',        // URL-friendly slug: "williams-process"
     welcome_message: '',    // Custom welcome message for clients
+    allow_self_registration: false, // Allow clients to self-register via portal
   },
 
   // Timestamps

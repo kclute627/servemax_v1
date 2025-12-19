@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import React, { useState, useEffect, useRef } from 'react';
+import { collection, query, where, onSnapshot, doc, updateDoc, orderBy } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../../firebase/config';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useToast } from '../ui/use-toast';
+import { useNavigate } from 'react-router-dom';
 import {
   Bell,
   ChevronDown,
@@ -16,19 +17,28 @@ import {
   Loader2,
   Building,
   MapPin,
-  Clock
+  Clock,
+  UserPlus,
+  Eye,
+  FileText
 } from 'lucide-react';
 import { format } from 'date-fns';
 
 const NotificationCenter = ({ companyId }) => {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [partnershipRequests, setPartnershipRequests] = useState([]);
   const [jobShareRequests, setJobShareRequests] = useState([]);
+  const [clientRegistrations, setClientRegistrations] = useState([]);
+  const [portalOrders, setPortalOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(true);
   const [responding, setResponding] = useState(null);
 
-  const totalNotifications = partnershipRequests.length + jobShareRequests.length;
+  // Track which notifications we've already shown toasts for
+  const shownToastsRef = useRef(new Set());
+
+  const totalNotifications = partnershipRequests.length + jobShareRequests.length + clientRegistrations.length + portalOrders.length;
 
   useEffect(() => {
     if (!companyId) {
@@ -70,11 +80,69 @@ const NotificationCenter = ({ companyId }) => {
       setLoading(false);
     });
 
+    // Listen to client registration notifications
+    const clientRegQuery = query(
+      collection(db, 'client_registration_notifications'),
+      where('parent_company_id', '==', companyId),
+      where('status', '==', 'pending')
+    );
+
+    const unsubClientReg = onSnapshot(clientRegQuery, (snapshot) => {
+      const registrations = snapshot.docs.map(doc => ({
+        id: doc.id,
+        type: 'client_registration',
+        ...doc.data()
+      }));
+      setClientRegistrations(registrations);
+      setLoading(false);
+    });
+
+    // Listen to portal order notifications
+    const portalOrderQuery = query(
+      collection(db, 'notifications'),
+      where('company_id', '==', companyId),
+      where('type', '==', 'new_portal_order'),
+      where('read', '==', false)
+    );
+
+    const unsubPortalOrders = onSnapshot(portalOrderQuery, (snapshot) => {
+      const orders = snapshot.docs.map(doc => ({
+        id: doc.id,
+        type: 'portal_order',
+        ...doc.data()
+      }));
+      setPortalOrders(orders);
+      setLoading(false);
+
+      // Show persistent toast for new portal orders
+      orders.forEach(order => {
+        if (!shownToastsRef.current.has(order.id)) {
+          shownToastsRef.current.add(order.id);
+          toast({
+            title: "New Order Received",
+            description: `Order #${order.job_number} submitted by ${order.client_name} via client portal.`,
+            duration: Infinity, // Persistent - no auto-dismiss
+            action: (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate(`/jobs/${order.job_id}`)}
+              >
+                View
+              </Button>
+            ),
+          });
+        }
+      });
+    });
+
     return () => {
       unsubPartnership();
       unsubJobShare();
+      unsubClientReg();
+      unsubPortalOrders();
     };
-  }, [companyId]);
+  }, [companyId, toast, navigate]);
 
   const handlePartnershipResponse = async (requestId, accept) => {
     setResponding(requestId);
@@ -118,6 +186,50 @@ const NotificationCenter = ({ companyId }) => {
         variant: "destructive",
         title: "Error",
         description: `Failed to respond: ${error.message}`,
+      });
+    } finally {
+      setResponding(null);
+    }
+  };
+
+  const handleAcknowledgeRegistration = async (notificationId) => {
+    setResponding(notificationId);
+    try {
+      const acknowledge = httpsCallable(functions, 'acknowledgeClientRegistration');
+      await acknowledge({ notificationId });
+
+      toast({
+        title: "Notification Acknowledged",
+        description: "New client registration has been acknowledged.",
+        variant: "success",
+      });
+    } catch (error) {
+      console.error('Error acknowledging registration:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: `Failed to acknowledge: ${error.message}`,
+      });
+    } finally {
+      setResponding(null);
+    }
+  };
+
+  const handleDismissPortalOrder = async (notificationId) => {
+    setResponding(notificationId);
+    try {
+      // Mark notification as read
+      await updateDoc(doc(db, 'notifications', notificationId), {
+        read: true
+      });
+      // Remove from shown toasts ref so it doesn't show again
+      shownToastsRef.current.delete(notificationId);
+    } catch (error) {
+      console.error('Error dismissing notification:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: `Failed to dismiss: ${error.message}`,
       });
     } finally {
       setResponding(null);
@@ -283,6 +395,129 @@ const NotificationCenter = ({ companyId }) => {
                     disabled={responding === request.id}
                   >
                     <XCircle className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Client Registration Notifications */}
+          {clientRegistrations.map((registration) => (
+            <div
+              key={registration.id}
+              className="bg-white rounded-lg border border-green-200 p-4 hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3 flex-1">
+                  <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <UserPlus className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                        New Client Signup
+                      </Badge>
+                    </div>
+                    <h4 className="font-semibold text-slate-900 mb-1">
+                      {registration.company_name}
+                    </h4>
+                    <div className="space-y-1 mb-2">
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <Users className="w-3 h-3" />
+                        <span>{registration.contact_name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <span className="text-slate-500">{registration.contact_email}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {registration.created_at?.toDate &&
+                        format(registration.created_at.toDate(), 'MMM d, yyyy h:mm a')
+                      }
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => window.location.href = `/clients/${registration.client_company_id}`}
+                    className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    View
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleAcknowledgeRegistration(registration.id)}
+                    disabled={responding === registration.id}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {responding === registration.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CheckCircle className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Portal Order Notifications */}
+          {portalOrders.map((order) => (
+            <div
+              key={order.id}
+              className="bg-white rounded-lg border border-green-200 p-4 hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3 flex-1">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                        New Portal Order
+                      </Badge>
+                    </div>
+                    <h4 className="font-semibold text-slate-900 mb-1">
+                      Order #{order.job_number}
+                    </h4>
+                    <div className="space-y-1 mb-2">
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <Users className="w-3 h-3" />
+                        <span>Submitted by {order.client_name}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {order.created_at?.toDate &&
+                        format(order.created_at.toDate(), 'MMM d, yyyy h:mm a')
+                      }
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigate(`/jobs/${order.job_id}`)}
+                    className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    View
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleDismissPortalOrder(order.id)}
+                    disabled={responding === order.id}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {responding === order.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CheckCircle className="w-4 h-4" />
+                    )}
                   </Button>
                 </div>
               </div>

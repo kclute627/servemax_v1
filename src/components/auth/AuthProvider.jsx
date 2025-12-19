@@ -25,6 +25,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let isMounted = true;
+    let transitionTimeout = null;
 
     const unsubscribe = FirebaseAuth.onAuthStateChange((currentUser) => {
       if (isMounted) {
@@ -34,11 +35,35 @@ export function AuthProvider({ children }) {
         setUser(currentUser);
         setIsLoading(false);
         setIsTransitioning(isStillLoading);
+
+        // Clear any existing timeout
+        if (transitionTimeout) {
+          clearTimeout(transitionTimeout);
+          transitionTimeout = null;
+        }
+
+        // If still transitioning after 5 seconds, this user likely doesn't belong in main app
+        // (e.g., client portal user). Sign them out to prevent infinite spinner.
+        // But only if we're NOT on a portal route (portal has its own auth via ClientAuthProvider)
+        if (isStillLoading) {
+          transitionTimeout = setTimeout(async () => {
+            if (isMounted) {
+              const isPortalRoute = window.location.pathname.startsWith('/portal/');
+              if (!isPortalRoute) {
+                console.warn('User has no user_type after timeout - likely a portal user. Signing out.');
+                await FirebaseAuth.logout();
+              }
+            }
+          }, 5000);
+        }
       }
     });
 
     return () => {
       isMounted = false;
+      if (transitionTimeout) {
+        clearTimeout(transitionTimeout);
+      }
       unsubscribe();
     };
   }, []);

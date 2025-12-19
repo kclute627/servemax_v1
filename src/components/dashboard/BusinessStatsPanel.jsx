@@ -586,7 +586,7 @@ export default function BusinessStatsPanel() {
   return (
     <div className="space-y-6">
       {/* Header with Time Period Selector */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 my-8 bg-white rounded-xl p-8">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-slate-600 rounded-xl flex items-center justify-center">
             <Briefcase className="w-5 h-5 text-white" />
@@ -601,18 +601,18 @@ export default function BusinessStatsPanel() {
         <div className="flex flex-col gap-4">
           {/* Large Screen Slider */}
           <div className="hidden lg:block">
-            <div className="flex items-center gap-3 mb-3">
+            <div className="inline-flex items-center gap-1 mb-6  p-1.5 rounded-xl border border-slate-200 shadow-sm">
               <Calendar className="w-5 h-5 text-slate-500" />
-              <span className="text-sm font-medium text-slate-700">Time Period</span>
+              <span className="text-sm font-medium text-slate-700 px-2">Time Period</span>
             </div>
-            <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2">
               {timePeriods.map((period) => (
                 <button
                   key={period.value}
                   onClick={() => setSelectedPeriod(period.value)}
-                  className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 whitespace-nowrap ${
+                  className={`px-5 py-2.5 text-sm font-medium rounded-full transition-all duration-200 whitespace-nowrap ${
                     selectedPeriod === period.value
-                      ? 'bg-white text-slate-900 shadow-lg ring-1 ring-slate-200'
+                      ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200 rounded-full'
                       : 'text-slate-600 hover:text-slate-800 hover:bg-white/50'
                   }`}
                 >
@@ -640,15 +640,16 @@ export default function BusinessStatsPanel() {
         </div>
       </div>
 
+
       {/* Key Performance Indicators */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Jobs This Month */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
+        <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
+          <CardContent className="p-6 relative">
+            <div className="flex items-center justify-between relative z-10">
+              <div className="flex-1">
                 <motion.p
-                  className="text-sm text-slate-600 mb-1"
+                  className="text-sm font-medium text-slate-600 mb-2"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.15 }}
@@ -678,7 +679,7 @@ export default function BusinessStatsPanel() {
                       >
                         <AnimatedNumber
                           value={stats?.jobs?.total || 0}
-                          className="text-2xl font-bold text-slate-900 mb-2"
+                          className="text-3xl font-bold text-slate-900 mb-2"
                           delay={150}
                         />
                       </motion.div>
@@ -686,20 +687,20 @@ export default function BusinessStatsPanel() {
                   </AnimatePresence>
                 </div>
               </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <Briefcase className="w-6 h-6 text-blue-600" />
+              <div className="p-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+                <Briefcase className="w-7 h-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Revenue This Month */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
+        <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
+          <CardContent className="p-6 relative">
+            <div className="flex items-center justify-between relative z-10">
+              <div className="flex-1">
                 <motion.p
-                  className="text-sm text-slate-600 mb-1"
+                  className="text-sm font-medium text-slate-600 mb-2"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.4 }}
@@ -730,7 +731,7 @@ export default function BusinessStatsPanel() {
                         <AnimatedNumber
                           value={stats?.financial?.total_billed || 0}
                           format="currency"
-                          className="text-2xl font-bold text-slate-900 mb-2"
+                          className="text-3xl font-bold text-slate-900 mb-2"
                           delay={500}
                         />
                       </motion.div>
@@ -738,20 +739,20 @@ export default function BusinessStatsPanel() {
                   </AnimatePresence>
                 </div>
               </div>
-              <div className="p-3 bg-green-100 rounded-lg">
-                <DollarSign className="w-6 h-6 text-green-600" />
+              <div className="p-4 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+                <DollarSign className="w-7 h-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Collections This Month */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
+        <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
+          <CardContent className="p-6 relative">
+            <div className="flex items-center justify-between relative z-10">
+              <div className="flex-1">
                 <motion.p
-                  className="text-sm text-slate-600 mb-1"
+                  className="text-sm font-medium text-slate-600 mb-2"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.5 }}
@@ -782,7 +783,7 @@ export default function BusinessStatsPanel() {
                         <AnimatedNumber
                           value={stats?.financial?.total_collected || 0}
                           format="currency"
-                          className="text-2xl font-bold text-slate-900 mb-2"
+                          className="text-3xl font-bold text-slate-900 mb-2"
                           delay={600}
                         />
                       </motion.div>
@@ -790,20 +791,20 @@ export default function BusinessStatsPanel() {
                   </AnimatePresence>
                 </div>
               </div>
-              <div className="p-3 bg-emerald-100 rounded-lg">
-                <TrendingUp className="w-6 h-6 text-emerald-600" />
+              <div className="p-4 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+                <TrendingUp className="w-7 h-7 text-white" />
               </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Outstanding Amount */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
+        <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
+          <CardContent className="p-6 relative">
+            <div className="flex items-center justify-between relative z-10">
+              <div className="flex-1">
                 <motion.p
-                  className="text-sm text-slate-600 mb-1"
+                  className="text-sm font-medium text-slate-600 mb-2"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.6 }}
@@ -834,7 +835,7 @@ export default function BusinessStatsPanel() {
                         <AnimatedNumber
                           value={stats?.financial?.outstanding || 0}
                           format="currency"
-                          className="text-2xl font-bold text-slate-900 mb-2"
+                          className="text-3xl font-bold text-slate-900 mb-2"
                           delay={700}
                         />
                       </motion.div>
@@ -842,8 +843,8 @@ export default function BusinessStatsPanel() {
                   </AnimatePresence>
                 </div>
               </div>
-              <div className="p-3 bg-orange-100 rounded-lg">
-                <Calendar className="w-6 h-6 text-orange-600" />
+              <div className="p-4 bg-gradient-to-br from-orange-500 to-amber-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+                <Calendar className="w-7 h-7 text-white" />
               </div>
             </div>
           </CardContent>
@@ -859,9 +860,9 @@ export default function BusinessStatsPanel() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-20 relative overflow-hidden">
+          <div className="h-40 relative overflow-hidden">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
-              <div className="text-center p-4 bg-blue-50 rounded-lg transition-colors duration-200 hover:bg-blue-100">
+              <div className="text-center p-4 bg-blue-50 rounded-3xl transition-colors duration-200 hover:bg-blue-100">
                 <AnimatePresence mode="wait">
                   {isLoadingStats || !jobActivity ? (
                     <motion.div
@@ -881,7 +882,7 @@ export default function BusinessStatsPanel() {
                     >
                       <AnimatedNumber
                         value={jobActivity.jobs_created || 0}
-                        className="text-2xl font-bold text-blue-600 mb-2 block"
+                        className="text-7xl font-bold text-blue-600 mb-2 block"
                         delay={1100}
                       />
                     </motion.div>
@@ -889,7 +890,7 @@ export default function BusinessStatsPanel() {
                 </AnimatePresence>
                 <p className="text-sm text-slate-600">Jobs Created</p>
               </div>
-              <div className="text-center p-4 bg-green-50 rounded-lg transition-colors duration-200 hover:bg-green-100">
+              <div className="text-center p-4 bg-green-50 rounded-3xl transition-colors duration-200 hover:bg-green-100">
                 <AnimatePresence mode="wait">
                   {isLoadingStats || !jobActivity ? (
                     <motion.div
@@ -909,7 +910,7 @@ export default function BusinessStatsPanel() {
                     >
                       <AnimatedNumber
                         value={jobActivity.jobs_closed || 0}
-                        className="text-2xl font-bold text-green-600 mb-2 block"
+                        className="text-7xl font-bold text-green-600 mb-2 block"
                         delay={1200}
                       />
                     </motion.div>
@@ -918,7 +919,7 @@ export default function BusinessStatsPanel() {
                 <p className="text-sm text-slate-600">Jobs Closed</p>
               </div>
               <div
-                className="text-center p-4 bg-amber-50 rounded-lg cursor-pointer transition-all hover:bg-amber-100 hover:shadow-md"
+                className="text-center p-4 bg-amber-50 rounded-3xl cursor-pointer transition-all hover:bg-amber-100 hover:shadow-md"
                 onClick={() => window.location.href = createPageUrl('Jobs?unsigned_affidavit=true')}
               >
                 <AnimatePresence mode="wait">
@@ -940,7 +941,7 @@ export default function BusinessStatsPanel() {
                     >
                       <AnimatedNumber
                         value={jobActivity.unsignedAffidavits || 0}
-                        className="text-2xl font-bold text-amber-600 mb-2 block"
+                        className="text-7xl font-bold text-amber-600 mb-2 block"
                         delay={1300}
                       />
                     </motion.div>
@@ -962,7 +963,7 @@ export default function BusinessStatsPanel() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="h-20 relative overflow-hidden">
+          <div className="h-40 relative overflow-hidden">
             <AnimatePresence mode="wait">
               {isLoadingJobs || !realTimeJobCounts ? (
                 <motion.div
@@ -985,34 +986,34 @@ export default function BusinessStatsPanel() {
                 >
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
                     <div
-                      className="text-center p-4 bg-orange-50 rounded-lg cursor-pointer transition-all hover:bg-orange-100 hover:shadow-md"
+                      className="text-center p-4 bg-orange-50 rounded-3xl cursor-pointer transition-all hover:bg-orange-100 hover:shadow-md"
                       onClick={() => handleJobCountClick('total_open')}
                     >
                       <AnimatedNumber
                         value={realTimeJobCounts.total_open_jobs || 0}
-                        className="text-2xl font-bold text-orange-600 block mb-2"
+                        className="text-7xl font-bold text-orange-600 block mb-2"
                         delay={300}
                       />
                       <p className="text-sm text-slate-600">Total Open Jobs</p>
                     </div>
                     <div
-                      className="text-center p-4 bg-red-50 rounded-lg cursor-pointer transition-all hover:bg-red-100 hover:shadow-md"
+                      className="text-center p-4 bg-red-50 rounded-3xl cursor-pointer transition-all hover:bg-red-100 hover:shadow-md"
                       onClick={() => handleJobCountClick('open_rush')}
                     >
                       <AnimatedNumber
                         value={realTimeJobCounts.open_rush_jobs || 0}
-                        className="text-2xl font-bold text-red-600 block mb-2"
+                        className="text-7xl font-bold text-red-600 block mb-2"
                         delay={400}
                       />
                       <p className="text-sm text-slate-600">Open Rush Jobs</p>
                     </div>
                     <div
-                      className="text-center p-4 bg-purple-50 rounded-lg cursor-pointer transition-all hover:bg-purple-100 hover:shadow-md"
+                      className="text-center p-4 bg-purple-50 rounded-3xl cursor-pointer transition-all hover:bg-purple-100 hover:shadow-md"
                       onClick={() => handleJobCountClick('need_attention')}
                     >
                       <AnimatedNumber
                         value={realTimeJobCounts.jobs_need_attention || 0}
-                        className="text-2xl font-bold text-purple-600 block mb-2"
+                        className="text-7xl font-bold text-purple-600 block mb-2"
                         delay={500}
                       />
                       <p className="text-sm text-slate-600">Need Attention</p>
