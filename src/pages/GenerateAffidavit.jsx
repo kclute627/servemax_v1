@@ -200,6 +200,27 @@ export default function GenerateAffidavitPage() {
       let allTemplates = [...uniqueStarterTemplates, ...uniqueDbTemplates]
         .filter(t => t.is_active !== false); // Show templates where is_active is true or undefined
 
+      // Filter by company visibility (who_can_see)
+      // Firestore rules handle this at database level, but client-side filter for extra safety
+      allTemplates = allTemplates.filter(t => {
+        // Starter templates are always visible
+        if (t.isStarter) return true;
+        
+        // If who_can_see is 'everyone', template is visible to all
+        if (t.who_can_see === 'everyone') return true;
+        
+        // If who_can_see is an array, check if current company is in the list
+        if (Array.isArray(t.who_can_see) && companyData?.id) {
+          return t.who_can_see.includes(companyData.id);
+        }
+        
+        // If no who_can_see field (migration support), allow access
+        if (!t.who_can_see) return true;
+        
+        // Otherwise, template is not visible to this company
+        return false;
+      });
+
       // Filter by client visibility if clientId is provided
       if (clientId) {
         allTemplates = allTemplates.filter(t => {

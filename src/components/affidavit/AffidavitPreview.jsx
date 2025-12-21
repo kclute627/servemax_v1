@@ -154,78 +154,78 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
 
 
 
-return (
-    <div
-        key={`exhibit-${exhibitNumber}`}
-        style={{
-            width: '612pt',
-            minHeight: '792pt',
-            backgroundColor: '#FFFFFF',
-            padding: '40pt',
-            pageBreakBefore: 'always',
-            marginTop: '20pt',
-            display: 'flex',
-            flexDirection: 'column',
-            position: 'relative'
-        }}
-    >
-        {/* Photo - Top/Center */}
-        <div>
-            <img
-                src={photo.file_url}
-                alt={`Exhibit ${exhibitNumber}`}
-                style={{
-                    maxWidth: '100%',
-                    maxHeight: '600pt',
-                    height: 'auto',
-                    objectFit: 'contain'
-                }}
-            />
-        </div>
-
-        {/* Photo Metadata - Middle */}
-        {(photo.attemptDate || photo.address_of_attempt) && (
-            <div style={{
-                marginTop: '5pt',  
-                marginBottom: 'auto',  
-                fontSize: '8pt',  
-                color: '#333333',  
-                textAlign: 'left',  
-                paddingLeft: '0'  
-            }}>
-                {photo.attemptDate && (
-                    <div style={{ 
-                        marginBottom: '12pt', 
-                        fontWeight: 'normal'
-                    }}>
-                        {format(new Date(photo.attemptDate), 'MMM d, yyyy h:mm a')}
+            return (
+                <div
+                    key={`exhibit-${exhibitNumber}`}
+                    style={{
+                        width: '612pt',
+                        minHeight: '792pt',
+                        backgroundColor: '#FFFFFF',
+                        padding: '40pt',
+                        pageBreakBefore: 'always',
+                        marginTop: '20pt',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        position: 'relative'
+                    }}
+                >
+                    {/* Photo - Top/Center */}
+                    <div>
+                        <img
+                            src={photo.file_url}
+                            alt={`Exhibit ${exhibitNumber}`}
+                            style={{
+                                maxWidth: '100%',
+                                maxHeight: '600pt',
+                                height: 'auto',
+                                objectFit: 'contain'
+                            }}
+                        />
                     </div>
-                )}
-                {photo.address_of_attempt && (
+
+                    {/* Photo Metadata - Middle */}
+                    {(photo.attemptDate || photo.address_of_attempt) && (
+                        <div style={{
+                            marginTop: '5pt',
+                            marginBottom: 'auto',
+                            fontSize: '8pt',
+                            color: '#333333',
+                            textAlign: 'left',
+                            paddingLeft: '0'
+                        }}>
+                            {photo.attemptDate && (
+                                <div style={{
+                                    marginBottom: '12pt',
+                                    fontWeight: 'normal'
+                                }}>
+                                    {format(new Date(photo.attemptDate), 'MMM d, yyyy h:mm a')}
+                                </div>
+                            )}
+                            {photo.address_of_attempt && (
+                                <div style={{
+                                    fontSize: '7pt',
+                                    color: '#4d4d4d'
+                                }}>
+                                    {photo.address_of_attempt.length > 35
+                                        ? photo.address_of_attempt.substring(0, 32) + '...'
+                                        : photo.address_of_attempt}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Exhibit Footer - Bottom */}
                     <div style={{
-                        fontSize: '7pt',  
-                        color: '#4d4d4d' 
+                        textAlign: 'center',
+                        fontSize: '16pt',
+                        fontWeight: 'bold',
+                        marginTop: 'auto',
+                        paddingTop: '20pt',
                     }}>
-                        {photo.address_of_attempt.length > 35
-                            ? photo.address_of_attempt.substring(0, 32) + '...'
-                            : photo.address_of_attempt}
+                        EXHIBIT {exhibitNumber}
                     </div>
-                )}
-            </div>
-        )}
-
-        {/* Exhibit Footer - Bottom */}
-        <div style={{
-            textAlign: 'center',
-            fontSize: '16pt',
-            fontWeight: 'bold',
-            marginTop: 'auto',
-            paddingTop: '20pt',
-        }}>
-            EXHIBIT {exhibitNumber}
-        </div>
-    </div>
-);
+                </div>
+            );
         });
     };
 
@@ -569,7 +569,7 @@ return (
                             )}
                         </React.Fragment>
                     ))}
-                    {/* ✅ Add photos after main content */}
+                    {/* Add photos after main content */}
                     {renderPhotoExhibits()}
                 </>
             );
@@ -618,6 +618,7 @@ return (
                         )}
                     </React.Fragment>
                 ))}
+                {renderPhotoExhibits()}
             </>
         );
     }
