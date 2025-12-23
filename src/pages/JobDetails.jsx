@@ -82,6 +82,7 @@ import {
 import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
 import NewContactDialog from '../components/jobs/NewContactDialog';
+import SendJobEmailDialog from '../components/jobs/SendJobEmailDialog';
 import ContractorSearchInput from '../components/jobs/ContractorSearchInput';
 import DocumentUpload from '../components/jobs/DocumentUpload';
 // FIREBASE TRANSITION: This will become a call to a Firebase Cloud Function.
@@ -528,6 +529,8 @@ export default function JobDetailsPage() {
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [isEditingServiceDocuments, setIsEditingServiceDocuments] = useState(false);
   const [isNewContactDialogOpen, setIsNewContactDialogOpen] = useState(false);
+  const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
+  const [emailPreSelectedContent, setEmailPreSelectedContent] = useState({});
 
   // Form-specific state
   const [editFormData, setEditFormData] = useState({}); // A temporary object to hold changes during an edit session.
@@ -2417,6 +2420,17 @@ export default function JobDetailsPage() {
               </Badge>
             )}
             <Button
+              onClick={() => {
+                setEmailPreSelectedContent({});
+                setIsEmailDialogOpen(true);
+              }}
+              variant="outline"
+              className="gap-2"
+            >
+              <Mail className="w-4 h-4" />
+              Send Email
+            </Button>
+            <Button
               onClick={handleToggleJobClosed}
               className={`gap-2 ${job.is_closed ? 'bg-green-600 hover:bg-green-700' : 'bg-slate-700 hover:bg-slate-800'}`}
             >
@@ -3908,6 +3922,18 @@ export default function JobDetailsPage() {
         onOpenChange={setIsNewContactDialogOpen}
         client={client}
         onContactCreated={handleContactCreated}
+      />
+
+      {/* Dialog for sending job emails */}
+      <SendJobEmailDialog
+        open={isEmailDialogOpen}
+        onOpenChange={setIsEmailDialogOpen}
+        job={job}
+        client={client}
+        attempts={attempts}
+        assignedServer={allEmployees?.find(e => e.id === job?.assigned_server_id)}
+        companyId={user?.company_id}
+        preSelectedContent={emailPreSelectedContent}
       />
 
     </div>

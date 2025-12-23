@@ -45,9 +45,16 @@ export function AuthProvider({ children }) {
         // If still transitioning after 5 seconds, this user likely doesn't belong in main app
         // (e.g., client portal user). Sign them out to prevent infinite spinner.
         // But only if we're NOT on a portal route (portal has its own auth via ClientAuthProvider)
+        // Also skip if registration is in progress - the user document is being created
         if (isStillLoading) {
           transitionTimeout = setTimeout(async () => {
             if (isMounted) {
+              // Don't sign out if registration is still in progress
+              if (FirebaseAuth.isRegistrationInProgress()) {
+                console.log('Registration still in progress, not signing out');
+                return;
+              }
+
               const isPortalRoute = window.location.pathname.startsWith('/portal/');
               if (!isPortalRoute) {
                 console.warn('User has no user_type after timeout - likely a portal user. Signing out.');
@@ -86,7 +93,7 @@ export function AuthProvider({ children }) {
 
   const refresh = async () => {
     try {
-      const currentUser = await FirebaseAuth.me();
+      const currentUser = await FirebaseAuth.refreshCurrentUser();
       setUser(currentUser);
     } catch (error) {
       setUser(null);

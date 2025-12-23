@@ -40,12 +40,12 @@ export default function SettingsPage() {
 
   const TabButton = ({ tabName, label, icon: Icon }) => (
     <Button
-      variant="ghost"
+      variant={activeTab === tabName ? "default" : "ghost"}
       onClick={() => setActiveTab(tabName)}
       className={`
         gap-2 px-6 py-3 rounded-lg transition-all duration-200 h-auto
-        ${activeTab === tabName 
-          ? 'bg-slate-900 text-white shadow-sm hover:bg-slate-800' 
+        ${activeTab === tabName
+          ? 'bg-slate-900 text-white shadow-sm hover:bg-slate-800'
           : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
         }
       `}

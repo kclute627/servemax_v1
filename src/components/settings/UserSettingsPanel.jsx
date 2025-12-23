@@ -7,10 +7,11 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Bell, Save, Loader2, UserCircle, Target } from "lucide-react";
+import { Bell, Save, Loader2, UserCircle, Target, Mail, CheckCircle2, AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
 import ESignatureSection from "./ESignatureSection";
+import { FirebaseFunctions } from "@/firebase/functions";
 
 export default function UserSettingsPanel() {
   const { toast } = useToast();
@@ -29,6 +30,7 @@ export default function UserSettingsPanel() {
   const [originalFormData, setOriginalFormData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isResendingEmail, setIsResendingEmail] = useState(false);
 
   // Check if form has unsaved changes
   const hasChanges = originalFormData && JSON.stringify(formData) !== JSON.stringify(originalFormData);
@@ -66,6 +68,31 @@ export default function UserSettingsPanel() {
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleResendVerificationEmail = async () => {
+    if (!user) return;
+    setIsResendingEmail(true);
+    try {
+      await FirebaseFunctions.resendVerificationEmail(
+        user.uid,
+        user.email,
+        user.full_name || `${user.first_name} ${user.last_name}`
+      );
+      toast({
+        variant: "success",
+        title: "Verification email sent",
+        description: "Please check your inbox and click the verification link.",
+      });
+    } catch (error) {
+      console.error("Failed to resend verification email:", error);
+      toast({
+        variant: "destructive",
+        title: "Error sending email",
+        description: "Failed to send verification email. Please try again.",
+      });
+    }
+    setIsResendingEmail(false);
   };
 
   const handleSave = async () => {
@@ -139,6 +166,60 @@ export default function UserSettingsPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Email Verification Section - only show if not verified */}
+      {user?.email_verified === false && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-amber-600" />
+              <span className="text-amber-800">Verify Your Email</span>
+            </CardTitle>
+            <CardDescription className="text-amber-700">
+              Your email address hasn't been verified yet. Please verify to secure your account.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm text-amber-700">
+                <Mail className="w-4 h-4" />
+                <span>{user?.email}</span>
+              </div>
+              <Button
+                onClick={handleResendVerificationEmail}
+                disabled={isResendingEmail}
+                variant="outline"
+                className="border-amber-300 text-amber-700 hover:bg-amber-100"
+              >
+                {isResendingEmail ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="w-4 h-4 mr-2" />
+                    Send Verification Email
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Show verified status if verified */}
+      {user?.email_verified === true && (
+        <Card className="border-green-200 bg-green-50/50">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-2 text-green-700">
+              <CheckCircle2 className="w-5 h-5" />
+              <span className="font-medium">Email Verified</span>
+              <span className="text-green-600">({user?.email})</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

@@ -225,6 +225,7 @@ export const createUserSchema = (data) => ({
   is_active: true,
   phone: data.phone || '',
   address: data.address || '',
+  email_verified: data.email_verified !== undefined ? data.email_verified : false, // Email verification status
   created_at: serverTimestamp(),
   updated_at: serverTimestamp()
 });

@@ -16,6 +16,7 @@ const axios = require("axios");
 const sgMail = require("@sendgrid/mail");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 admin.initializeApp();
 
@@ -182,7 +183,7 @@ async function sendEmailWithTemplate(options) {
   const msg = {
     to: to,
     from: {
-      email: from || companyData.email || "noreply@servemax.pro",
+      email: from || companyData.email || "noreply@em7646.nwbs-inc.com",
       name: companyData.name || companyData.company_name || "ServeMax",
     },
     replyTo: replyTo || companyData.email || undefined,
@@ -4932,7 +4933,7 @@ exports.sendEmail = onCall(
         }
 
         // Build from address
-        const fromEmail = from || companyData.email || "noreply@servemax.pro";
+        const fromEmail = from || companyData.email || "info@nationwide-investigations.com";
         const msg = {
           to: to,
           from: {
@@ -5547,7 +5548,7 @@ exports.sendClientPasswordReset = onCall(async (request) => {
       const {Resend} = require("resend");
       const resend = new Resend(process.env.RESEND_API_KEY);
       await resend.emails.send({
-        from: "ServeMax <noreply@servemax.pro>",
+        from: "ServeMax <info@nationwide-investigations.com>",
         to: email,
         subject: `Reset Your Password - ${companyName} Client Portal`,
         html: `
@@ -5573,3 +5574,415 @@ exports.sendClientPasswordReset = onCall(async (request) => {
     throw new HttpsError("internal", `Failed to send password reset: ${error.message}`);
   }
 });
+
+// ============================================================================
+// Email Verification Functions
+// ============================================================================
+
+/**
+ * Send email verification to a new user
+ * Creates a verification token and sends an email with a verification link
+ */
+exports.sendVerificationEmail = onCall(
+    {secrets: [sendgridApiKey]},
+    async (request) => {
+      try {
+        const {userId, email, userName} = request.data;
+
+        if (!userId || !email) {
+          throw new HttpsError("invalid-argument", "userId and email are required");
+        }
+
+        // Generate a secure verification token
+        const token = crypto.randomBytes(32).toString("hex");
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24); // Token expires in 24 hours
+
+        // Store the token in Firestore
+        await admin.firestore().collection("email_verification_tokens").doc(token).set({
+          user_id: userId,
+          email: email,
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+          expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+          used: false,
+        });
+
+        // Generate the verification URL (environment-aware)
+        const baseUrl = process.env.GCLOUD_PROJECT === "serve-max-1f01c0af"
+            ? "https://www.servemax.pro"
+            : "http://localhost:5173";
+        const verificationUrl = `${baseUrl}/verify-email/${token}`;
+
+        // Send the verification email using the template
+        await sendEmailWithTemplate({
+          to: email,
+          subject: "Verify Your Email Address - ServeMax",
+          templateName: "email-verification",
+          templateData: {
+            user_name: userName || email.split("@")[0],
+            verification_url: verificationUrl,
+          },
+        });
+
+        console.log(`[sendVerificationEmail] Verification email sent to ${email}`);
+
+        return {
+          success: true,
+          message: "Verification email sent successfully",
+        };
+      } catch (error) {
+        console.error("[sendVerificationEmail] Error:", error);
+        if (error instanceof HttpsError) {
+          throw error;
+        }
+        throw new HttpsError("internal", `Failed to send verification email: ${error.message}`);
+      }
+    },
+);
+
+/**
+ * Verify an email using a token
+ * Validates the token and marks the user's email as verified
+ */
+exports.verifyEmail = onCall(async (request) => {
+  try {
+    const {token} = request.data;
+
+    if (!token) {
+      throw new HttpsError("invalid-argument", "Verification token is required");
+    }
+
+    // Get the token document
+    const tokenDoc = await admin.firestore().collection("email_verification_tokens").doc(token).get();
+
+    if (!tokenDoc.exists) {
+      throw new HttpsError("not-found", "Invalid or expired verification link");
+    }
+
+    const tokenData = tokenDoc.data();
+
+    // Check if token has already been used
+    if (tokenData.used) {
+      throw new HttpsError("failed-precondition", "This verification link has already been used");
+    }
+
+    // Check if token has expired
+    const now = new Date();
+    const expiresAt = tokenData.expires_at.toDate();
+    if (now > expiresAt) {
+      // Delete the expired token
+      await tokenDoc.ref.delete();
+      throw new HttpsError("failed-precondition", "This verification link has expired. Please request a new one.");
+    }
+
+    // Mark the user's email as verified
+    await admin.firestore().collection("users").doc(tokenData.user_id).update({
+      email_verified: true,
+      email_verified_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Mark the token as used
+    await tokenDoc.ref.update({
+      used: true,
+      used_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`[verifyEmail] Email verified for user ${tokenData.user_id}`);
+
+    return {
+      success: true,
+      message: "Email verified successfully",
+      userId: tokenData.user_id,
+    };
+  } catch (error) {
+    console.error("[verifyEmail] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to verify email: ${error.message}`);
+  }
+});
+
+/**
+ * Resend verification email to a user
+ * Deletes any existing tokens and creates a new one
+ */
+exports.resendVerificationEmail = onCall(
+    {secrets: [sendgridApiKey]},
+    async (request) => {
+      try {
+        const {userId, email, userName} = request.data;
+
+        if (!userId || !email) {
+          throw new HttpsError("invalid-argument", "userId and email are required");
+        }
+
+        // Delete any existing verification tokens for this user
+        const existingTokens = await admin.firestore()
+            .collection("email_verification_tokens")
+            .where("user_id", "==", userId)
+            .where("used", "==", false)
+            .get();
+
+        const batch = admin.firestore().batch();
+        existingTokens.docs.forEach((doc) => {
+          batch.delete(doc.ref);
+        });
+        await batch.commit();
+
+        // Generate a new verification token
+        const token = crypto.randomBytes(32).toString("hex");
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
+
+        // Store the new token
+        await admin.firestore().collection("email_verification_tokens").doc(token).set({
+          user_id: userId,
+          email: email,
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+          expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+          used: false,
+        });
+
+        // Generate the verification URL (environment-aware)
+        const baseUrl = process.env.GCLOUD_PROJECT === "serve-max-1f01c0af"
+            ? "https://www.servemax.pro"
+            : "http://localhost:5173";
+        const verificationUrl = `${baseUrl}/verify-email/${token}`;
+
+        // Send the verification email
+        await sendEmailWithTemplate({
+          to: email,
+          subject: "Verify Your Email Address - ServeMax",
+          templateName: "email-verification",
+          templateData: {
+            user_name: userName || email.split("@")[0],
+            verification_url: verificationUrl,
+          },
+        });
+
+        console.log(`[resendVerificationEmail] Verification email resent to ${email}`);
+
+        return {
+          success: true,
+          message: "Verification email sent successfully",
+        };
+      } catch (error) {
+        console.error("[resendVerificationEmail] Error:", error);
+        if (error instanceof HttpsError) {
+          throw error;
+        }
+        throw new HttpsError("internal", `Failed to resend verification email: ${error.message}`);
+      }
+    },
+);
+
+/**
+ * Send a job update email with selected content sections
+ * Recipients can be selected, content sections are conditional
+ * Activity is logged to the job document
+ */
+exports.sendJobEmail = onCall(
+    {secrets: [sendgridApiKey]},
+    async (request) => {
+      try {
+        const {
+          jobId,
+          companyId,
+          recipients, // Array of { email, name, type }
+          contentOptions, // { includeServiceInfo, includeAttempts, includeAffidavit, includeInvoice }
+          customMessage,
+          subject,
+          userId,
+          userName,
+        } = request.data;
+
+        // Validate required fields
+        if (!jobId) {
+          throw new HttpsError("invalid-argument", "jobId is required");
+        }
+        if (!companyId) {
+          throw new HttpsError("invalid-argument", "companyId is required");
+        }
+        if (!recipients || recipients.length === 0) {
+          throw new HttpsError("invalid-argument", "At least one recipient is required");
+        }
+
+        console.log(`[sendJobEmail] Sending job email for job ${jobId} to ${recipients.length} recipients`);
+
+        // Fetch job data
+        const jobDoc = await admin.firestore().collection("jobs").doc(jobId).get();
+        if (!jobDoc.exists) {
+          throw new HttpsError("not-found", "Job not found");
+        }
+        const job = jobDoc.data();
+
+        // Fetch company data
+        const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+        if (!companyDoc.exists) {
+          throw new HttpsError("not-found", "Company not found");
+        }
+        const companyData = companyDoc.data();
+
+        // Build template data
+        const templateData = {
+          custom_message: customMessage || null,
+          include_service_info: contentOptions?.includeServiceInfo || false,
+          include_attempts: contentOptions?.includeAttempts || false,
+          include_affidavit: contentOptions?.includeAffidavit || false,
+          include_invoice: contentOptions?.includeInvoice || false,
+        };
+
+        // Add service info if included
+        if (contentOptions?.includeServiceInfo) {
+          templateData.job_number = job.job_number || job.id;
+          templateData.case_caption = job.case_caption || null;
+          templateData.case_number = job.case_number || null;
+          templateData.court_name = job.court_name || null;
+          templateData.job_status = job.status || "pending";
+          templateData.recipients = job.recipients || [];
+          templateData.service_address = job.service_address || null;
+          templateData.due_date = job.due_date || null;
+        }
+
+        // Fetch and add attempts if included
+        if (contentOptions?.includeAttempts) {
+          const attemptsSnapshot = await admin.firestore()
+              .collection("attempts")
+              .where("job_id", "==", jobId)
+              .orderBy("created_at", "desc")
+              .get();
+
+          const attempts = [];
+          for (const doc of attemptsSnapshot.docs) {
+            const attempt = doc.data();
+            let serverName = null;
+            if (attempt.server_id) {
+              const serverDoc = await admin.firestore().collection("users").doc(attempt.server_id).get();
+              if (serverDoc.exists) {
+                const serverData = serverDoc.data();
+                serverName = serverData.full_name || `${serverData.first_name || ""} ${serverData.last_name || ""}`.trim();
+              }
+            } else if (attempt.server_name_manual) {
+              serverName = attempt.server_name_manual;
+            }
+
+            attempts.push({
+              date: attempt.attempt_date,
+              time: attempt.attempt_time || "",
+              status: attempt.status,
+              address: attempt.address_of_attempt || "",
+              person_served: attempt.person_served_name || null,
+              notes: attempt.notes || null,
+              server_name: serverName,
+            });
+          }
+          templateData.attempts = attempts;
+        }
+
+        // Add affidavit info if included
+        if (contentOptions?.includeAffidavit) {
+          const affidavitSnapshot = await admin.firestore()
+              .collection("documents")
+              .where("job_id", "==", jobId)
+              .where("document_category", "==", "affidavit")
+              .limit(1)
+              .get();
+
+          if (!affidavitSnapshot.empty) {
+            const affidavitDoc = affidavitSnapshot.docs[0].data();
+            templateData.affidavit_url = affidavitDoc.file_url || null;
+          }
+        }
+
+        // Add invoice info if included
+        if (contentOptions?.includeInvoice) {
+          // Try to find invoice from job or invoices collection
+          if (job.invoice_id) {
+            const invoiceDoc = await admin.firestore().collection("invoices").doc(job.invoice_id).get();
+            if (invoiceDoc.exists) {
+              const invoice = invoiceDoc.data();
+              templateData.invoice_number = invoice.invoice_number || job.job_number;
+              templateData.invoice_amount = invoice.total || invoice.amount || null;
+              templateData.invoice_status = invoice.status || "pending";
+              templateData.invoice_due_date = invoice.due_date || null;
+            }
+          } else {
+            // Use job-level invoice info if available
+            templateData.invoice_number = job.job_number;
+            templateData.invoice_amount = job.client_fee || job.total_fee || null;
+            templateData.invoice_status = job.invoice_status || "pending";
+          }
+        }
+
+        // Build job view URL
+        const baseUrl = process.env.GCLOUD_PROJECT === "serve-max-1f01c0af"
+            ? "https://www.servemax.pro"
+            : "http://localhost:5173";
+        templateData.job_view_url = `${baseUrl}/JobDetails?id=${jobId}`;
+
+        // Send email to each recipient
+        const sentTo = [];
+        const errors = [];
+
+        for (const recipient of recipients) {
+          if (!recipient.email) continue;
+
+          try {
+            templateData.recipient_name = recipient.name || recipient.email.split("@")[0];
+
+            await sendEmailWithTemplate({
+              to: recipient.email,
+              subject: subject || `Job Update - ${job.case_caption || job.job_number || "Service Job"}`,
+              templateName: "job-update",
+              templateData: templateData,
+              companyId: companyId,
+            });
+
+            sentTo.push(recipient.email);
+            console.log(`[sendJobEmail] Email sent to ${recipient.email}`);
+          } catch (emailError) {
+            console.error(`[sendJobEmail] Failed to send to ${recipient.email}:`, emailError.message);
+            errors.push({email: recipient.email, error: emailError.message});
+          }
+        }
+
+        // Log activity to job
+        const activityEntry = {
+          id: crypto.randomUUID(),
+          type: "email_sent",
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          actor_id: userId || null,
+          actor_name: userName || "System",
+          details: {
+            recipients: sentTo,
+            content_included: Object.entries(contentOptions || {})
+                .filter(([_, v]) => v)
+                .map(([k]) => k.replace("include", "").toLowerCase()),
+            subject: subject || `Job Update - ${job.case_caption || job.job_number}`,
+            custom_message_included: !!customMessage,
+          },
+        };
+
+        await admin.firestore().collection("jobs").doc(jobId).update({
+          activity_log: admin.firestore.FieldValue.arrayUnion(activityEntry),
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        console.log(`[sendJobEmail] Activity logged for job ${jobId}`);
+
+        return {
+          success: true,
+          message: `Email sent to ${sentTo.length} recipient(s)`,
+          sentTo: sentTo,
+          errors: errors.length > 0 ? errors : undefined,
+        };
+      } catch (error) {
+        console.error("[sendJobEmail] Error:", error);
+        if (error instanceof HttpsError) {
+          throw error;
+        }
+        throw new HttpsError("internal", `Failed to send job email: ${error.message}`);
+      }
+    },
+);

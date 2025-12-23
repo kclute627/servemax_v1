@@ -168,12 +168,10 @@ export default function SignUpPage() {
         lng: formData.longitude // From address autocomplete (rename to match schema)
       };
 
-      await FirebaseAuth.registerCompanyOwner(userData, companyData);
+      const result = await FirebaseAuth.registerCompanyOwner(userData, companyData);
 
-      // Give Firebase a moment to update auth state, then navigate
-      setTimeout(() => {
-        navigate(createPageUrl('Dashboard'), { replace: true });
-      }, 1000);
+      // Navigate to dashboard - user can verify email later from Settings
+      navigate('/Dashboard', { replace: true });
     } catch (err) {
       console.error('Registration error:', err);
       const errorMessage = getAuthErrorMessage(err);
