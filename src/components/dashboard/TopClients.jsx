@@ -42,26 +42,26 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
   }, [clientsData, viewMode]);
 
   return (
-    <Card className="border-0 shadow-xl bg-white overflow-hidden">
-      <CardHeader className="bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-500 text-white pb-6">
+    <Card className="border-0 bg-[#F0F0F0] overflow-hidden">
+      <CardHeader className="bg-[#F0F0F0] text-black p-2 pb-3">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
+              {/* <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
                 <Building2 className="w-6 h-6 text-white" />
-              </div>
+              </div> */}
               <div>
-                <CardTitle className="text-2xl font-bold text-white">Top Clients</CardTitle>
-                <p className="text-blue-100">Your most valuable clients by revenue and job volume.</p>
+                <CardTitle className="text-[24px] font-[500] text[#1F1F21]">Top Clients</CardTitle>
+                <p className="text-[15px] font-[400] text-[#1F1F21]">Your most valuable clients by revenue and job volume.</p>
               </div>
             </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             {/* Time Period Selector */}
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-blue-100" />
+            {/* <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-[#1F1F21]" />
               <select
                 value={period}
                 onChange={(e) => onPeriodChange(e.target.value)}
-                className="flex h-9 items-center justify-between rounded-lg border border-white/30 bg-white/10 backdrop-blur-sm px-3 py-2 text-sm text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-white/50"
+                className="flex h-9 items-center justify-between rounded-lg border border-black/30 bg-white/10 backdrop-blur-sm px-3 py-2 text-sm text-[#1F1F21] shadow-sm focus:outline-none focus:ring-2 focus:ring-white/50"
               >
                 {timePeriods.map(p => (
                   <option key={p.value} value={p.value} className="text-slate-800">
@@ -69,9 +69,9 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
                   </option>
                 ))}
               </select>
-            </div>
+            </div> */}
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-white/10 backdrop-blur-sm p-1 rounded-xl relative">
+            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm p-1 rounded-full relative">
               <motion.div
                 animate={{
                   x: viewMode === 'revenue' ? 0 : '100%'
@@ -81,15 +81,15 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
                   stiffness: 400,
                   damping: 30
                 }}
-                className="absolute inset-y-1 left-1 bg-white rounded-lg shadow-lg"
+                className="absolute inset-y-1 left-1 bg-[#12872F] rounded-full shadow-lg "
                 style={{ width: 'calc(50% - 4px)' }}
               />
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('revenue')}
-                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
-                  viewMode === 'revenue' ? 'text-blue-600' : 'text-white/80 hover:text-white'
+                className={`gap-2 h-6 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
+                  viewMode === 'revenue' ? 'text-white' : 'text-[#1F1F21] hover:text-[#12872F]'
                 }`}
               >
                 <DollarSign className="w-4 h-4" />
@@ -99,8 +99,8 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('jobs')}
-                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
-                  viewMode === 'jobs' ? 'text-blue-600' : 'text-white/80 hover:text-white'
+                className={`gap-2 h-6 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
+                  viewMode === 'jobs' ? 'text-white' : 'text-[#1F1F21] hover:text-[#12872F]'
                 }`}
               >
                 <Briefcase className="w-4 h-4" />
