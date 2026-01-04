@@ -71,7 +71,7 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
               </select>
             </div> */}
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm p-1 rounded-full relative">
+            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm p-1 rounded-full relative border border-[#00000029]">
               <motion.div
                 animate={{
                   x: viewMode === 'revenue' ? 0 : '100%'
@@ -82,28 +82,28 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
                   damping: 30
                 }}
                 className="absolute inset-y-1 left-1 bg-[#12872F] rounded-full shadow-lg "
-                style={{ width: 'calc(50% - 4px)' }}
+                style={{ width: 'calc(50%)' }}
               />
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('revenue')}
-                className={`gap-2 h-6 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
+                className={`gap-2 h-5 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
                   viewMode === 'revenue' ? 'text-white' : 'text-[#1F1F21] hover:text-[#12872F]'
                 }`}
               >
-                <DollarSign className="w-4 h-4" />
+                {/* <DollarSign className="w-4 h-4" /> */}
                 Revenue
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('jobs')}
-                className={`gap-2 h-6 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
+                className={`gap-2 h-5 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
                   viewMode === 'jobs' ? 'text-white' : 'text-[#1F1F21] hover:text-[#12872F]'
                 }`}
               >
-                <Briefcase className="w-4 h-4" />
+                {/* <Briefcase className="w-4 h-4" /> */}
                 Jobs
               </Button>
             </div>
@@ -112,12 +112,12 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
       </CardHeader>
       <CardContent className="p-0">
         <div className="h-96 overflow-x-auto overflow-y-auto">
-          <Table>
+          <Table className="w-[98%] mx-auto">
             <TableHeader>
-              <TableRow className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
-                <TableHead className="w-[70px] text-center font-bold text-slate-700">Rank</TableHead>
-                <TableHead className="font-bold text-slate-700 whitespace-nowrap">Client</TableHead>
-                <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">
+              <TableRow className="bg-[#F7F7F7] border-b-2 border-slate-200">
+                <TableHead className="w-[70px] text-center text-[15px] font-[500] text-[#1F1F21]">Rank</TableHead>
+                <TableHead className=" text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Client</TableHead>
+                <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">
                   {viewMode === 'revenue' ? 'Total Revenue' : 'Total Jobs'}
                 </TableHead>
               </TableRow>

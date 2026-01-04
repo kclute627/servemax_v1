@@ -399,12 +399,12 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
     if (previous === null || previous === undefined) {
       return null; // No previous data
     }
-    
+
     // If previous is 0 and current is also 0, no change
     if (previous === 0 && current === 0) {
       return 0;
     }
-    
+
     // If previous is 0 but current > 0, calculate based on current value
     // Use a small base value (1) to calculate percentage
     if (previous === 0 && current > 0) {
@@ -414,7 +414,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
       // But better: show actual percentage: if current is 5, show 500% (5 times increase)
       return current * 100; // If current is 5, show 500% increase
     }
-    
+
     // Normal percentage calculation
     const change = ((current - previous) / previous) * 100;
     return Math.round(change * 10) / 10; // Round to 1 decimal
@@ -426,7 +426,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
     const isNegative = change !== null && change !== undefined && change < 0;
     const isZero = change === 0;
     const hasNoComparison = change === null || change === undefined;
-    
+
     // Format percentage display - always show actual percentage
     let percentageDisplay = 'N/A';
     if (!hasNoComparison) {
@@ -434,7 +434,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
       const roundedChange = Math.round(Math.abs(change) * 10) / 10;
       percentageDisplay = `${roundedChange}%`;
     }
-    
+
     return (
       <div className="flex flex-col items-end">
         <div className="flex items-center gap-1">
@@ -447,9 +447,8 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
           ) : hasNoComparison ? (
             <span className="w-4 h-4 flex items-center justify-center text-slate-400">—</span>
           ) : null}
-          <span className={`text-sm font-medium ${
-            isPositive ? 'text-green-600' : isNegative ? 'text-red-600' : isZero ? 'text-slate-400' : 'text-slate-400'
-          }`}>
+          <span className={`text-sm font-medium ${isPositive ? 'text-green-600' : isNegative ? 'text-red-600' : isZero ? 'text-slate-400' : 'text-slate-400'
+            }`}>
             {percentageDisplay}
           </span>
         </div>
@@ -817,7 +816,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
         {/* Jobs This Month */}
         <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
           <CardContent className="px-6 py-4 relative">
-            <div className="flex items-center justify-between relative z-10">
+            <div className="flex items-start justify-between relative z-10">
               <div className="flex-1">
                 <motion.p
                   className="text-[15px] font-[500] text-[#1F1F21]"
@@ -853,22 +852,19 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                           className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={150}
                         />
-                        {renderComparisonIndicator(
-                          previousPeriodData?.jobs
-                            ? calculatePercentageChange(
-                                stats?.jobs?.total || 0,
-                                previousPeriodData.jobs.total
-                              )
-                            : null
-                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
               </div>
-              {/* <div className="p-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
-                <Briefcase className="w-7 h-7 text-white" />
-              </div> */}
+              {renderComparisonIndicator(
+                previousPeriodData?.jobs
+                  ? calculatePercentageChange(
+                    stats?.jobs?.total || 0,
+                    previousPeriodData.jobs.total
+                  )
+                  : null
+              )}
             </div>
           </CardContent>
         </Card>
@@ -876,7 +872,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
         {/* Revenue This Month */}
         <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
           <CardContent className="px-6 py-4 relative">
-            <div className="flex items-center justify-between relative z-10">
+            <div className="flex items-start justify-between relative z-10">
               <div className="flex-1">
                 <motion.p
                   className="text-[15px] font-[500] text-[#1F1F21]"
@@ -913,22 +909,19 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                           className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={500}
                         />
-                        {renderComparisonIndicator(
-                          previousPeriodData?.financial
-                            ? calculatePercentageChange(
-                                stats?.financial?.total_billed || 0,
-                                previousPeriodData.financial.total_billed
-                              )
-                            : null
-                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
               </div>
-              {/* <div className="p-4 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
-                <DollarSign className="w-7 h-7 text-white" />
-              </div> */}
+              {renderComparisonIndicator(
+                previousPeriodData?.financial
+                  ? calculatePercentageChange(
+                    stats?.financial?.total_billed || 0,
+                    previousPeriodData.financial.total_billed
+                  )
+                  : null
+              )}
             </div>
           </CardContent>
         </Card>
@@ -936,7 +929,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
         {/* Collections This Month */}
         <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
           <CardContent className="px-6 py-4  relative">
-            <div className="flex items-center justify-between relative z-10">
+            <div className="flex items-start justify-between relative z-10">
               <div className="flex-1">
                 <motion.p
                   className="text-[15px] font-[500] text-[#1F1F21]"
@@ -973,22 +966,19 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                           className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={600}
                         />
-                        {renderComparisonIndicator(
-                          previousPeriodData?.financial
-                            ? calculatePercentageChange(
-                                stats?.financial?.total_collected || 0,
-                                previousPeriodData.financial.total_collected
-                              )
-                            : null
-                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
               </div>
-              {/* <div className="p-4 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
-                <TrendingUp className="w-7 h-7 text-white" />
-              </div> */}
+              {renderComparisonIndicator(
+                previousPeriodData?.financial
+                  ? calculatePercentageChange(
+                    stats?.financial?.total_collected || 0,
+                    previousPeriodData.financial.total_collected
+                  )
+                  : null
+              )}
             </div>
           </CardContent>
         </Card>
@@ -996,7 +986,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
         {/* Outstanding Amount */}
         <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
           <CardContent className="px-6 py-4  relative">
-            <div className="flex items-center justify-between relative z-10">
+            <div className="flex items-start justify-between relative z-10">
               <div className="flex-1">
                 <motion.p
                   className="text-[15px] font-[500] text-[#1F1F21]"
@@ -1033,22 +1023,19 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                           className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={700}
                         />
-                        {renderComparisonIndicator(
-                          previousPeriodData?.financial
-                            ? calculatePercentageChange(
-                                stats?.financial?.outstanding || 0,
-                                previousPeriodData.financial.outstanding
-                              )
-                            : null
-                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
               </div>
-              {/* <div className="p-4 bg-gradient-to-br from-orange-500 to-amber-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
-                <Calendar className="w-7 h-7 text-white" />
-              </div> */}
+              {renderComparisonIndicator(
+                previousPeriodData?.financial
+                  ? calculatePercentageChange(
+                    stats?.financial?.outstanding || 0,
+                    previousPeriodData.financial.outstanding
+                  )
+                  : null
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1076,7 +1063,9 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
             <CardContent>
               <div className="relative overflow-hidden">
                 <div className="grid grid-cols-1 md:grid-cols-1 gap-4 h-full">
-                  <div className="text-left py-2 px-4 bg-[#FDFDFD] rounded-3xl transition-colors duration-200 hover:bg-blue-100">
+
+                  <div className="flex items-start justify-between text-left py-2 px-4 bg-[#FDFDFD] rounded-3xl transition-colors duration-200 hover:bg-blue-100">
+                   <div>
                     <p className="text-[15px] font-[500] text-[#1F1F21]">Jobs Created</p>
                     <AnimatePresence mode="wait">
                       {isLoadingStats || !jobActivity ? (
@@ -1101,20 +1090,23 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={1100}
                           />
-                          {renderComparisonIndicator(
-                            previousPeriodData?.activity
-                              ? calculatePercentageChange(
-                                  jobActivity.jobs_created || 0,
-                                  previousPeriodData.activity.jobs_created
-                                )
-                              : null
-                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
-
+                    </div>
+                    {renderComparisonIndicator(
+                            previousPeriodData?.activity
+                              ? calculatePercentageChange(
+                                jobActivity.jobs_created || 0,
+                                previousPeriodData.activity.jobs_created
+                              )
+                              : null
+                          )}
                   </div>
-                  <div className="text-left p-4 bg-[#FDFDFD] rounded-3xl transition-colors duration-200 hover:bg-green-100">
+
+                
+                  <div className="flex items-start justify-between text-left p-4 bg-[#FDFDFD] rounded-3xl transition-colors duration-200 hover:bg-green-100">
+                    <div>
                     <p className="text-[15px] font-[500] text-[#1F1F21]">Jobs Closed</p>
                     <AnimatePresence mode="wait">
                       {isLoadingStats || !jobActivity ? (
@@ -1139,22 +1131,25 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={1200}
                           />
-                          {renderComparisonIndicator(
-                            previousPeriodData?.activity
-                              ? calculatePercentageChange(
-                                  jobActivity.jobs_closed || 0,
-                                  previousPeriodData.activity.jobs_closed
-                                )
-                              : null
-                          )}
+
                         </motion.div>
                       )}
                     </AnimatePresence>
+                    </div>
+                    {renderComparisonIndicator(
+                            previousPeriodData?.activity
+                              ? calculatePercentageChange(
+                                jobActivity.jobs_closed || 0,
+                                previousPeriodData.activity.jobs_closed
+                              )
+                              : null
+                          )}
                   </div>
                   <div
-                    className="text-left p-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-all hover:bg-amber-100 hover:shadow-md"
+                    className="flex items-start justify-between text-left p-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-all hover:bg-amber-100 hover:shadow-md"
                     onClick={() => window.location.href = createPageUrl('Jobs?unsigned_affidavit=true')}
                   >
+                    <div>
                     <p className="text-[15px] font-[500] text-[#1F1F21]">Unsigned Affidavits</p>
                     <AnimatePresence mode="wait">
                       {isLoadingStats || !jobActivity ? (
@@ -1179,17 +1174,19 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={1300}
                           />
-                          {renderComparisonIndicator(
-                            previousPeriodData?.activity
-                              ? calculatePercentageChange(
-                                  jobActivity.unsignedAffidavits || 0,
-                                  previousPeriodData.activity.unsignedAffidavits
-                                )
-                              : null
-                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
+                    </div>
+
+                    {renderComparisonIndicator(
+                            previousPeriodData?.activity
+                              ? calculatePercentageChange(
+                                jobActivity.unsignedAffidavits || 0,
+                                previousPeriodData.activity.unsignedAffidavits
+                              )
+                              : null
+                          )}
 
                   </div>
                 </div>
@@ -1279,9 +1276,10 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
               <div className="relative overflow-hidden">
                 <div className="grid grid-cols-1 md:grid-cols-1 gap-4 h-full">
                   <div
-                    className="text-left py-2 px-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-colors duration-200 hover:bg-orange-100"
+                    className="flex items-start justify-between text-left py-2 px-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-colors duration-200 hover:bg-orange-100"
                     onClick={() => handleJobCountClick('total_open')}
                   >
+                    <div>
                     <p className="text-[15px] font-[500] text-[#1F1F21]">Total Open Jobs</p>
                     <AnimatePresence mode="wait">
                       {isLoadingJobs || !realTimeJobCounts ? (
@@ -1306,22 +1304,24 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={300}
                           />
-                          {renderComparisonIndicator(
-                            previousPeriodData?.realTimeCounts
-                              ? calculatePercentageChange(
-                                  realTimeJobCounts.total_open_jobs || 0,
-                                  previousPeriodData.realTimeCounts.total_open_jobs
-                                )
-                              : null
-                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
+                    </div>
+                    {renderComparisonIndicator(
+                            previousPeriodData?.realTimeCounts
+                              ? calculatePercentageChange(
+                                realTimeJobCounts.total_open_jobs || 0,
+                                previousPeriodData.realTimeCounts.total_open_jobs
+                              )
+                              : null
+                          )}
                   </div>
                   <div
-                    className="text-left p-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-colors duration-200 hover:bg-red-100"
+                    className=" flex items-start justify-between text-left p-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-colors duration-200 hover:bg-red-100"
                     onClick={() => handleJobCountClick('open_rush')}
                   >
+                    <div>
                     <p className="text-[15px] font-[500] text-[#1F1F21]">Open Rush Jobs</p>
                     <AnimatePresence mode="wait">
                       {isLoadingJobs || !realTimeJobCounts ? (
@@ -1346,22 +1346,24 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={400}
                           />
-                          {renderComparisonIndicator(
-                            previousPeriodData?.realTimeCounts
-                              ? calculatePercentageChange(
-                                  realTimeJobCounts.open_rush_jobs || 0,
-                                  previousPeriodData.realTimeCounts.open_rush_jobs
-                                )
-                              : null
-                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
+                    </div>
+                    {renderComparisonIndicator(
+                            previousPeriodData?.realTimeCounts
+                              ? calculatePercentageChange(
+                                realTimeJobCounts.open_rush_jobs || 0,
+                                previousPeriodData.realTimeCounts.open_rush_jobs
+                              )
+                              : null
+                          )}
                   </div>
                   <div
-                    className="text-left p-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-colors duration-200 hover:bg-purple-100"
+                    className=" flex items-start justify-between text-left p-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-colors duration-200 hover:bg-purple-100"
                     onClick={() => handleJobCountClick('need_attention')}
                   >
+                    <div>
                     <p className="text-[15px] font-[500] text-[#1F1F21]">Need Attention</p>
                     <AnimatePresence mode="wait">
                       {isLoadingJobs || !realTimeJobCounts ? (
@@ -1386,17 +1388,18 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={500}
                           />
-                          {renderComparisonIndicator(
-                            previousPeriodData?.realTimeCounts
-                              ? calculatePercentageChange(
-                                  realTimeJobCounts.jobs_need_attention || 0,
-                                  previousPeriodData.realTimeCounts.jobs_need_attention
-                                )
-                              : null
-                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
+                    </div>
+                    {renderComparisonIndicator(
+                            previousPeriodData?.realTimeCounts
+                              ? calculatePercentageChange(
+                                realTimeJobCounts.jobs_need_attention || 0,
+                                previousPeriodData.realTimeCounts.jobs_need_attention
+                              )
+                              : null
+                          )}
                   </div>
                 </div>
               </div>

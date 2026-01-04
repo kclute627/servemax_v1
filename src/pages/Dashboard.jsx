@@ -11,7 +11,8 @@ import { createPageUrl } from "@/utils";
 import {
   Briefcase,
   Plus,
-  Calendar
+  Calendar,
+  Copy
 } from "lucide-react";
 
 import BusinessStatsPanel from "../components/dashboard/BusinessStatsPanel";
@@ -50,7 +51,7 @@ export default function Dashboard() {
           {/* Header with Action Buttons */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6  rounded-xl">
             <div className="flex items-center gap-4">
-              <h1 className="text-3xl font-bold text-slate-900 mb-3">Dashboard</h1>
+              <h1 className="text-[32px] font-[500]">Dashboard</h1>
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-1 my-4 bg-white rounded-full p-1 border border-slate-200">
                 {/* Time Period Selector - Responsive */}
                 <div className="flex flex-col gap-4">
@@ -101,7 +102,7 @@ export default function Dashboard() {
                   size="sm"
                   className="gap-3 border-2 border-slate-300 bg-white hover:border-blue-500 hover:bg-blue-50 hover:text-blue-700 shadow-sm hover:shadow-md transition-all duration-300 font-semibold rounded-md"
                 >
-                  <Briefcase className="w-5 h-5" />
+                  <Copy className="w-5 h-5" />
                   View All Jobs
                 </Button>
               </Link>

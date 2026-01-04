@@ -89,10 +89,10 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
               </select>
             </div> */}
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm p-1 rounded-full relative">
+            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm p-1 rounded-full relative w-[300px] border border-[#00000029]">
               <motion.div
                 animate={{
-                  x: viewMode === 'jobs' ? 0 : viewMode === 'revenue' ? '100%' : '200%'
+                  x: viewMode === 'jobs' ? '0%' : viewMode === 'revenue' ? '100%' : '200%'
                 }}
                 transition={{
                   type: "spring",
@@ -102,58 +102,68 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                 className="absolute inset-y-1 left-1 bg-[#12872F] rounded-full shadow-lg"
                 style={{ width: 'calc(33.333% - 4px)' }}
               />
+
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('jobs')}
-                className={`gap-2 h-6 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${viewMode === 'jobs' ? 'text-white' : 'text-[#1F1F21] hover:text-[#12872F]'
-                  }`}
+                className={`flex-1 h-6 flex items-center justify-center leading-none
+    relative z-10 transition-colors hover:bg-transparent
+    ${viewMode === 'jobs'
+                    ? 'text-white'
+                    : 'text-[#1F1F21] hover:text-[#12872F]'}`}
               >
-                <Briefcase className="w-4 h-4" />
                 Jobs
               </Button>
+
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('revenue')}
-                className={`gap-2 h-6 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${viewMode === 'revenue' ? 'text-white' : 'text-[#1F1F21] hover:text-[#12872F]'
-                  }`}
+                className={`flex-1 h-6 flex items-center justify-center leading-none
+    relative z-10 transition-colors hover:bg-transparent
+    ${viewMode === 'revenue'
+                    ? 'text-white'
+                    : 'text-[#1F1F21] hover:text-[#12872F]'}`}
               >
-                <DollarSign className="w-4 h-4" />
                 Revenue
               </Button>
+
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('rating')}
-                className={`gap-2 h-6 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${viewMode === 'rating' ? 'text-white' : 'text-[#1F1F21] hover:text-[#12872F]'
-                  }`}
+                className={`flex-1 h-6 flex items-center justify-center leading-none
+    relative z-10 transition-colors hover:bg-transparent
+    ${viewMode === 'rating'
+                    ? 'text-white'
+                    : 'text-[#1F1F21] hover:text-[#12872F]'}`}
               >
-                <Star className="w-4 h-4" />
                 Rating
               </Button>
             </div>
+
           </div>
         </div>
         <p className="text-[15px] font-[400] text-[#1F1F21]">Your highest performing process servers by activity and rating.</p>
       </CardHeader>
       <CardContent className="p-0">
         <div className="h-96 overflow-x-auto overflow-y-auto">
-          <Table>
+          <Table className="w-[98%] mx-auto">
             <TableHeader>
-              <TableRow className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
-                <TableHead className="w-[70px] text-center font-bold text-slate-700">Rank</TableHead>
-                <TableHead className="font-bold text-slate-700 whitespace-nowrap">Server</TableHead>
+              <TableRow className="bg-[#F7F7F7] border-b-2 border-slate-200 ">
+                <TableHead className="w-[70px] text-center  text-[15px] font-[500] text-[#1F1F21]">Rank</TableHead>
+                <TableHead className=" text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Server</TableHead>
                 {viewMode === 'revenue' ? (
                   <>
-                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">Server Pay</TableHead>
-                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">Client Billing</TableHead>
-                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">Profit/Loss</TableHead>
+                    <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Server Pay</TableHead>
+                    <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Client Billing</TableHead>
+                    <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Profit/Loss</TableHead>
                   </>
                 ) : (
                   <>
-                    <TableHead className="text-center font-bold text-slate-700">Jobs</TableHead>
-                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">
+                    <TableHead className="text-center  text-[15px] font-[500] text-[#1F1F21]">Jobs</TableHead>
+                    <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">
                       {viewMode === 'jobs' ? 'Total Jobs' : 'Rating'}
                     </TableHead>
                   </>
@@ -193,8 +203,8 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                       exit={{ opacity: 0, y: -10 }}
                       transition={{ delay: index * 0.05 }}
                       className={`border-b transition-all duration-200 cursor-pointer ${index < 3
-                          ? 'bg-gradient-to-r from-slate-50 to-slate-100 hover:from-teal-100 hover:to-emerald-100'
-                          : 'hover:bg-slate-100'
+                        ? 'bg-gradient-to-r from-slate-50 to-slate-100 hover:from-teal-100 hover:to-emerald-100'
+                        : 'hover:bg-slate-100'
                         }`}
                     >
                       <TableCell className="text-center py-4">
@@ -239,8 +249,8 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                           </TableCell>
                           <TableCell className="text-right py-4">
                             <div className={`inline-flex items-center gap-1.5 font-bold px-3 py-1.5 rounded-lg ${(item.profit || 0) >= 0
-                                ? 'text-green-800 bg-green-200'
-                                : 'text-red-800 bg-red-200'
+                              ? 'text-green-800 bg-green-200'
+                              : 'text-red-800 bg-red-200'
                               }`}>
                               {(item.profit || 0) >= 0
                                 ? <TrendingUp className="w-4 h-4" />
