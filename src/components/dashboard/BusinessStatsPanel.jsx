@@ -591,11 +591,11 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Jobs This Month */}
         <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
-          <CardContent className="px-6 py-0 pb-0 relative">
+          <CardContent className="px-6 py-4 relative">
             <div className="flex items-center justify-between relative z-10">
               <div className="flex-1">
                 <motion.p
-                  className="text-[15px] font-[500] text-[#1F1F21] mb-2"
+                  className="text-[15px] font-[500] text-[#1F1F21]"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.15 }}
@@ -607,7 +607,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                     {isLoadingStats ? (
                       <motion.div
                         key="loading"
-                        className="flex items-center h-full"
+                        className="flex items-center"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -625,7 +625,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                       >
                         <AnimatedNumber
                           value={stats?.jobs?.total || 0}
-                          className="text-[32px] font-[500] text-slate-900 mb-2"
+                          className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={150}
                         />
                       </motion.div>
@@ -633,20 +633,20 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                   </AnimatePresence>
                 </div>
               </div>
-              <div className="p-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+              {/* <div className="p-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
                 <Briefcase className="w-7 h-7 text-white" />
-              </div>
+              </div> */}
             </div>
           </CardContent>
         </Card>
 
         {/* Revenue This Month */}
         <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
-          <CardContent className="px-6 py-0 pb-0 relative">
+          <CardContent className="px-6 py-4 relative">
             <div className="flex items-center justify-between relative z-10">
               <div className="flex-1">
                 <motion.p
-                  className="text-[15px] font-[500] text-[#1F1F21] mb-2"
+                  className="text-[15px] font-[500] text-[#1F1F21]"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.4 }}
@@ -658,7 +658,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                     {isLoadingStats ? (
                       <motion.div
                         key="loading"
-                        className="flex items-center h-full"
+                        className="flex items-center"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -677,7 +677,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                         <AnimatedNumber
                           value={stats?.financial?.total_billed || 0}
                           format="currency"
-                          className="text-[32px] font-[500] text-slate-900 mb-2"
+                          className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={500}
                         />
                       </motion.div>
@@ -685,32 +685,32 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                   </AnimatePresence>
                 </div>
               </div>
-              <div className="p-4 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+              {/* <div className="p-4 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
                 <DollarSign className="w-7 h-7 text-white" />
-              </div>
+              </div> */}
             </div>
           </CardContent>
         </Card>
 
         {/* Collections This Month */}
         <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
-          <CardContent className="px-6 py-0 pb-0 relative">
+          <CardContent className="px-6 py-4  relative">
             <div className="flex items-center justify-between relative z-10">
               <div className="flex-1">
                 <motion.p
-                  className="text-[15px] font-[500] text-[#1F1F21] mb-2"
+                  className="text-[15px] font-[500] text-[#1F1F21]"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.5 }}
                 >
                   Collected {getPeriodLabel()}
                 </motion.p>
-                <div className="h-24 flex flex-col justify-between relative overflow-hidden">
+                <div className="flex flex-col justify-between relative overflow-hidden">
                   <AnimatePresence mode="wait">
                     {isLoadingStats ? (
                       <motion.div
                         key="loading"
-                        className="flex items-center h-full"
+                        className="flex items-center "
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -729,7 +729,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                         <AnimatedNumber
                           value={stats?.financial?.total_collected || 0}
                           format="currency"
-                          className="text-[32px] font-[500] text-slate-900 mb-2"
+                          className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={600}
                         />
                       </motion.div>
@@ -737,32 +737,32 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                   </AnimatePresence>
                 </div>
               </div>
-              <div className="p-4 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+              {/* <div className="p-4 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
                 <TrendingUp className="w-7 h-7 text-white" />
-              </div>
+              </div> */}
             </div>
           </CardContent>
         </Card>
 
         {/* Outstanding Amount */}
         <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
-          <CardContent className="px-6 py-0 pb-0 relative">
+          <CardContent className="px-6 py-4  relative">
             <div className="flex items-center justify-between relative z-10">
               <div className="flex-1">
                 <motion.p
-                  className="text-[15px] font-[500] text-[#1F1F21] mb-2"
+                  className="text-[15px] font-[500] text-[#1F1F21]"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.6 }}
                 >
                   Outstanding
                 </motion.p>
-                <div className="h-24 flex flex-col justify-between relative overflow-hidden">
+                <div className="flex flex-col justify-between relative overflow-hidden">
                   <AnimatePresence mode="wait">
                     {isLoadingStats ? (
                       <motion.div
                         key="loading"
-                        className="flex items-center h-full"
+                        className="flex items-center"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -781,7 +781,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                         <AnimatedNumber
                           value={stats?.financial?.outstanding || 0}
                           format="currency"
-                          className="text-[32px] font-[500] text-slate-900 mb-2"
+                          className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={700}
                         />
                       </motion.div>
@@ -789,9 +789,9 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                   </AnimatePresence>
                 </div>
               </div>
-              <div className="p-4 bg-gradient-to-br from-orange-500 to-amber-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
+              {/* <div className="p-4 bg-gradient-to-br from-orange-500 to-amber-600 rounded-2xl shadow-lg group-hover:scale-110 transition-transform duration-300">
                 <Calendar className="w-7 h-7 text-white" />
-              </div>
+              </div> */}
             </div>
           </CardContent>
         </Card>
