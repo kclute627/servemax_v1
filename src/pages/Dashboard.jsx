@@ -46,12 +46,12 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <div className="p-6 md:p-8">
-        <div className="max-w-full mx-auto space-y-8">
+        <div className="max-w-full mx-auto space-y-2">
           {/* Header with Action Buttons */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6  rounded-xl">
-            <div className="flex items-center">
+            <div className="flex items-center gap-4">
               <h1 className="text-3xl font-bold text-slate-900 mb-3">Dashboard</h1>
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-1 my-4 bg-white rounded-full p-2">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-1 my-4 bg-white rounded-full p-1 border border-slate-200">
                 {/* Time Period Selector - Responsive */}
                 <div className="flex flex-col gap-4">
                   {/* Large Screen Slider */}
@@ -61,7 +61,7 @@ export default function Dashboard() {
                         <button
                           key={period.value}
                           onClick={() => setSelectedPeriod(period.value)}
-                          className={`px-5 py-2.5 text-sm font-medium rounded-full transition-all duration-200 whitespace-nowrap ${selectedPeriod === period.value
+                          className={`px-3 py-1 text-sm font-medium rounded-full transition-all duration-200 whitespace-nowrap ${selectedPeriod === period.value
                             ? 'bg-[#12872F] text-white shadow-sm ring-1 ring-slate-200 rounded-full'
                             : 'text-slate-600 hover:text-slate-800 hover:bg-white/50'
                             }`}

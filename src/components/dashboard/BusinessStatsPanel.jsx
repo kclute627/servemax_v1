@@ -45,6 +45,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
   const [error, setError] = useState(null);
   const [realTimeJobCounts, setRealTimeJobCounts] = useState(null);
   const [jobActivity, setJobActivity] = useState(null);
+  const [previousPeriodData, setPreviousPeriodData] = useState(null);
 
   // State for integrated TopClients and TopServers
   const [topClientsData, setTopClientsData] = useState([]);
@@ -124,6 +125,130 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
     if (jobs && invoices) {
       setIsLoadingStats(true);
       calculateRealTimeStats();
+    }
+  }, [jobs, invoices, selectedPeriod]);
+
+  // Calculate previous period data for comparison
+  useEffect(() => {
+    if (jobs && selectedPeriod) {
+      const prevPeriod = getPreviousPeriod(selectedPeriod);
+      if (!prevPeriod) {
+        setPreviousPeriodData(null);
+        return;
+      }
+
+      const now = new Date();
+      let prevStartDate, prevEndDate;
+
+      // Calculate previous period date range
+      switch (prevPeriod) {
+        case 'yesterday':
+          prevStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+          prevEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          break;
+        case 'day_before_yesterday':
+          prevStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2);
+          prevEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+          break;
+        case 'last_month':
+          prevStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          prevEndDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          break;
+        case 'month_before_last':
+          prevStartDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+          prevEndDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          break;
+        case 'last_year':
+          prevStartDate = new Date(now.getFullYear() - 1, 0, 1);
+          prevEndDate = new Date(now.getFullYear(), 0, 1);
+          break;
+        case 'year_before_last':
+          prevStartDate = new Date(now.getFullYear() - 2, 0, 1);
+          prevEndDate = new Date(now.getFullYear() - 1, 0, 1);
+          break;
+        case 'this_year':
+          prevStartDate = new Date(now.getFullYear(), 0, 1);
+          prevEndDate = new Date(now.getFullYear() + 1, 0, 1);
+          break;
+        default:
+          setPreviousPeriodData(null);
+          return;
+      }
+
+      // Filter jobs for previous period
+      const prevJobs = jobs.filter(job => {
+        if (!job.created_at) return false;
+        const createdAt = job.created_at?.toDate ? job.created_at.toDate() : new Date(job.created_at);
+        if (isNaN(createdAt.getTime())) return false;
+        return createdAt >= prevStartDate && createdAt < prevEndDate;
+      });
+
+      // Calculate previous period activity
+      const prevActivity = {
+        jobs_created: prevJobs.length,
+        jobs_closed: prevJobs.filter(job => job.is_closed).length,
+        unsignedAffidavits: prevJobs.filter(job =>
+          (job.status === 'served' || job.status === 'non-served') &&
+          !job.is_closed &&
+          !job.has_signed_affidavit
+        ).length
+      };
+
+      // Calculate previous period real-time counts
+      const prevRealTimeCounts = StatsManager.getRealTimeJobCounts(prevJobs);
+
+      // Calculate previous period financial data
+      let prevFinancial = null;
+      if (invoices) {
+        const prevInvoices = invoices.filter(inv => {
+          const dateField = inv.created_at || inv.invoice_date;
+          if (!dateField) return false;
+          const createdAt = dateField?.toDate ? dateField.toDate() : new Date(dateField);
+          if (isNaN(createdAt.getTime())) return false;
+          return createdAt >= prevStartDate && createdAt < prevEndDate;
+        });
+
+        const prevTotalBilled = prevInvoices.reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0);
+        const prevTotalCollected = prevInvoices
+          .filter(inv => inv.status?.toLowerCase() === 'paid')
+          .reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0);
+
+        // For outstanding, calculate from all invoices up to the end of previous period
+        const allPrevInvoices = invoices.filter(inv => {
+          const dateField = inv.created_at || inv.invoice_date;
+          if (!dateField) return false;
+          const createdAt = dateField?.toDate ? dateField.toDate() : new Date(dateField);
+          if (isNaN(createdAt.getTime())) return false;
+          return createdAt < prevEndDate && inv.status?.toLowerCase() !== 'cancelled';
+        });
+        const prevOutstandingInvoices = allPrevInvoices.filter(inv =>
+          ['issued', 'sent', 'overdue', 'partial', 'partially_paid'].includes(inv.status?.toLowerCase())
+        );
+        const prevOutstanding = prevOutstandingInvoices.reduce((sum, inv) =>
+          sum + (inv.balance_due || inv.amount_outstanding || inv.total_amount || inv.total || 0), 0
+        );
+
+        prevFinancial = {
+          total_billed: prevTotalBilled,
+          total_collected: prevTotalCollected,
+          outstanding: prevOutstanding
+        };
+      }
+
+      setPreviousPeriodData({
+        jobs: {
+          total: prevActivity.jobs_created
+        },
+        activity: prevActivity,
+        realTimeCounts: prevRealTimeCounts,
+        financial: prevFinancial || {
+          total_billed: 0,
+          total_collected: 0,
+          outstanding: 0
+        }
+      });
+    } else {
+      setPreviousPeriodData(null);
     }
   }, [jobs, invoices, selectedPeriod]);
 
@@ -231,6 +356,106 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
       console.error('Error calculating real-time stats:', error);
       setIsLoadingStats(false);
     }
+  };
+
+  // Helper function to get previous period based on current period
+  const getPreviousPeriod = (currentPeriod) => {
+    const periodMap = {
+      'today': 'yesterday',
+      'yesterday': 'day_before_yesterday',
+      'this_month': 'last_month',
+      'last_month': 'month_before_last',
+      'this_year': 'last_year',
+      'last_year': 'year_before_last',
+      'all_time': 'this_year'
+    };
+    return periodMap[currentPeriod] || null;
+  };
+
+  // Get comparison label based on period
+  const getComparisonLabel = () => {
+    switch (selectedPeriod) {
+      case 'today':
+        return 'vs yesterday';
+      case 'yesterday':
+        return 'vs day before';
+      case 'this_month':
+        return 'vs last month';
+      case 'last_month':
+        return 'vs month before';
+      case 'this_year':
+        return 'vs last year';
+      case 'last_year':
+        return 'vs year before';
+      case 'all_time':
+        return 'vs this year';
+      default:
+        return 'vs last period';
+    }
+  };
+
+  // Calculate percentage change
+  const calculatePercentageChange = (current, previous) => {
+    if (previous === null || previous === undefined) {
+      return null; // No previous data
+    }
+    
+    // If previous is 0 and current is also 0, no change
+    if (previous === 0 && current === 0) {
+      return 0;
+    }
+    
+    // If previous is 0 but current > 0, calculate based on current value
+    // Use a small base value (1) to calculate percentage
+    if (previous === 0 && current > 0) {
+      // Show as percentage increase from 0 to current
+      // Since we can't divide by 0, we'll show it as current * 100% increase
+      // Or we can use a base of 1 to calculate: ((current - 1) / 1) * 100
+      // But better: show actual percentage: if current is 5, show 500% (5 times increase)
+      return current * 100; // If current is 5, show 500% increase
+    }
+    
+    // Normal percentage calculation
+    const change = ((current - previous) / previous) * 100;
+    return Math.round(change * 10) / 10; // Round to 1 decimal
+  };
+
+  // Helper function to render comparison indicator
+  const renderComparisonIndicator = (change) => {
+    const isPositive = change !== null && change !== undefined && change > 0;
+    const isNegative = change !== null && change !== undefined && change < 0;
+    const isZero = change === 0;
+    const hasNoComparison = change === null || change === undefined;
+    
+    // Format percentage display - always show actual percentage
+    let percentageDisplay = 'N/A';
+    if (!hasNoComparison) {
+      // Round to 1 decimal place for display
+      const roundedChange = Math.round(Math.abs(change) * 10) / 10;
+      percentageDisplay = `${roundedChange}%`;
+    }
+    
+    return (
+      <div className="flex flex-col items-end">
+        <div className="flex items-center gap-1">
+          {isPositive ? (
+            <TrendingUp className="w-4 h-4 text-green-600" />
+          ) : isNegative ? (
+            <TrendingDown className="w-4 h-4 text-red-600" />
+          ) : isZero ? (
+            <span className="w-4 h-4 flex items-center justify-center text-slate-400">—</span>
+          ) : hasNoComparison ? (
+            <span className="w-4 h-4 flex items-center justify-center text-slate-400">—</span>
+          ) : null}
+          <span className={`text-sm font-medium ${
+            isPositive ? 'text-green-600' : isNegative ? 'text-red-600' : isZero ? 'text-slate-400' : 'text-slate-400'
+          }`}>
+            {percentageDisplay}
+          </span>
+        </div>
+        <p className="text-xs text-[#1F1F21]">{getComparisonLabel()}</p>
+      </div>
+    );
   };
 
   // Helper function for date ranges
@@ -617,7 +842,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                     ) : (
                       <motion.div
                         key="content"
-                        className="flex flex-col justify-between"
+                        className="flex items-center justify-between"
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -20 }}
@@ -628,6 +853,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                           className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={150}
                         />
+                        {renderComparisonIndicator(
+                          previousPeriodData?.jobs
+                            ? calculatePercentageChange(
+                                stats?.jobs?.total || 0,
+                                previousPeriodData.jobs.total
+                              )
+                            : null
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -668,7 +901,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                     ) : (
                       <motion.div
                         key="content"
-                        className="flex flex-col justify-between"
+                        className="flex items-center justify-between"
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -20 }}
@@ -680,6 +913,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                           className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={500}
                         />
+                        {renderComparisonIndicator(
+                          previousPeriodData?.financial
+                            ? calculatePercentageChange(
+                                stats?.financial?.total_billed || 0,
+                                previousPeriodData.financial.total_billed
+                              )
+                            : null
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -720,7 +961,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                     ) : (
                       <motion.div
                         key="content"
-                        className="flex flex-col justify-between"
+                        className="flex items-center justify-between"
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -20 }}
@@ -732,6 +973,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                           className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={600}
                         />
+                        {renderComparisonIndicator(
+                          previousPeriodData?.financial
+                            ? calculatePercentageChange(
+                                stats?.financial?.total_collected || 0,
+                                previousPeriodData.financial.total_collected
+                              )
+                            : null
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -772,7 +1021,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                     ) : (
                       <motion.div
                         key="content"
-                        className="flex flex-col justify-between"
+                        className="flex items-center justify-between"
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -20 }}
@@ -784,6 +1033,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                           className="text-[32px] font-[500] text-[#1F1F21]"
                           delay={700}
                         />
+                        {renderComparisonIndicator(
+                          previousPeriodData?.financial
+                            ? calculatePercentageChange(
+                                stats?.financial?.outstanding || 0,
+                                previousPeriodData.financial.outstanding
+                              )
+                            : null
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -834,6 +1091,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                       ) : (
                         <motion.div
                           key="content-created"
+                          className="flex items-center justify-between"
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
@@ -843,6 +1101,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={1100}
                           />
+                          {renderComparisonIndicator(
+                            previousPeriodData?.activity
+                              ? calculatePercentageChange(
+                                  jobActivity.jobs_created || 0,
+                                  previousPeriodData.activity.jobs_created
+                                )
+                              : null
+                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -863,6 +1129,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                       ) : (
                         <motion.div
                           key="content-closed"
+                          className="flex items-center justify-between"
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
@@ -872,6 +1139,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={1200}
                           />
+                          {renderComparisonIndicator(
+                            previousPeriodData?.activity
+                              ? calculatePercentageChange(
+                                  jobActivity.jobs_closed || 0,
+                                  previousPeriodData.activity.jobs_closed
+                                )
+                              : null
+                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -894,6 +1169,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                       ) : (
                         <motion.div
                           key="content-unsigned"
+                          className="flex items-center justify-between"
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
@@ -903,6 +1179,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={1300}
                           />
+                          {renderComparisonIndicator(
+                            previousPeriodData?.activity
+                              ? calculatePercentageChange(
+                                  jobActivity.unsignedAffidavits || 0,
+                                  previousPeriodData.activity.unsignedAffidavits
+                                )
+                              : null
+                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -1012,6 +1296,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                       ) : (
                         <motion.div
                           key="content-open"
+                          className="flex items-center justify-between"
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
@@ -1021,6 +1306,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={300}
                           />
+                          {renderComparisonIndicator(
+                            previousPeriodData?.realTimeCounts
+                              ? calculatePercentageChange(
+                                  realTimeJobCounts.total_open_jobs || 0,
+                                  previousPeriodData.realTimeCounts.total_open_jobs
+                                )
+                              : null
+                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -1043,6 +1336,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                       ) : (
                         <motion.div
                           key="content-rush"
+                          className="flex items-center justify-between"
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
@@ -1052,6 +1346,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={400}
                           />
+                          {renderComparisonIndicator(
+                            previousPeriodData?.realTimeCounts
+                              ? calculatePercentageChange(
+                                  realTimeJobCounts.open_rush_jobs || 0,
+                                  previousPeriodData.realTimeCounts.open_rush_jobs
+                                )
+                              : null
+                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -1074,6 +1376,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                       ) : (
                         <motion.div
                           key="content-attention"
+                          className="flex items-center justify-between"
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
@@ -1083,6 +1386,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={500}
                           />
+                          {renderComparisonIndicator(
+                            previousPeriodData?.realTimeCounts
+                              ? calculatePercentageChange(
+                                  realTimeJobCounts.jobs_need_attention || 0,
+                                  previousPeriodData.realTimeCounts.jobs_need_attention
+                                )
+                              : null
+                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>
