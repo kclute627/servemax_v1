@@ -68,6 +68,8 @@ import AcceptInvite from "./portal/AcceptInvite";
 import AdminPreview from "./portal/AdminPreview";
 import ClientSignup from "./portal/ClientSignup";
 import ClientOrderForm from "./portal/ClientOrderForm";
+import ClientSettings from "./portal/ClientSettings";
+import ClientContact from "./portal/ClientContact";
 
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { GlobalDataProvider } from "../components/GlobalDataContext";
@@ -214,6 +216,8 @@ function PortalRoutes() {
                 <Route path="orders/:orderId" element={<ClientOrders />} />
                 <Route path="invoices" element={<ClientInvoices />} />
                 <Route path="invoices/:invoiceId" element={<ClientInvoices />} />
+                <Route path="contact" element={<ClientContact />} />
+                <Route path="settings" element={<ClientSettings />} />
                 <Route index element={<ClientLogin />} />
             </Route>
         </Routes>

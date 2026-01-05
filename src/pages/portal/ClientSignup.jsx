@@ -99,10 +99,10 @@ export default function ClientSignup() {
   const handleAddressSelect = (addressData) => {
     setFormData(prev => ({
       ...prev,
-      address: addressData.address || "",
+      address: addressData.address1 || "",
       city: addressData.city || "",
       state: addressData.state || "",
-      zip: addressData.zip || ""
+      zip: addressData.postal_code || ""
     }));
   };
 
@@ -188,8 +188,9 @@ export default function ClientSignup() {
       }
     } catch (err) {
       console.error('Registration error:', err);
-      if (err.code === 'functions/already-exists' || err.message?.includes('duplicate')) {
-        setError("An account with this email domain already exists. Please contact support if you need access.");
+      if (err.code === 'functions/already-exists') {
+        // Display the specific message from the server (e.g., "You already have an account with this company")
+        setError(err.message || "An account already exists. Please try logging in instead.");
       } else if (err.code === 'auth/email-already-in-use') {
         setError("This email is already registered. Please try logging in instead.");
       } else {

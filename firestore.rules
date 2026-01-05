@@ -121,6 +121,21 @@ service cloud.firestore {
         request.resource.data.status in ['accepted', 'declined'];
     }
 
+    // Notifications - users can read/update notifications for their company
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      // Allow users to mark notifications as read
+      allow update: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      // Only cloud functions can create/delete notifications
+      allow create, delete: if false;
+    }
+
     // Jobs - enhanced to support job sharing chain
     match /jobs/{jobId} {
       // Helper function to check if user is in the job share chain

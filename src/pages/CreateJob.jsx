@@ -14,6 +14,7 @@ import { useGlobalData } from "@/components/GlobalDataContext";
 // FIREBASE TRANSITION: Replace with Firebase SDK imports.
 import { Job, Client, Employee, CourtCase, Document, Court, CompanySettings, User, ServerPayRecord, Invoice } from "@/api/entities"; // Added User import, Added ServerPayRecord, Added Invoice
 import { SecureJobAccess, SecureCourtAccess, SecureCaseAccess } from "@/firebase/multiTenantAccess";
+import { JOB_TYPES, JOB_TYPE_LABELS, createDefaultCourtReportingJob } from "@/firebase/schemas";
 import { StatsManager } from "@/firebase/stats";
 import { db } from "@/firebase/config";
 import { doc, runTransaction, increment } from "firebase/firestore";
@@ -67,6 +68,7 @@ import ContractorSearchInput from "../components/jobs/ContractorSearchInput";
 import CaseNumberAutocomplete from "../components/jobs/CaseNumberAutocomplete"; // New Import
 import QuickInvoice from "../components/jobs/QuickInvoice";
 import PDFViewer from "../components/jobs/PDFViewer";
+import CourtReportingForm from "../components/jobs/forms/CourtReportingForm";
 // FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { generateFieldSheet } from "@/api/functions"; // Added import for generateFieldSheet
 import { InvoiceManager } from "@/firebase/invoiceManager";
@@ -77,6 +79,7 @@ export default function CreateJobPage() {
   const { companyData, companySettings, refreshData } = useGlobalData();
   const { toast } = useToast();
   const [formData, setFormData] = useState({
+    job_type: JOB_TYPES.PROCESS_SERVING, // Default to process serving
     client_id: "",
     client_job_number: "",
     contact_id: "",
@@ -991,8 +994,8 @@ export default function CreateJobPage() {
       return;
     }
 
-    // Validate marketplace requirements
-    if (formData.server_type === 'marketplace' && !isMarketplaceAvailable()) {
+    // Validate marketplace requirements (only for process serving)
+    if (formData.job_type === JOB_TYPES.PROCESS_SERVING && formData.server_type === 'marketplace' && !isMarketplaceAvailable()) {
       // ✅ UX FIX: Replace alert() with toast
       toast({
         variant: "destructive",
@@ -1032,19 +1035,22 @@ export default function CreateJobPage() {
       }
 
       // ============================================================================
-      // CRITICAL ORDER: Court → Case → Job
+      // CRITICAL ORDER: Court → Case → Job (Process Serving Only)
       // ============================================================================
-      // When creating a new job, we MUST follow this order:
+      // When creating a process serving job, we MUST follow this order:
       // 1. FIRST: Create/get Court (saves to courts collection with created_by)
       // 2. SECOND: Create/get Case WITH court_id (saves to court_cases with created_by)
       // 3. THIRD: Create Job WITH case_id (saves to jobs collection)
       //
       // This ensures proper relationships: Job → Case → Court
+      // Note: Court Reporting and other job types skip this logic
       // ============================================================================
 
       let courtId = null;
       let courtCaseId = null;
 
+      // Only create court/case for process serving jobs
+      if (formData.job_type === JOB_TYPES.PROCESS_SERVING) {
       // STEP 1: Handle Court Creation
       if (selectedCourtFromAutocomplete) {
         // User selected existing court from autocomplete
@@ -1129,13 +1135,19 @@ export default function CreateJobPage() {
         courtCaseId = newCourtCase.id;
         console.log('[CreateJob] ✓ New case created with court_id:', courtId);
       }
+      } // End of process serving court/case creation
 
       // STEP 3: Create Job with case_id (handled below in newJobData)
 
       // Fix for Assigned Server Display: Ensure assigned_server_id is always a string ('unassigned' or actual ID)
-      const serverIdForSubmission = (formData.assigned_server_id === "unassigned" || !formData.assigned_server_id) ? "unassigned" : String(formData.assigned_server_id);
+      // For court reporting jobs, there's no server_type, so default to unassigned
+      const serverIdForSubmission = formData.job_type === JOB_TYPES.PROCESS_SERVING
+        ? ((formData.assigned_server_id === "unassigned" || !formData.assigned_server_id) ? "unassigned" : String(formData.assigned_server_id))
+        : "unassigned";
 
-      const totalServerPay = formData.server_pay_items.reduce((sum, item) => sum + (item.total || 0), 0);
+      const totalServerPay = formData.job_type === JOB_TYPES.PROCESS_SERVING
+        ? formData.server_pay_items.reduce((sum, item) => sum + (item.total || 0), 0)
+        : 0;
 
       // Helper function to get appropriate kanban column ID based on assignment status
       const getInitialStatusColumn = (isAssigned) => {
@@ -1190,14 +1202,24 @@ export default function CreateJobPage() {
         }
       }
 
-      const newJobData = {
+      // Build job data based on job type
+      const baseJobData = {
+        job_type: formData.job_type,
         job_number: jobNumber,
         client_job_number: formData.client_job_number,
         client_id: formData.client_id,
         contact_id: formData.contact_id,
         contact_email: formData.contact_email,
+        priority: formData.priority,
+        notes: formData.notes || '',
+        status: getInitialStatusColumn(serverIdForSubmission !== "unassigned"),
+        is_closed: false,
+        activity_log: activityLogEntries
+      };
+
+      // Process Serving specific fields
+      const processServingFields = formData.job_type === JOB_TYPES.PROCESS_SERVING ? {
         court_case_id: courtCaseId,
-        // Case information stored for field sheet PDF generation
         case_number: formData.case_number,
         court_name: formData.court_name,
         plaintiff: formData.plaintiff,
@@ -1213,7 +1235,6 @@ export default function CreateJobPage() {
         server_type: formData.server_type,
         assigned_server_id: serverIdForSubmission,
         server_name: serverNameForJob,
-        priority: formData.priority,
         due_date: formData.due_date,
         service_fee: formData.service_fee,
         rush_fee: formData.rush_fee,
@@ -1221,10 +1242,44 @@ export default function CreateJobPage() {
         total_fee: calculateTotalFee(),
         server_pay_items: formData.server_pay_items,
         total_server_pay: totalServerPay,
-        // Set status using kanban column UUID
-        status: getInitialStatusColumn(serverIdForSubmission !== "unassigned"),
-        is_closed: false,
-        activity_log: activityLogEntries
+      } : {};
+
+      // Court Reporting specific fields
+      const courtReportingFields = formData.job_type === JOB_TYPES.COURT_REPORTING ? {
+        case_number: formData.case_number,
+        case_name: formData.case_name,
+        court_name: formData.court_name,
+        proceeding_type: formData.proceeding_type,
+        deposition_date: formData.deposition_date,
+        deposition_time: formData.deposition_time,
+        deposition_location: formData.deposition_location,
+        deposition_type: formData.deposition_type,
+        video_conference_link: formData.video_conference_link,
+        estimated_duration: formData.estimated_duration,
+        witnesses: formData.witnesses,
+        ordering_attorney: formData.ordering_attorney,
+        opposing_counsel: formData.opposing_counsel,
+        assigned_personnel: formData.assigned_personnel,
+        realtime_needed: formData.realtime_needed,
+        rough_draft_needed: formData.rough_draft_needed,
+        turnaround_type: formData.turnaround_type,
+        delivery_method: formData.delivery_method,
+        delivery_deadline: formData.delivery_deadline,
+        deliverables: formData.deliverables || {
+          transcript_pdf: '',
+          transcript_ascii: '',
+          transcript_ptx: '',
+          video_files: [],
+          exhibits: [],
+          errata_sheet: '',
+          certificate: '',
+        },
+      } : {};
+
+      const newJobData = {
+        ...baseJobData,
+        ...processServingFields,
+        ...courtReportingFields,
       };
 
       // Create invoice FIRST if invoiceData exists
@@ -1467,11 +1522,45 @@ export default function CreateJobPage() {
               </Link>
               <div>
                 <h1 className="text-3xl font-bold text-slate-900 mb-2">Create New Job</h1>
-                <p className="text-slate-600">Enter job details for process serving</p>
+                <p className="text-slate-600">
+                  Enter job details for {JOB_TYPE_LABELS[formData.job_type] || 'your job'}
+                </p>
               </div>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Job Type Selector - Only show if company has more than one job type */}
+              {(() => {
+                const enabledJobTypes = companyData?.enabled_job_types || [JOB_TYPES.PROCESS_SERVING];
+                if (enabledJobTypes.length <= 1) return null;
+
+                return (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">Job Type</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2">
+                        {enabledJobTypes.map((jobType) => (
+                          <button
+                            key={jobType}
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, job_type: jobType }))}
+                            className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                              formData.job_type === jobType
+                                ? 'border-blue-600 bg-blue-50 text-blue-700'
+                                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            {JOB_TYPE_LABELS[jobType] || jobType}
+                          </button>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
+
               {/* Service Documents */}
               <Card>
                 <CardHeader>
@@ -1591,6 +1680,18 @@ export default function CreateJobPage() {
                 </CardContent>
               </Card>
 
+              {/* Court Reporting Form - shown when job type is court_reporting */}
+              {formData.job_type === JOB_TYPES.COURT_REPORTING && (
+                <CourtReportingForm
+                  formData={formData}
+                  onChange={(field, value) => handleInputChange(field, value)}
+                  employees={employees}
+                />
+              )}
+
+              {/* Process Serving Sections - shown when job type is process_serving */}
+              {formData.job_type === JOB_TYPES.PROCESS_SERVING && (
+                <>
               {/* Case Information */}
               <Card>
                 <CardHeader>
@@ -2180,8 +2281,11 @@ export default function CreateJobPage() {
 
                 </CardContent>
               </Card>
+              </>
+              )}
 
-              {/* Quick Invoice */}
+              {/* Quick Invoice - Only for Process Serving */}
+              {formData.job_type === JOB_TYPES.PROCESS_SERVING && (
               <Card>
                 <CardHeader>
                   <CardTitle>Quick Invoice</CardTitle>
@@ -2199,6 +2303,7 @@ export default function CreateJobPage() {
                   />
                 </CardContent>
               </Card>
+              )}
 
               {/* Actions */}
               <div className="flex justify-end gap-3 pt-6">

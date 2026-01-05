@@ -13,14 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Plus,
-  Search,
-  Filter,
-  MoreHorizontal,
-  List,
-  MapPin,
-  Briefcase,
-  Columns,
-  Route
+  Search
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -35,14 +28,9 @@ import { createPageUrl } from "@/utils";
 // FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { updateSharedJobStatus } from "@/api/functions";
 
-import JobsTable from "../components/jobs/JobsTable";
-import JobFilters from "../components/jobs/JobFilters";
-import JobsMap from "../components/jobs/JobsMap";
-import KanbanView from "../components/jobs/KanbanView";
-import CaseView from "../components/jobs/CaseView";
-import RoutingView from "../components/jobs/RoutingView";
+import JobTypeSection from "../components/jobs/JobTypeSection";
 import { useGlobalData } from "../components/GlobalDataContext"; // Changed from useJobs to useGlobalData
-import { StatsManager } from "@/firebase/stats";
+import { JOB_TYPES, JOB_TYPE_LABELS } from "@/firebase/schemas";
 
 export default function JobsPage() {
   // Get data from context instead of loading it here
@@ -54,6 +42,7 @@ export default function JobsPage() {
     courtCases,
     allAssignableServers,
     myCompanyClientId,
+    companyData,
     companySettings,
     isLoading,
     refreshData
@@ -63,57 +52,59 @@ export default function JobsPage() {
 
   const [filteredJobs, setFilteredJobs] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filters, setFilters] = useState({
-    status: "open", // Default to 'open'
-    priority: "all",
-    assignedServer: "all",
-    needsAttention: false,
-    unsignedAffidavit: false
-  });
   const [selectedJobs, setSelectedJobs] = useState([]);
-  const [currentView, setCurrentView] = useState('list'); // Add view state
 
   // New pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [jobsPerPage] = useState(20); // 20 jobs per page
 
+  // Job type sections - for companies with multiple enabled job types
+  const enabledJobTypes = companyData?.enabled_job_types || [JOB_TYPES.PROCESS_SERVING];
+  const hasMultipleJobTypes = enabledJobTypes.length > 1;
+
+  // State for which sections are expanded (all expanded by default)
+  const [expandedSections, setExpandedSections] = useState(() =>
+    enabledJobTypes.reduce((acc, type) => ({ ...acc, [type]: true }), {})
+  );
+
+  // Toggle section expansion
+  const toggleSection = useCallback((jobType) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [jobType]: !prev[jobType]
+    }));
+  }, []);
+
+  // Group filtered jobs by job type (only computed when needed)
+  const jobsByType = useMemo(() => {
+    if (!hasMultipleJobTypes) return null;
+
+    const groups = {};
+    enabledJobTypes.forEach(type => groups[type] = []);
+
+    filteredJobs.forEach(job => {
+      const type = job.job_type || JOB_TYPES.PROCESS_SERVING;
+      if (groups[type]) {
+        groups[type].push(job);
+      } else {
+        // If job has an unknown type, put it in process_serving
+        groups[JOB_TYPES.PROCESS_SERVING]?.push(job);
+      }
+    });
+
+    return groups;
+  }, [filteredJobs, enabledJobTypes, hasMultipleJobTypes]);
+
   // The `loadData` function and its related useEffect for initial data
   // are removed as data is now provided by the JobsContext.
 
-  // New useEffect to read URL params on initial load
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const status = params.get('status');
-    const priority = params.get('priority');
-    const attention = params.get('attention');
-    const unsignedAffidavit = params.get('unsigned_affidavit');
+  // URL params handling removed - filters are now per-section
 
-    const newFilters = {};
-    if (status) {
-      newFilters.status = status;
-    }
-    if (priority) {
-      newFilters.priority = priority;
-    }
-    if (attention === 'true') {
-      newFilters.needsAttention = true;
-    }
-    if (unsignedAffidavit === 'true') {
-      newFilters.unsignedAffidavit = true;
-    }
-
-    if (Object.keys(newFilters).length > 0) {
-      setFilters(prevFilters => ({
-        ...prevFilters,
-        ...newFilters
-      }));
-    }
-  }, [location.search]);
-
+  // Global search filter - status/priority/server filtering is now per-section
   const filterJobs = useCallback(() => {
     let jobsToSort = [...jobs];
 
-    // --- NEW SORTING LOGIC ---
+    // Sort by priority and due date
     const priorityOrder = { emergency: 3, rush: 2, standard: 1 };
 
     jobsToSort.sort((a, b) => {
@@ -128,83 +119,42 @@ export default function JobsPage() {
       const dateA = a.due_date ? new Date(a.due_date) : null;
       const dateB = b.due_date ? new Date(b.due_date) : null;
 
-      if (!dateA && !dateB) return 0; // Both have no due date
-      if (!dateA) return 1;          // a has no due date, so b comes first
-      if (!dateB) return -1;         // b has no due date, so a comes first
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
 
       return dateA - dateB;
     });
 
     let filtered = jobsToSort;
 
-    // Search filter
+    // Global search filter - searches across all job types
     if (searchTerm) {
+      const term = searchTerm.toLowerCase();
       filtered = filtered.filter(job =>
-        job.recipient?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        job.job_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        job.client_job_number?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    // --- UPDATED STATUS FILTER LOGIC ---
-    if (filters.status === 'open') {
-      // A job is "open" if its is_closed flag is false.
-      filtered = filtered.filter(job => !job.is_closed);
-    } else if (filters.status === 'closed') {
-      // A job is "closed" if its is_closed flag is true.
-      filtered = filtered.filter(job => job.is_closed === true);
-    } else if (filters.status !== "all") {
-      // For specific statuses like 'pending', 'served', etc.
-      filtered = filtered.filter(job => job.status === filters.status);
-    }
-
-    // Priority filter
-    if (filters.priority !== "all") {
-      filtered = filtered.filter(job => job.priority === filters.priority);
-    }
-
-    // Assigned server filter
-    if (filters.assignedServer !== "all") {
-      if (filters.assignedServer === 'unassigned') {
-        filtered = filtered.filter(job => !job.assigned_server_id);
-      } else {
-        // This condition now correctly filters for internal servers AND for jobs
-        // assigned to 'myCompanyClientId' (i.e., jobs shared with this company).
-        filtered = filtered.filter(job => job.assigned_server_id === filters.assignedServer);
-      }
-    }
-
-    // Needs attention filter
-    if (filters.needsAttention) {
-      filtered = filtered.filter(job => StatsManager.jobNeedsAttention(job));
-    }
-
-    // Unsigned affidavit filter
-    if (filters.unsignedAffidavit) {
-      filtered = filtered.filter(job =>
-        (job.status === 'served' || job.status === 'non-served') &&
-        !job.is_closed &&
-        !job.has_signed_affidavit
+        job.recipient?.name?.toLowerCase().includes(term) ||
+        job.job_number?.toLowerCase().includes(term) ||
+        job.client_job_number?.toLowerCase().includes(term) ||
+        job.case_name?.toLowerCase().includes(term) ||
+        job.case_number?.toLowerCase().includes(term)
       );
     }
 
     console.log('[Jobs] Total jobs:', jobs.length);
-    console.log('[Jobs] Filtered jobs:', filtered.length);
-    console.log('[Jobs] Current filter:', filters);
+    console.log('[Jobs] Search filtered jobs:', filtered.length);
 
     setFilteredJobs(filtered);
-    // Reset to first page when filters change
     setCurrentPage(1);
-  }, [jobs, searchTerm, filters]); // 'jobs' is now from context
+  }, [jobs, searchTerm]);
 
   useEffect(() => {
     filterJobs();
   }, [filterJobs]);
 
-  // Reset page when search term or filters change
+  // Reset page when search term changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filters]);
+  }, [searchTerm]);
 
   // Get paginated jobs for current page
   const paginatedJobs = useMemo(() => {
@@ -299,19 +249,6 @@ export default function JobsPage() {
     }
   };
 
-  // New handler for Kanban drag-and-drop column updates
-  const handleJobStatusUpdate = useCallback(async (jobId, newColumnId) => {
-    // The KanbanView component handles optimistic UI updates locally
-    // We only update the database here and don't refresh to keep the drag smooth
-    try {
-      await Job.update(jobId, { kanban_column_id: newColumnId });
-      // Don't refresh here - rely on optimistic UI for smooth dragging
-    } catch (error) {
-      console.error("Failed to update job kanban column via drag-and-drop:", error);
-      await refreshData(); // Refresh on error to revert optimistic update
-    }
-  }, [refreshData]);
-
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="p-6 md:p-8">
@@ -333,139 +270,38 @@ export default function JobsPage() {
             </div>
           </div>
 
-          {/* Search and Filters */}
+          {/* Search - only show as separate section when multiple job types */}
+          {hasMultipleJobTypes && (
           <div className="bg-white rounded-lg border border-slate-200 shadow-sm mb-6">
-            <div className="p-6 border-b border-slate-200">
-              <div className="flex flex-col gap-4">
-                {/* Search Row */}
-                <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
-                  <Input
-                    placeholder="Search by recipient, job #, or client ref #..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-
-                {/* Filters Row */}
-                <div>
-                  <JobFilters
-                    filters={filters}
-                    onFilterChange={setFilters}
-                    employees={allAssignableServers} // Now from context
-                  />
-                </div>
+            <div className="p-4 border-b border-slate-200">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+                <Input
+                  placeholder="Search all jobs by recipient, job #, case name, or client ref #..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
               </div>
             </div>
 
-            {/* View Mode Selector */}
-            <div className="p-3 bg-slate-50/50 border-b border-slate-200 flex justify-center">
-              <div className="flex items-center gap-2 bg-slate-200 p-1.5 rounded-xl">
-                <Button
-                  variant={currentView === 'list' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setCurrentView('list')}
-                  className={`gap-2 h-9 px-4 ${currentView === 'list' ? 'bg-white text-slate-900 shadow-md hover:bg-white hover:text-slate-900' : 'text-slate-600 hover:text-slate-800'}`}
-                >
-                  <List className="w-4 h-4" />
-                  List
-                </Button>
-                <Button
-                  variant={currentView === 'map' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setCurrentView('map')}
-                  className={`gap-2 h-9 px-4 ${currentView === 'map' ? 'bg-white text-slate-900 shadow-md hover:bg-white hover:text-slate-900' : 'text-slate-600 hover:text-slate-800'}`}
-                >
-                  <MapPin className="w-4 h-4" />
-                  Map
-                </Button>
-                <Button
-                  variant={currentView === 'case' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setCurrentView('case')}
-                  className={`gap-2 h-9 px-4 ${currentView === 'case' ? 'bg-white text-slate-900 shadow-md hover:bg-white hover:text-slate-900' : 'text-slate-600 hover:text-slate-800'}`}
-                >
-                  <Briefcase className="w-4 h-4" />
-                  Case
-                </Button>
-                <Button
-                  variant={currentView === 'routing' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setCurrentView('routing')}
-                  className={`gap-2 h-9 px-4 ${currentView === 'routing' ? 'bg-white text-slate-900 shadow-md hover:bg-white hover:text-slate-900' : 'text-slate-600 hover:text-slate-800'}`}
-                >
-                  <Route className="w-4 h-4" />
-                  Routing
-                </Button>
-                {companySettings?.kanbanBoard?.enabled && (
-                  <Button
-                    variant={currentView === 'kanban' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setCurrentView('kanban')}
-                    className={`gap-2 h-9 px-4 ${currentView === 'kanban' ? 'bg-white text-slate-900 shadow-md hover:bg-white hover:text-slate-900' : 'text-slate-600 hover:text-slate-800'}`}
-                  >
-                    <Columns className="w-4 h-4" />
-                    Kanban
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* Pagination and Filter Summary */}
+            {/* Search Summary */}
             <div className="p-4 bg-slate-50 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <span className="text-sm font-medium text-slate-700">
                   {filteredJobs.length} {filteredJobs.length === 1 ? 'job' : 'jobs'} found
                 </span>
-                {(searchTerm || filters.status !== 'open' || filters.priority !== 'all' || filters.assignedServer !== 'all' || filters.needsAttention) && (
+                {searchTerm && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      setSearchTerm("");
-                      setFilters({
-                        status: "open",
-                        priority: "all",
-                        assignedServer: "all",
-                        needsAttention: false
-                      });
-                    }}
+                    onClick={() => setSearchTerm("")}
                     className="text-slate-600 hover:text-slate-800"
                   >
-                    Clear Filters
+                    Clear Search
                   </Button>
                 )}
               </div>
-
-              {/* Pagination Controls */}
-              {totalPages > 1 && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handlePageChange(currentPage - 1)}
-                    disabled={currentPage === 1}
-                    className="h-8 w-8 p-0"
-                  >
-                    ‹
-                  </Button>
-
-                  <span className="text-sm text-slate-600 px-2">
-                    Page {currentPage} of {totalPages}
-                  </span>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handlePageChange(currentPage + 1)}
-                    disabled={currentPage === totalPages}
-                    className="h-8 w-8 p-0"
-                  >
-                    ›
-                  </Button>
-                </div>
-              )}
             </div>
 
             {/* Bulk Actions Bar - Show when jobs are selected */}
@@ -523,58 +359,37 @@ export default function JobsPage() {
               </div>
             )}
           </div>
-
-          {/* Jobs Display - pass context refresh function */}
-          {currentView === 'list' && (
-            <JobsTable
-              jobs={paginatedJobs} // Use paginated jobs instead of filteredJobs
-              clients={clients}
-              employees={employees} // JobsTable still receives the original employees for internal server lookup
-              invoices={invoices} // Pass invoices for badge logic
-              isLoading={isLoading}
-              onJobUpdate={refreshData} // Use context refresh
-              myCompanyClientId={myCompanyClientId} // Pass myCompanyClientId for JobsTable to identify shared jobs assigned to us
-              onUpdateSharedJobStatus={handleUpdateSharedJobStatus}
-              selectedJobs={selectedJobs}
-              onJobSelection={handleJobSelection}
-              onSelectAll={handleSelectAll}
-            />
           )}
 
-          {/* Always render JobsMap for preloading, hide when not active */}
-          <div style={{ display: currentView === 'map' ? 'block' : 'none' }}>
-            <JobsMap jobs={filteredJobs} isLoading={isLoading} />
+          {/* Jobs Display - each job type section has its own filters and views */}
+          <div className="space-y-4">
+            {enabledJobTypes.map(jobType => (
+              <JobTypeSection
+                key={jobType}
+                jobType={jobType}
+                label={JOB_TYPE_LABELS[jobType] || jobType}
+                jobs={hasMultipleJobTypes ? (jobsByType?.[jobType] || []) : filteredJobs}
+                isExpanded={expandedSections[jobType] ?? true}
+                onToggle={() => toggleSection(jobType)}
+                hideHeader={!hasMultipleJobTypes} // Hide collapsible header when only one job type
+                clients={clients}
+                employees={employees}
+                invoices={invoices}
+                isLoading={isLoading}
+                onJobUpdate={refreshData}
+                myCompanyClientId={myCompanyClientId}
+                onUpdateSharedJobStatus={handleUpdateSharedJobStatus}
+                selectedJobs={selectedJobs}
+                onJobSelection={handleJobSelection}
+                onSelectAll={handleSelectAll}
+                allAssignableServers={allAssignableServers}
+                courtCases={courtCases}
+                companySettings={companySettings}
+                searchTerm={searchTerm}
+                onSearchChange={setSearchTerm}
+              />
+            ))}
           </div>
-
-          {currentView === 'case' && (
-            <CaseView
-              jobs={filteredJobs}
-              clients={clients}
-              employees={employees}
-              courtCases={courtCases}
-              isLoading={isLoading}
-            />
-          )}
-
-          {currentView === 'kanban' && (
-            <KanbanView
-              jobs={filteredJobs} // Kanban uses all filtered jobs
-              clients={clients}
-              employees={employees} // Keep employees as it's likely used for display/filtering within Kanban
-              onJobStatusChange={handleJobStatusUpdate} // Pass the new handler
-              isLoading={isLoading}
-              statusColumns={companySettings?.kanbanBoard?.columns || []}
-            />
-          )}
-
-          {currentView === 'routing' && (
-            <RoutingView
-              jobs={filteredJobs}
-              employees={employees}
-              clients={clients}
-              isLoading={isLoading}
-            />
-          )}
         </div>
       </div>
     </div>

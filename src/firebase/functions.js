@@ -326,6 +326,18 @@ export class FirebaseFunctions {
     }
   }
 
+  // Update client profile
+  static async updateClientProfile(profileData) {
+    try {
+      const updateClientProfile = httpsCallable(functions, 'updateClientProfile');
+      const result = await updateClientProfile(profileData);
+      return result.data;
+    } catch (error) {
+      console.error('Update client profile error:', error);
+      throw error;
+    }
+  }
+
   // Send attempt notification email to client
   static async sendAttemptNotification(attemptId, jobId, companyId) {
     try {

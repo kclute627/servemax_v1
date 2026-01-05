@@ -4419,71 +4419,43 @@ exports.selfRegisterClientUser = onCall(async (request) => {
       throw new HttpsError("permission-denied", "Self-registration is not enabled for this portal");
     }
 
-    // Duplicate detection by email domain
-    const emailDomain = email.split("@")[1]?.toLowerCase();
-    const freeEmailProviders = [
-      "gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
-      "aol.com", "icloud.com", "mail.com", "protonmail.com",
-      "live.com", "msn.com", "ymail.com",
-    ];
+    // Check if this exact email already has an account with THIS company
+    // (Same email can have accounts with different companies - that's allowed)
+    const existingUserSnapshot = await admin.firestore()
+        .collection("client_users")
+        .where("parent_company_id", "==", parentCompanyId)
+        .where("email", "==", email.toLowerCase())
+        .limit(1)
+        .get();
 
-    if (!freeEmailProviders.includes(emailDomain)) {
-      // Check for existing clients with same email domain (clients are stored in companies collection)
-      const existingClientsSnapshot = await admin.firestore()
-          .collection("companies")
-          .where("created_by", "==", parentCompanyId)
-          .get();
-
-      for (const doc of existingClientsSnapshot.docs) {
-        const clientData = doc.data();
-        // Check contacts array for matching domain
-        const hasMatchingDomain = clientData.contacts?.some((c) =>
-          c.email?.toLowerCase().endsWith("@" + emailDomain)
-        );
-        if (hasMatchingDomain) {
-          throw new HttpsError(
-              "already-exists",
-              `An account with @${emailDomain} already exists. Please contact your company administrator or our support team.`
-          );
-        }
-      }
-
-      // Also check existing client_users for matching domain
-      const existingUsersSnapshot = await admin.firestore()
-          .collection("client_users")
-          .where("parent_company_id", "==", parentCompanyId)
-          .get();
-
-      for (const doc of existingUsersSnapshot.docs) {
-        const userData = doc.data();
-        if (userData.email?.toLowerCase().endsWith("@" + emailDomain)) {
-          throw new HttpsError(
-              "already-exists",
-              `An account with @${emailDomain} already exists. Please contact your company administrator.`
-          );
-        }
-      }
+    if (!existingUserSnapshot.empty) {
+      throw new HttpsError(
+          "already-exists",
+          "You already have an account with this company. Please log in instead."
+      );
     }
 
-    // Check if email is already registered in Firebase Auth
+    // Check if email exists in Firebase Auth (user may have account with another company)
+    let firebaseUser;
+    let isExistingAuthUser = false;
+
     try {
-      await admin.auth().getUserByEmail(email);
-      throw new HttpsError("already-exists", "This email is already registered. Please try logging in instead.");
+      firebaseUser = await admin.auth().getUserByEmail(email);
+      isExistingAuthUser = true;
+      console.log(`[selfRegisterClientUser] Found existing Firebase user ${firebaseUser.uid}, will link to new company`);
     } catch (error) {
-      if (error.code !== "auth/user-not-found") {
-        if (error instanceof HttpsError) throw error;
+      if (error.code === "auth/user-not-found") {
+        // User doesn't exist in Firebase Auth - create new account
+        firebaseUser = await admin.auth().createUser({
+          email: email,
+          password: password,
+          displayName: contactName,
+        });
+        console.log(`[selfRegisterClientUser] Created new Firebase Auth user: ${firebaseUser.uid}`);
+      } else {
         throw new HttpsError("internal", `Failed to check email: ${error.message}`);
       }
-      // User not found - good, we can proceed
     }
-
-    // Create Firebase Auth user
-    const firebaseUser = await admin.auth().createUser({
-      email: email,
-      password: password,
-      displayName: contactName,
-    });
-    console.log(`[selfRegisterClientUser] Created Firebase Auth user: ${firebaseUser.uid}`);
 
     // Create client company record (in companies collection, not deprecated clients collection)
     const clientData = {
@@ -4529,11 +4501,18 @@ exports.selfRegisterClientUser = onCall(async (request) => {
     });
     console.log(`[selfRegisterClientUser] Created company_stats for client: ${clientRef.id}`);
 
-    // Set custom claims
+    // Set custom claims - preserve existing claims for multi-company support
+    // Don't overwrite company IDs as user may have accounts with multiple companies
+    // The actual company context is determined by portal slug + client_users lookup
+    const existingClaims = firebaseUser.customClaims || {};
     await admin.auth().setCustomUserClaims(firebaseUser.uid, {
+      ...existingClaims,
       client_portal_user: true,
-      client_company_id: clientRef.id,
-      parent_company_id: parentCompanyId,
+      // Only set these for new users; existing users already have their claims
+      ...(isExistingAuthUser ? {} : {
+        client_company_id: clientRef.id,
+        parent_company_id: parentCompanyId,
+      }),
     });
 
     // Create client_user record
@@ -4833,6 +4812,11 @@ exports.getClientPortalData = onCall(async (request) => {
         name: clientUser.name,
         email: clientUser.email,
         role: clientUser.role,
+        phone: clientUser.phone || "",
+        address: clientUser.address || "",
+        city: clientUser.city || "",
+        state: clientUser.state || "",
+        zip: clientUser.zip || "",
       },
       company: {
         id: parentCompanyId,
@@ -4846,6 +4830,7 @@ exports.getClientPortalData = onCall(async (request) => {
         accent_color: "#3b82f6",
       },
       portalSettings: companyData.portal_settings || {},
+      enabled_job_types: companyData.enabled_job_types || ["process_serving"],
       jobs: jobs,
       invoices: invoices,
     };
@@ -4856,6 +4841,63 @@ exports.getClientPortalData = onCall(async (request) => {
       throw error;
     }
     throw new HttpsError("internal", `Failed to get portal data: ${error.message}`);
+  }
+});
+
+/**
+ * Update client portal user profile
+ * Allows client users to update their own profile information
+ */
+exports.updateClientProfile = onCall(async (request) => {
+  try {
+    const callerUid = request.auth?.uid;
+
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    // Get the client user record
+    const clientUserQuery = await admin.firestore()
+        .collection("client_users")
+        .where("uid", "==", callerUid)
+        .where("is_active", "==", true)
+        .limit(1)
+        .get();
+
+    if (clientUserQuery.empty) {
+      throw new HttpsError("permission-denied", "No active client portal access found");
+    }
+
+    const clientUserRef = clientUserQuery.docs[0].ref;
+    const {name, phone, address, city, state, zip} = request.data;
+
+    // Build update object with only provided fields
+    const updateData = {
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (name !== undefined) updateData.name = name;
+    if (phone !== undefined) updateData.phone = phone;
+    if (address !== undefined) updateData.address = address;
+    if (city !== undefined) updateData.city = city;
+    if (state !== undefined) updateData.state = state;
+    if (zip !== undefined) updateData.zip = zip;
+
+    await clientUserRef.update(updateData);
+
+    console.log(`[updateClientProfile] Updated profile for user ${callerUid}`);
+
+    return {
+      success: true,
+      message: "Profile updated successfully",
+    };
+  } catch (error) {
+    console.error("[updateClientProfile] Error:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to update profile: ${error.message}`);
   }
 });
 
@@ -5114,7 +5156,9 @@ exports.sendAttemptNotification = onCall(
  * Create a job from the client portal
  * Called by authenticated client portal users to submit new jobs
  */
-exports.createClientJob = onCall(async (request) => {
+exports.createClientJob = onCall(
+    {secrets: [sendgridApiKey, anthropicApiKey]},
+    async (request) => {
   try {
     const callerUid = request.auth?.uid;
     if (!callerUid) {
@@ -5208,15 +5252,15 @@ exports.createClientJob = onCall(async (request) => {
       // Addresses at root level (for JobDetails display)
       addresses: jobData.addresses || [],
 
-      // Case info (empty initially, will be extracted from documents)
-      case_number: "",
+      // Case info (use submitted values, can be enriched by document extraction)
+      case_number: jobData.case_number || "",
       case_caption: "",
-      plaintiff: "",
-      defendant: jobData.recipient_name,
+      plaintiff: jobData.plaintiff || "",
+      defendant: jobData.defendant_name || jobData.recipient_name || "",
 
       // Court info
-      court_name: "",
-      court_county: "",
+      court_name: jobData.court_name || "",
+      court_county: jobData.court_county || "",
 
       // Recipients array (for compatibility)
       recipients: [{
@@ -5249,6 +5293,10 @@ exports.createClientJob = onCall(async (request) => {
       // Metadata
       source: "client_portal",
       submitted_by_client_user_id: clientUserQuery.docs[0].id,
+      submitted_by: {
+        name: clientUser.name || "Client Portal User",
+        email: clientUser.email || "",
+      },
       created_at: nowTimestamp,
       updated_at: nowTimestamp,
     };
@@ -5257,8 +5305,45 @@ exports.createClientJob = onCall(async (request) => {
 
     console.log(`[createClientJob] Created job ${jobRef.id} (job #${jobNumber})`);
 
+    // Create document entries in the documents collection for uploaded files
+    // This ensures they appear in the admin dashboard's Service Documents section
+    if (jobData.uploaded_documents && jobData.uploaded_documents.length > 0) {
+      console.log(`[createClientJob] Creating ${jobData.uploaded_documents.length} document entries...`);
+
+      const documentEntries = jobData.uploaded_documents.map((doc) => ({
+        job_id: jobRef.id,
+        company_id: parentCompanyId,
+        title: doc.name || "Untitled Document",
+        file_url: doc.url || doc.file_url,
+        document_category: "to_be_served",
+        content_type: doc.content_type || "application/pdf",
+        page_count: doc.page_count || 1,
+        file_size: doc.size || 0,
+        received_at: nowIso,
+        created_at: nowTimestamp,
+        updated_at: nowTimestamp,
+        source: "client_portal",
+      }));
+
+      // Create documents in batch
+      const batch = admin.firestore().batch();
+      documentEntries.forEach((docEntry) => {
+        const docRef = admin.firestore().collection("documents").doc();
+        batch.set(docRef, docEntry);
+      });
+
+      await batch.commit();
+      console.log(`[createClientJob] Created ${documentEntries.length} document entries in documents collection`);
+    }
+
     // Create notification for the parent company (persistent toast)
     try {
+      // Format address for notification
+      const firstAddress = (jobData.addresses || [])[0];
+      const addressStr = firstAddress
+        ? `${firstAddress.address1 || ""}${firstAddress.city ? `, ${firstAddress.city}` : ""}${firstAddress.state ? `, ${firstAddress.state}` : ""}`
+        : "";
+
       await admin.firestore().collection("notifications").add({
         company_id: parentCompanyId,
         type: "new_portal_order",
@@ -5267,6 +5352,9 @@ exports.createClientJob = onCall(async (request) => {
         job_id: jobRef.id,
         job_number: jobNumber,
         client_name: clientUser.name || "Client",
+        recipient_name: jobData.recipient_name || "",
+        address: addressStr,
+        priority: jobData.priority || "standard",
         read: false,
         persistent: true,
         created_at: admin.firestore.FieldValue.serverTimestamp(),
@@ -5275,6 +5363,64 @@ exports.createClientJob = onCall(async (request) => {
     } catch (notifError) {
       console.error("[createClientJob] Failed to create notification:", notifError);
       // Don't fail the job creation if notification fails
+    }
+
+    // Send email notification to company admins
+    try {
+      // Get company data
+      const companyDoc = await admin.firestore().collection("companies").doc(parentCompanyId).get();
+      const companyData = companyDoc.exists ? companyDoc.data() : {};
+
+      // Get admin users from this company to notify
+      const adminUsersQuery = await admin.firestore()
+          .collection("users")
+          .where("company_id", "==", parentCompanyId)
+          .where("role", "in", ["admin", "owner"])
+          .limit(5) // Limit to prevent spamming
+          .get();
+
+      const adminEmails = adminUsersQuery.docs
+          .map((doc) => doc.data().email)
+          .filter((email) => email);
+
+      // Also include company email if set
+      if (companyData.email && !adminEmails.includes(companyData.email)) {
+        adminEmails.push(companyData.email);
+      }
+
+      // Get client company name
+      const clientDoc = await admin.firestore().collection("clients").doc(clientCompanyId).get();
+      const clientCompanyName = clientDoc.exists ?
+        (clientDoc.data().company_name || clientDoc.data().name || "Client") : "Client";
+
+      if (adminEmails.length > 0) {
+        const primaryAddress = (jobData.addresses && jobData.addresses[0]) || {};
+        const addressStr = primaryAddress.city && primaryAddress.state ?
+          `${primaryAddress.city}, ${primaryAddress.state}` : "";
+
+        for (const adminEmail of adminEmails) {
+          await sendEmailWithTemplate({
+            to: adminEmail,
+            subject: "A new job has been created",
+            templateName: "new_portal_job",
+            templateData: {
+              jobNumber: jobNumber,
+              recipientName: jobData.recipient_name,
+              clientName: clientCompanyName,
+              submittedBy: clientUser.name || "Client Portal User",
+              submittedByEmail: clientUser.email || "",
+              address: addressStr,
+              priority: jobData.priority || "standard",
+              jobUrl: `https://www.servemax.pro/JobDetails?id=${jobRef.id}`,
+            },
+            companyId: parentCompanyId,
+          });
+        }
+        console.log(`[createClientJob] Sent email notifications to ${adminEmails.length} admin(s)`);
+      }
+    } catch (emailError) {
+      console.error("[createClientJob] Failed to send email notification:", emailError);
+      // Don't fail the job creation if email fails
     }
 
     // Trigger document extraction if documents were uploaded

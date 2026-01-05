@@ -30,6 +30,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getAvailableMenuItems, isSuperAdmin } from "@/utils/permissions";
+import GlobalNotificationListener from "@/components/GlobalNotificationListener";
 
 // Regular user navigation
 const navigationItems = [
@@ -171,6 +172,10 @@ export default function Layout({ children, currentPageName }) {
   // Authenticated: Render full layout with sidebar
   return (
     <TooltipProvider>
+        {/* Global notification listener for real-time toasts (portal orders, etc.) */}
+        {user?.company_id && !isUserSuperAdmin && (
+          <GlobalNotificationListener companyId={user.company_id} />
+        )}
         <div className="w-full min-h-screen bg-slate-50">
           <style>{`
             /* Hide number input arrows */

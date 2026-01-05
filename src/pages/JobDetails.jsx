@@ -96,6 +96,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { InvoiceManager } from '@/firebase/invoiceManager';
 import InvoicePreview from '@/components/invoicing/InvoicePreview';
 import html2pdf from 'html2pdf.js';
+import { JOB_TYPES, JOB_TYPE_LABELS } from '@/firebase/schemas';
+import CourtReportingDetails from '../components/jobs/CourtReportingDetails';
 // --- Configuration Objects ---
 // These are UI-specific and will likely remain unchanged during migration.
 const statusConfig = {
@@ -2649,6 +2651,25 @@ export default function JobDetailsPage() {
                           }
                         })()}
                       </div>
+
+                      {/* Submitted By - shown for portal-submitted jobs */}
+                      {job.source === 'client_portal' && job.submitted_by && (
+                        <div className="mt-3">
+                          <Label className="text-xs text-slate-500">Submitted By (Portal)</Label>
+                          <div className="mt-1">
+                            <p className="font-medium text-sm text-slate-800 flex items-center gap-2">
+                              <UserCircle className="w-4 h-4 text-blue-500" />
+                              {job.submitted_by.name}
+                            </p>
+                            {job.submitted_by.email && (
+                              <p className="text-sm text-slate-600 flex items-center gap-2 mt-0.5">
+                                <Mail className="w-4 h-4 text-slate-400" />
+                                {job.submitted_by.email}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <Label className="text-xs text-slate-500">Assigned Server</Label>
@@ -2663,6 +2684,14 @@ export default function JobDetailsPage() {
               </CardContent>
             </Card>
 
+            {/* Court Reporting Details - shown for court reporting jobs */}
+            {job?.job_type === JOB_TYPES.COURT_REPORTING && (
+              <CourtReportingDetails job={job} employees={employees} />
+            )}
+
+            {/* Process Serving Details - shown for process serving jobs (default) */}
+            {(!job?.job_type || job?.job_type === JOB_TYPES.PROCESS_SERVING) && (
+            <>
             {/* Recipient & Service Details Card */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -3574,11 +3603,14 @@ export default function JobDetailsPage() {
                 )}
               </CardContent>
             </Card>
+            </>
+            )}
           </div>
 
           {/* Right Column - Service History */}
           <div className="lg:col-span-1 space-y-6">
-            {/* Case Information Card */}
+            {/* Case Information Card - Process Serving Only */}
+            {(!job?.job_type || job?.job_type === JOB_TYPES.PROCESS_SERVING) && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Case Information</CardTitle>
@@ -3695,8 +3727,10 @@ export default function JobDetailsPage() {
                 )}
               </CardContent>
             </Card>
+            )}
 
-            {/* Service Details Card */}
+            {/* Service Details Card - Process Serving Only */}
+            {(!job?.job_type || job?.job_type === JOB_TYPES.PROCESS_SERVING) && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Service Details</CardTitle>
@@ -3801,8 +3835,10 @@ export default function JobDetailsPage() {
                 )}
               </CardContent>
             </Card>
+            )}
 
-            {/* Field Sheet Card */}
+            {/* Field Sheet Card - Process Serving Only */}
+            {(!job?.job_type || job?.job_type === JOB_TYPES.PROCESS_SERVING) && (
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -3868,8 +3904,9 @@ export default function JobDetailsPage() {
                 )}
               </CardContent>
             </Card>
+            )}
 
-            {/* Job Activity Card */}
+            {/* Job Activity Card - Shown for all job types */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

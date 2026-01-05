@@ -68,16 +68,30 @@ export default function JobDetailPanel({
     }
   };
 
+  // Map status to portal-friendly display labels
+  const getStatusLabel = (status) => {
+    const labels = {
+      pending: "Out For Service",
+      in_progress: "In Progress",
+      assigned: "Assigned",
+      served: "Served",
+      completed: "Completed",
+      failed: "Failed",
+      cancelled: "Cancelled"
+    };
+    return labels[status?.toLowerCase()] || status?.replace(/_/g, ' ') || 'Out For Service';
+  };
+
   const getStatusBadge = (status) => {
     const statusLower = status?.toLowerCase() || "";
     if (statusLower === "completed" || statusLower === "served") {
-      return <Badge className="bg-green-100 text-green-700">{status?.replace(/_/g, ' ')}</Badge>;
+      return <Badge className="bg-green-100 text-green-700">{getStatusLabel(status)}</Badge>;
     } else if (statusLower === "pending" || statusLower === "in_progress" || statusLower === "assigned") {
-      return <Badge className="bg-amber-100 text-amber-700">{status?.replace(/_/g, ' ')}</Badge>;
+      return <Badge className="bg-blue-100 text-blue-700">{getStatusLabel(status)}</Badge>;
     } else if (statusLower === "cancelled" || statusLower === "failed") {
-      return <Badge className="bg-red-100 text-red-700">{status?.replace(/_/g, ' ')}</Badge>;
+      return <Badge className="bg-red-100 text-red-700">{getStatusLabel(status)}</Badge>;
     }
-    return <Badge className="bg-slate-100 text-slate-700">{status?.replace(/_/g, ' ') || "Unknown"}</Badge>;
+    return <Badge className="bg-slate-100 text-slate-700">{getStatusLabel(status)}</Badge>;
   };
 
   const getAttemptIcon = (result) => {

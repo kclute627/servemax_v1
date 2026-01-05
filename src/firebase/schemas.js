@@ -53,6 +53,220 @@ export const STAFF_SIZES = {
   LARGE: 'large'
 };
 
+// Job Types - Services a company can offer
+export const JOB_TYPES = {
+  PROCESS_SERVING: 'process_serving',
+  COURT_REPORTING: 'court_reporting',
+  EFILING: 'efiling',
+  DOCUMENT_RETRIEVAL: 'document_retrieval',
+};
+
+export const JOB_TYPE_LABELS = {
+  [JOB_TYPES.PROCESS_SERVING]: 'Process Serving',
+  [JOB_TYPES.COURT_REPORTING]: 'Court Reporting',
+  [JOB_TYPES.EFILING]: 'E-filing',
+  [JOB_TYPES.DOCUMENT_RETRIEVAL]: 'Document Retrieval',
+};
+
+export const JOB_TYPE_DESCRIPTIONS = {
+  [JOB_TYPES.PROCESS_SERVING]: 'Serve legal documents to individuals or businesses',
+  [JOB_TYPES.COURT_REPORTING]: 'Court reporting and deposition services',
+  [JOB_TYPES.EFILING]: 'Electronic court filing services',
+  [JOB_TYPES.DOCUMENT_RETRIEVAL]: 'Retrieve and compile legal documents',
+};
+
+// ============================================================================
+// Court Reporting Schema Constants
+// ============================================================================
+
+export const PROCEEDING_TYPES = {
+  DEPOSITION: 'deposition',
+  HEARING: 'hearing',
+  TRIAL: 'trial',
+  ARBITRATION: 'arbitration',
+  EUO: 'euo',
+};
+
+export const PROCEEDING_TYPE_LABELS = {
+  [PROCEEDING_TYPES.DEPOSITION]: 'Deposition',
+  [PROCEEDING_TYPES.HEARING]: 'Hearing',
+  [PROCEEDING_TYPES.TRIAL]: 'Trial',
+  [PROCEEDING_TYPES.ARBITRATION]: 'Arbitration',
+  [PROCEEDING_TYPES.EUO]: 'Examination Under Oath',
+};
+
+export const DEPOSITION_TYPES = {
+  IN_PERSON: 'in_person',
+  REMOTE: 'remote',
+  HYBRID: 'hybrid',
+};
+
+export const DEPOSITION_TYPE_LABELS = {
+  [DEPOSITION_TYPES.IN_PERSON]: 'In Person',
+  [DEPOSITION_TYPES.REMOTE]: 'Remote / Virtual',
+  [DEPOSITION_TYPES.HYBRID]: 'Hybrid',
+};
+
+export const PERSONNEL_ROLES = {
+  COURT_REPORTER: 'court_reporter',
+  VIDEOGRAPHER: 'videographer',
+  SCOPIST: 'scopist',
+};
+
+export const PERSONNEL_ROLE_LABELS = {
+  [PERSONNEL_ROLES.COURT_REPORTER]: 'Court Reporter',
+  [PERSONNEL_ROLES.VIDEOGRAPHER]: 'Videographer',
+  [PERSONNEL_ROLES.SCOPIST]: 'Scopist',
+};
+
+export const PAY_TYPES = {
+  HOURLY: 'hourly',
+  PER_PAGE: 'per_page',
+  FLAT: 'flat',
+};
+
+export const PAY_TYPE_LABELS = {
+  [PAY_TYPES.HOURLY]: 'Hourly',
+  [PAY_TYPES.PER_PAGE]: 'Per Page',
+  [PAY_TYPES.FLAT]: 'Flat Rate',
+};
+
+export const TURNAROUND_TYPES = {
+  STANDARD: 'standard',
+  EXPEDITED: 'expedited',
+  DAILY_COPY: 'daily_copy',
+};
+
+export const TURNAROUND_TYPE_LABELS = {
+  [TURNAROUND_TYPES.STANDARD]: 'Standard (10-14 days)',
+  [TURNAROUND_TYPES.EXPEDITED]: 'Expedited (3-5 days)',
+  [TURNAROUND_TYPES.DAILY_COPY]: 'Daily Copy',
+};
+
+export const DELIVERY_METHODS = {
+  EMAIL: 'email',
+  PHYSICAL: 'physical',
+  PORTAL: 'portal',
+};
+
+export const DELIVERY_METHOD_LABELS = {
+  [DELIVERY_METHODS.EMAIL]: 'Email Delivery',
+  [DELIVERY_METHODS.PHYSICAL]: 'Physical Delivery',
+  [DELIVERY_METHODS.PORTAL]: 'Portal Download',
+};
+
+// Court Reporting Job Status (extends standard job statuses)
+export const COURT_REPORTING_STATUSES = {
+  SCHEDULED: 'scheduled',
+  CONFIRMED: 'confirmed',
+  IN_PROGRESS: 'in_progress',
+  COMPLETED: 'completed',
+  TRANSCRIPT_PENDING: 'transcript_pending',
+  DELIVERED: 'delivered',
+  CANCELLED: 'cancelled',
+};
+
+export const COURT_REPORTING_STATUS_LABELS = {
+  [COURT_REPORTING_STATUSES.SCHEDULED]: 'Scheduled',
+  [COURT_REPORTING_STATUSES.CONFIRMED]: 'Confirmed',
+  [COURT_REPORTING_STATUSES.IN_PROGRESS]: 'In Progress',
+  [COURT_REPORTING_STATUSES.COMPLETED]: 'Completed',
+  [COURT_REPORTING_STATUSES.TRANSCRIPT_PENDING]: 'Transcript Pending',
+  [COURT_REPORTING_STATUSES.DELIVERED]: 'Delivered',
+  [COURT_REPORTING_STATUSES.CANCELLED]: 'Cancelled',
+};
+
+// Default empty structures for Court Reporting form
+export const EMPTY_WITNESS = {
+  name: '',
+  role: '',
+  contact_info: '',
+};
+
+export const EMPTY_OPPOSING_COUNSEL = {
+  name: '',
+  firm: '',
+  email: '',
+  phone: '',
+  representing: '',
+};
+
+export const EMPTY_PERSONNEL = {
+  employee_id: '',
+  role: PERSONNEL_ROLES.COURT_REPORTER,
+  pay_rate: 0,
+  pay_type: PAY_TYPES.FLAT,
+};
+
+export const EMPTY_DEPOSITION_LOCATION = {
+  name: '',
+  address: '',
+  city: '',
+  state: '',
+  zip: '',
+};
+
+export const EMPTY_ORDERING_ATTORNEY = {
+  name: '',
+  firm: '',
+  email: '',
+  phone: '',
+};
+
+// Create default Court Reporting job data
+export const createDefaultCourtReportingJob = () => ({
+  job_type: JOB_TYPES.COURT_REPORTING,
+
+  // Case Information
+  case_number: '',
+  case_name: '',
+  court_name: '',
+  proceeding_type: PROCEEDING_TYPES.DEPOSITION,
+
+  // Deposition Details
+  deposition_date: '',
+  deposition_time: '',
+  deposition_location: { ...EMPTY_DEPOSITION_LOCATION },
+  deposition_type: DEPOSITION_TYPES.IN_PERSON,
+  video_conference_link: '',
+  estimated_duration: '',
+
+  // Witnesses
+  witnesses: [{ ...EMPTY_WITNESS }],
+
+  // Attorneys
+  ordering_attorney: { ...EMPTY_ORDERING_ATTORNEY },
+  opposing_counsel: [],
+
+  // Assigned Personnel
+  assigned_personnel: [],
+
+  // Service Options
+  realtime_needed: false,
+  rough_draft_needed: false,
+
+  // Delivery
+  turnaround_type: TURNAROUND_TYPES.STANDARD,
+  delivery_method: DELIVERY_METHODS.EMAIL,
+  delivery_deadline: '',
+
+  // Deliverables (populated after job completion)
+  deliverables: {
+    transcript_pdf: '',
+    transcript_ascii: '',
+    transcript_ptx: '',
+    video_files: [],
+    exhibits: [],
+    errata_sheet: '',
+    certificate: '',
+  },
+
+  // Standard fields
+  priority: 'standard',
+  notes: '',
+  uploaded_documents: [],
+});
+
 // Data Schemas for new collections
 
 // Company Schema
