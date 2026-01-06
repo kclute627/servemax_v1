@@ -100,16 +100,16 @@ export default function Dashboard() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-3 border-2 border-slate-300 bg-white hover:border-blue-500 hover:bg-blue-50 hover:text-blue-700 shadow-sm hover:shadow-md transition-all duration-300 font-semibold rounded-md"
+                  className="gap-3 border-2 border-slate-300 bg-[#F5F7FB] hover:border-blue-500 hover:bg-blue-50 hover:text-blue-700 shadow-sm hover:shadow-md transition-all duration-300 font-semibold rounded-md"
                 >
-                  <Copy className="w-5 h-5" />
+                  {/* <Copy className="w-5 h-5" /> */}
                   View All Jobs
                 </Button>
               </Link>
               <Link to={createPageUrl("CreateJob")}>
                 <Button
                   size="sm"
-                  className="bg-gradient-to-r from-green-600 to-green-600 hover:from-green-700 hover:to-green-800 text-white gap-3 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold rounded-md"
+                  className="bg-[#3A5B52] hover:from-green-700 hover:to-green-800 text-white gap-3 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold rounded-md"
                 >
                   <Plus className="w-5 h-5" />
                   New Job

@@ -165,7 +165,7 @@ export default function Layout({ children, currentPageName }) {
   const activeNavigationItems = isUserSuperAdmin ? superAdminNavigationItems : navigationItems;
   const sidebarGradient = isUserSuperAdmin
     ? 'bg-gradient-to-b from-purple-900 to-indigo-900'
-    : 'bg-gradient-to-b from-blue-900 to-blue-800';
+    : 'bg-[#133830]';
   const borderColor = isUserSuperAdmin ? 'border-purple-700/50' : 'border-blue-700/50';
 
   // Authenticated: Render full layout with sidebar

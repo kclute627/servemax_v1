@@ -62,13 +62,13 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
   return (
     <Card className="border-0  bg-[#F0F0F0] overflow-hidden">
       <CardHeader className="bg-[#F0F0F0] text-black p-2 pb-2">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#FDFDFD] rounded-lg p-2 border border-gray-200">
           <div className="flex items-center gap-4">
             {/* <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
                 <Trophy className="w-6 h-6 text-white" />
               </div> */}
             <div>
-              <CardTitle className="text-[24px] font-[500] text[#1F1F21]">Top Servers</CardTitle>
+              <CardTitle className="text-[15px] font-[500] text[#1F1F21] py-6">Top Servers</CardTitle>
 
             </div>
           </div>
@@ -89,7 +89,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
               </select>
             </div> */}
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm p-1 rounded-full relative w-[300px] border border-[#00000029]">
+            <div className="flex items-center gap-1 bg-[#FAFBFC] backdrop-blur-sm p-1 rounded-lg relative w-[300px] border border-[#EFEFEF]">
               <motion.div
                 animate={{
                   x: viewMode === 'jobs' ? '0%' : viewMode === 'revenue' ? '100%' : '200%'
@@ -99,7 +99,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                   stiffness: 400,
                   damping: 30
                 }}
-                className="absolute inset-y-1 left-1 bg-[#12872F] rounded-full shadow-lg"
+                className="absolute inset-y-1 left-1 bg-white rounded-lg"
                 style={{ width: 'calc(33.333% - 4px)' }}
               />
 
@@ -110,7 +110,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                 className={`flex-1 h-6 flex items-center justify-center leading-none
     relative z-10 transition-colors hover:bg-transparent
     ${viewMode === 'jobs'
-                    ? 'text-white'
+                    ? 'text-dark'
                     : 'text-[#1F1F21] hover:text-[#12872F]'}`}
               >
                 Jobs
@@ -123,7 +123,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                 className={`flex-1 h-6 flex items-center justify-center leading-none
     relative z-10 transition-colors hover:bg-transparent
     ${viewMode === 'revenue'
-                    ? 'text-white'
+                    ? 'text-dark'
                     : 'text-[#1F1F21] hover:text-[#12872F]'}`}
               >
                 Revenue
@@ -136,7 +136,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                 className={`flex-1 h-6 flex items-center justify-center leading-none
     relative z-10 transition-colors hover:bg-transparent
     ${viewMode === 'rating'
-                    ? 'text-white'
+                    ? 'text-dark'
                     : 'text-[#1F1F21] hover:text-[#12872F]'}`}
               >
                 Rating
@@ -145,13 +145,14 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
 
           </div>
         </div>
-        <p className="text-[15px] font-[400] text-[#1F1F21]">Your highest performing process servers by activity and rating.</p>
+        {/* <p className="text-[15px] font-[400] text-[#1F1F21]">Your highest performing process servers by activity and rating.</p> */}
       </CardHeader>
       <CardContent className="p-0">
-        <div className="h-96 overflow-x-auto overflow-y-auto">
-          <Table className="w-[98%] mx-auto">
-            <TableHeader>
-              <TableRow className="bg-[#F7F7F7] border-b-2 border-slate-200 ">
+        <div className="h-[330px] overflow-x-auto overflow-y-auto px-1">
+          <div className="w-[98%] mx-auto bg-[#FDFDFD] rounded-lg border-b border-gray-200 overflow-hidden ">
+            <Table className="w-full">
+            <TableHeader className="bg-[#FDFDFD] rounded-lg h-[50px]">
+              <TableRow className="bg-[#FDFDFD] rounded-md">
                 <TableHead className="w-[70px] text-center  text-[15px] font-[500] text-[#1F1F21]">Rank</TableHead>
                 <TableHead className=" text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Server</TableHead>
                 {viewMode === 'revenue' ? (
@@ -320,6 +321,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
               </AnimatePresence>
             </TableBody>
           </Table>
+          </div>
         </div>
       </CardContent>
     </Card>

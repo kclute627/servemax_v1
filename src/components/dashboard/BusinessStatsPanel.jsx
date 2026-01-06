@@ -35,9 +35,14 @@ import {
   isWithinInterval,
 } from "date-fns";
 
+import cellularbars from '@/images/Dashboard/cellularbars.png';
+
 export default function BusinessStatsPanel({ selectedPeriod }) {
   const { user } = useAuth();
   const { jobs, clients, invoices, employees, serverPayRecords, isLoading: isLoadingJobs } = useGlobalData();
+
+  // Debug: Check if image is imported correctly
+  console.log('Cellular bars image:', cellularbars);
   const [stats, setStats] = useState(null);
   const [topClients, setTopClients] = useState([]);
   const [topServers, setTopServers] = useState([]);
@@ -436,7 +441,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
     }
 
     return (
-      <div className="flex flex-col items-end">
+      <div className="flex justify-center gap-3">
         <div className="flex items-center gap-1">
           {isPositive ? (
             <TrendingUp className="w-4 h-4 text-green-600" />
@@ -1054,19 +1059,35 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
           />
         </div>
         <div className="col-span-1">
-          <Card className="border border-slate-200/70 bg-white overflow-hidden rounded-2xl bg-[#F0F0F0]">
-            <CardHeader>
-              <CardTitle className="text-[24px] font-[500] text[#1F1F21]">
-                Jobs Activity
-              </CardTitle>
+          <Card className="border border-slate-200/70 overflow-hidden rounded-lg bg-[#EFEFEF]">
+            <CardHeader className="p-2">
+              <div className="flex items-center justify-between bg-[#FDFDFD] rounded-lg px-2 py-6 border border-gray-200">
+                <CardTitle className="text-[15px] font-[500] text[#6C6C6C]">
+                  Jobs Activity
+                </CardTitle>
+                <img
+                  src={cellularbars}
+                  alt="cellularbars"
+                  className="w-auto h-auto max-w-[100px] max-h-[100px] object-contain border-2 border-gray-300 rounded-md p-2"
+                />
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-2 pt-0 bg-[#FDFDFD] mx-2 rounded-lg border border-gray-200">
               <div className="relative overflow-hidden">
                 <div className="grid grid-cols-1 md:grid-cols-1 gap-4 h-full">
 
-                  <div className="flex items-start justify-between text-left py-2 px-4 bg-[#FDFDFD] rounded-3xl transition-colors duration-200 hover:bg-blue-100">
-                   <div>
-                    <p className="text-[15px] font-[500] text-[#1F1F21]">Jobs Created</p>
+                  <div className="flex items-start justify-between text-left py-6 px-4 bg-[#FDFDFD] cursor-pointer transition-colors duration-200 hover:bg-blue-100 border-b border-gray-300">
+                    <div>
+                      <p className="text-[15px] font-[500] text-[#1F1F21]">Jobs Created</p>
+                      {renderComparisonIndicator(
+                        previousPeriodData?.activity
+                          ? calculatePercentageChange(
+                            jobActivity.jobs_created || 0,
+                            previousPeriodData.activity.jobs_created
+                          )
+                          : null
+                      )}
+                    </div>
                     <AnimatePresence mode="wait">
                       {isLoadingStats || !jobActivity ? (
                         <motion.div
@@ -1093,21 +1114,21 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    </div>
-                    {renderComparisonIndicator(
-                            previousPeriodData?.activity
-                              ? calculatePercentageChange(
-                                jobActivity.jobs_created || 0,
-                                previousPeriodData.activity.jobs_created
-                              )
-                              : null
-                          )}
                   </div>
 
-                
-                  <div className="flex items-start justify-between text-left p-4 bg-[#FDFDFD] rounded-3xl transition-colors duration-200 hover:bg-green-100">
+
+                  <div className="flex items-start justify-between text-left p-4 bg-[#FDFDFD] cursor-pointer transition-colors duration-200 hover:bg-green-100 border-b border-gray-300">
                     <div>
-                    <p className="text-[15px] font-[500] text-[#1F1F21]">Jobs Closed</p>
+                      <p className="text-[15px] font-[500] text-[#1F1F21]">Jobs Closed</p>
+                      {renderComparisonIndicator(
+                        previousPeriodData?.activity
+                          ? calculatePercentageChange(
+                            jobActivity.jobs_closed || 0,
+                            previousPeriodData.activity.jobs_closed
+                          )
+                          : null
+                      )}
+                    </div>
                     <AnimatePresence mode="wait">
                       {isLoadingStats || !jobActivity ? (
                         <motion.div
@@ -1131,26 +1152,25 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                             className="text-[32px] font-[500] text-[#1F1F21] mb-2 block"
                             delay={1200}
                           />
-
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    </div>
-                    {renderComparisonIndicator(
-                            previousPeriodData?.activity
-                              ? calculatePercentageChange(
-                                jobActivity.jobs_closed || 0,
-                                previousPeriodData.activity.jobs_closed
-                              )
-                              : null
-                          )}
                   </div>
                   <div
-                    className="flex items-start justify-between text-left p-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-all hover:bg-amber-100 hover:shadow-md"
+                    className="flex items-start justify-between text-left p-4 bg-[#FDFDFD] rounded-md cursor-pointer transition-colors duration-200 hover:bg-amber-100"
                     onClick={() => window.location.href = createPageUrl('Jobs?unsigned_affidavit=true')}
                   >
                     <div>
-                    <p className="text-[15px] font-[500] text-[#1F1F21]">Unsigned Affidavits</p>
+                      <p className="text-[15px] font-[500] text-[#1F1F21]">Unsigned Affidavits</p>
+                      {renderComparisonIndicator(
+                        previousPeriodData?.activity
+                          ? calculatePercentageChange(
+                            jobActivity.unsignedAffidavits || 0,
+                            previousPeriodData.activity.unsignedAffidavits
+                          )
+                          : null
+                      )}
+                    </div>
                     <AnimatePresence mode="wait">
                       {isLoadingStats || !jobActivity ? (
                         <motion.div
@@ -1177,17 +1197,6 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    </div>
-
-                    {renderComparisonIndicator(
-                            previousPeriodData?.activity
-                              ? calculatePercentageChange(
-                                jobActivity.unsignedAffidavits || 0,
-                                previousPeriodData.activity.unsignedAffidavits
-                              )
-                              : null
-                          )}
-
                   </div>
                 </div>
               </div>
@@ -1266,21 +1275,38 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
         </div>
         <div className="col-span-1">
           {/* Jobs Status Summary (Real-time) */}
-          <Card className="border border-slate-200/70 bg-white overflow-hidden rounded-2xl bg-[#F0F0F0]">
-            <CardHeader>
-              <CardTitle className="text-[24px] font-[500] text[#1F1F21]">
-                Jobs Status Summary
-              </CardTitle>
+          <Card className="border border-slate-200/70 overflow-hidden rounded-lg bg-[#EFEFEF]">
+            <CardHeader className="p-2">
+              <div className="flex items-center justify-between bg-[#FDFDFD] rounded-lg px-2 py-6 border border-gray-200">
+                <CardTitle className="text-[15px] font-[500] text[#6C6C6C]">
+                  Jobs Status Summary
+                </CardTitle>
+                <img
+                  src={cellularbars}
+                  alt="cellularbars"
+                  className="w-auto h-auto max-w-[100px] max-h-[100px] object-contain border-2 border-gray-300 rounded-md p-2"
+                />
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-2 pt-0 bg-[#FDFDFD] mx-2 rounded-lg border border-gray-200">
               <div className="relative overflow-hidden">
                 <div className="grid grid-cols-1 md:grid-cols-1 gap-4 h-full">
                   <div
-                    className="flex items-start justify-between text-left py-2 px-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-colors duration-200 hover:bg-orange-100"
+                    className="flex items-start justify-between text-left py-6 px-4 bg-[#FDFDFD] cursor-pointer transition-colors duration-200 hover:bg-orange-100 
+                    border-b border-gray-300"
                     onClick={() => handleJobCountClick('total_open')}
                   >
                     <div>
-                    <p className="text-[15px] font-[500] text-[#1F1F21]">Total Open Jobs</p>
+                      <p className="text-[15px] font-[500] text-[#1F1F21]">Total Open Jobs</p>
+                      {renderComparisonIndicator(
+                        previousPeriodData?.realTimeCounts
+                          ? calculatePercentageChange(
+                            realTimeJobCounts.total_open_jobs || 0,
+                            previousPeriodData.realTimeCounts.total_open_jobs
+                          )
+                          : null
+                      )}
+                    </div>
                     <AnimatePresence mode="wait">
                       {isLoadingJobs || !realTimeJobCounts ? (
                         <motion.div
@@ -1307,22 +1333,23 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    </div>
-                    {renderComparisonIndicator(
-                            previousPeriodData?.realTimeCounts
-                              ? calculatePercentageChange(
-                                realTimeJobCounts.total_open_jobs || 0,
-                                previousPeriodData.realTimeCounts.total_open_jobs
-                              )
-                              : null
-                          )}
                   </div>
                   <div
-                    className=" flex items-start justify-between text-left p-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-colors duration-200 hover:bg-red-100"
+                    className=" flex items-start justify-between text-left p-4 bg-[#FDFDFD] cursor-pointer transition-colors duration-200 hover:bg-red-100
+                    border-b border-gray-300"
                     onClick={() => handleJobCountClick('open_rush')}
                   >
                     <div>
-                    <p className="text-[15px] font-[500] text-[#1F1F21]">Open Rush Jobs</p>
+                      <p className="text-[15px] font-[500] text-[#1F1F21]">Open Rush Jobs</p>
+                      {renderComparisonIndicator(
+                        previousPeriodData?.realTimeCounts
+                          ? calculatePercentageChange(
+                            realTimeJobCounts.open_rush_jobs || 0,
+                            previousPeriodData.realTimeCounts.open_rush_jobs
+                          )
+                          : null
+                      )}
+                    </div>
                     <AnimatePresence mode="wait">
                       {isLoadingJobs || !realTimeJobCounts ? (
                         <motion.div
@@ -1349,22 +1376,22 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    </div>
-                    {renderComparisonIndicator(
-                            previousPeriodData?.realTimeCounts
-                              ? calculatePercentageChange(
-                                realTimeJobCounts.open_rush_jobs || 0,
-                                previousPeriodData.realTimeCounts.open_rush_jobs
-                              )
-                              : null
-                          )}
                   </div>
                   <div
-                    className=" flex items-start justify-between text-left p-4 bg-[#FDFDFD] rounded-3xl cursor-pointer transition-colors duration-200 hover:bg-purple-100"
+                    className=" flex items-start justify-between text-left p-4 bg-[#FDFDFD] rounded-md cursor-pointer transition-colors duration-200 hover:bg-purple-100"
                     onClick={() => handleJobCountClick('need_attention')}
                   >
                     <div>
-                    <p className="text-[15px] font-[500] text-[#1F1F21]">Need Attention</p>
+                      <p className="text-[15px] font-[500] text-[#1F1F21]">Need Attention</p>
+                      {renderComparisonIndicator(
+                        previousPeriodData?.realTimeCounts
+                          ? calculatePercentageChange(
+                            realTimeJobCounts.jobs_need_attention || 0,
+                            previousPeriodData.realTimeCounts.jobs_need_attention
+                          )
+                          : null
+                      )}
+                    </div>
                     <AnimatePresence mode="wait">
                       {isLoadingJobs || !realTimeJobCounts ? (
                         <motion.div
@@ -1391,15 +1418,6 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    </div>
-                    {renderComparisonIndicator(
-                            previousPeriodData?.realTimeCounts
-                              ? calculatePercentageChange(
-                                realTimeJobCounts.jobs_need_attention || 0,
-                                previousPeriodData.realTimeCounts.jobs_need_attention
-                              )
-                              : null
-                          )}
                   </div>
                 </div>
               </div>
