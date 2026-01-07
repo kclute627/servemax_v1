@@ -26,17 +26,6 @@ import { isSuperAdmin } from "@/utils/permissions";
 export default function Dashboard() {
   const { user } = useAuth();
 
-  const [selectedPeriod, setSelectedPeriod] = useState('today');
-
-  const timePeriods = [
-    { value: 'today', label: 'Today' },
-    { value: 'yesterday', label: 'Yesterday' },
-    { value: 'this_month', label: 'This Month' },
-    { value: 'last_month', label: 'Last Month' },
-    { value: 'this_year', label: 'This Year' },
-    { value: 'last_year', label: 'Last Year' },
-    { value: 'all_time', label: 'All Time' }
-  ];
 
   // Super admin gets their own dashboard
   if (user && isSuperAdmin(user)) {
@@ -49,47 +38,9 @@ export default function Dashboard() {
       <div className="p-6 md:p-8">
         <div className="max-w-full mx-auto space-y-2">
           {/* Header with Action Buttons */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6  rounded-xl">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-[#EFEFEF] pb-4">
             <div className="flex items-center gap-4">
               <h1 className="text-[32px] font-[500]">Dashboard</h1>
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-1 my-4 bg-white rounded-full p-1 border border-slate-200">
-                {/* Time Period Selector - Responsive */}
-                <div className="flex flex-col gap-4">
-                  {/* Large Screen Slider */}
-                  <div className="hidden lg:block">
-                    <div className="flex items-center gap-1">
-                      {timePeriods.map((period) => (
-                        <button
-                          key={period.value}
-                          onClick={() => setSelectedPeriod(period.value)}
-                          className={`px-3 py-1 text-sm font-medium rounded-full transition-all duration-200 whitespace-nowrap ${selectedPeriod === period.value
-                            ? 'bg-[#12872F] text-white shadow-sm ring-1 ring-slate-200 rounded-full'
-                            : 'text-slate-600 hover:text-slate-800 hover:bg-white/50'
-                            }`}
-                        >
-                          {period.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Small/Medium Screen Dropdown */}
-                  <div className="lg:hidden flex items-center gap-3">
-                    <Calendar className="w-5 h-5 text-slate-500" />
-                    <select
-                      value={selectedPeriod}
-                      onChange={(e) => setSelectedPeriod(e.target.value)}
-                      className="flex h-10 w-40 items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
-                    >
-                      {timePeriods.map(period => (
-                        <option key={period.value} value={period.value}>
-                          {period.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
             </div>
 
 
@@ -133,7 +84,7 @@ export default function Dashboard() {
           )}
 
           {/* Business Intelligence Stats */}
-          <BusinessStatsPanel selectedPeriod={selectedPeriod} />
+          <BusinessStatsPanel />
 
           {/* Firebase Migration Test */}
           {/* <div className="flex justify-center">

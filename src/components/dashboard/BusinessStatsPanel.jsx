@@ -15,7 +15,9 @@ import {
   Target,
   Award,
   Clock,
-  Loader2
+  Loader2,
+  BarChart3,
+  ArrowRight
 } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { StatsManager } from '@/firebase/stats';
@@ -37,7 +39,7 @@ import {
 
 import cellularbars from '@/images/Dashboard/cellularbars.png';
 
-export default function BusinessStatsPanel({ selectedPeriod }) {
+export default function BusinessStatsPanel() {
   const { user } = useAuth();
   const { jobs, clients, invoices, employees, serverPayRecords, isLoading: isLoadingJobs } = useGlobalData();
 
@@ -51,7 +53,7 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
   const [realTimeJobCounts, setRealTimeJobCounts] = useState(null);
   const [jobActivity, setJobActivity] = useState(null);
   const [previousPeriodData, setPreviousPeriodData] = useState(null);
-
+  const [selectedPeriod, setSelectedPeriod] = useState('today');
   // State for integrated TopClients and TopServers
   const [topClientsData, setTopClientsData] = useState([]);
   const [isTopClientsLoading, setIsTopClientsLoading] = useState(true);
@@ -399,6 +401,14 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
     }
   };
 
+  // Get formatted comparison label for "From" text (capitalize first letter of each word)
+  const getFormattedComparisonLabel = () => {
+    const label = getComparisonLabel().replace('vs ', '');
+    return label.split(' ').map(word =>
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
+  };
+
   // Calculate percentage change
   const calculatePercentageChange = (current, previous) => {
     if (previous === null || previous === undefined) {
@@ -423,6 +433,87 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
     // Normal percentage calculation
     const change = ((current - previous) / previous) * 100;
     return Math.round(change * 10) / 10; // Round to 1 decimal
+  };
+
+  // Calculate absolute change (current - previous)
+  const calculateAbsoluteChange = (current, previous) => {
+    if (previous === null || previous === undefined) {
+      return null;
+    }
+    return current - previous;
+  };
+
+  // Format absolute change with K, M suffixes
+  const formatAbsoluteChange = (value, format = 'number') => {
+    if (value === null || value === undefined) {
+      return 'N/A';
+    }
+
+    const absValue = Math.abs(value);
+    let formattedValue;
+
+    if (format === 'currency') {
+      if (absValue >= 1000000) {
+        formattedValue = `$${(absValue / 1000000).toFixed(1)}M`;
+      } else if (absValue >= 1000) {
+        formattedValue = `$${(absValue / 1000).toFixed(1)}K`;
+      } else {
+        formattedValue = `$${absValue.toFixed(0)}`;
+      }
+    } else {
+      if (absValue >= 1000000) {
+        formattedValue = `${(absValue / 1000000).toFixed(1)}M`;
+      } else if (absValue >= 1000) {
+        formattedValue = `${(absValue / 1000).toFixed(1)}K`;
+      } else {
+        formattedValue = `${absValue.toFixed(0)}`;
+      }
+    }
+
+    const sign = value >= 0 ? '+' : '-';
+    return `${sign}${formattedValue}`;
+  };
+
+  // Helper function to render percentage badge (oval style)
+  const renderPercentageBadge = (change) => {
+    const isPositive = change !== null && change !== undefined && change > 0;
+    const isNegative = change !== null && change !== undefined && change < 0;
+    const isZero = change === 0;
+    const hasNoComparison = change === null || change === undefined;
+
+    let percentageDisplay = 'N/A';
+    if (!hasNoComparison) {
+      const roundedChange = Math.round(Math.abs(change) * 10) / 10;
+      percentageDisplay = `${roundedChange}%`;
+    }
+
+    // Increase = green, Decrease = red
+    const bgColor = isPositive
+      ? 'bg-green-50 border-green-200'
+      : isNegative
+        ? 'bg-red-50 border-red-200'
+        : 'bg-gray-50 border-gray-200';
+
+    const textColor = isPositive
+      ? 'text-green-600'
+      : isNegative
+        ? 'text-red-600'
+        : 'text-gray-400';
+
+    return (
+      <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border ${bgColor}`}>
+        {!hasNoComparison && !isZero && (
+          isPositive ? (
+            <TrendingUp className="w-3 h-3 text-green-600" />
+          ) : (
+            <TrendingDown className="w-3 h-3 text-red-600" />
+          )
+        )}
+        <span className={`text-xs font-medium ${textColor}`}>
+          {percentageDisplay}
+        </span>
+      </div>
+    );
   };
 
   // Helper function to render comparison indicator
@@ -814,233 +905,446 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
   return (
     <div className="space-y-6">
       {/* Header with Time Period Selector */}
+      <div className="inline-flex flex-col md:flex-row justify-between items-start md:items-center gap-1 mt-4 bg-[#FAFBFC] rounded-md p-1 border border-[#EFEFEF]">
+        {/* Time Period Selector - Responsive */}
+        <div className="flex flex-col gap-4">
+          {/* Large Screen Slider */}
+          <div className="hidden lg:block">
+            <div className="flex items-center gap-1">
+              {timePeriods.map((period) => (
+                <button
+                  key={period.value}
+                  onClick={() => setSelectedPeriod(period.value)}
+                  className={`px-3 py-1 text-sm font-medium rounded-full transition-all duration-200 whitespace-nowrap ${selectedPeriod === period.value
+                    ? 'bg-white text-dark shadow-sm  rounded-lg'
+                    : 'text-slate-600 hover:text-slate-800 hover:bg-white/50'
+                    }`}
+                >
+                  {period.label}
+                </button>
+              ))}
+            </div>
+          </div>
 
+          {/* Small/Medium Screen Dropdown */}
+          <div className="lg:hidden flex items-center gap-3">
+            <Calendar className="w-5 h-5 text-slate-500" />
+            <select
+              value={selectedPeriod}
+              onChange={(e) => setSelectedPeriod(e.target.value)}
+              className="flex h-10 w-40 items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+            >
+              {timePeriods.map(period => (
+                <option key={period.value} value={period.value}>
+                  {period.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
 
       {/* Key Performance Indicators */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Jobs This Month */}
-        <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
-          <CardContent className="px-6 py-4 relative">
-            <div className="flex items-start justify-between relative z-10">
-              <div className="flex-1">
-                <motion.p
-                  className="text-[15px] font-[500] text-[#1F1F21]"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.15 }}
-                >
-                  Jobs {getPeriodLabel()}
-                </motion.p>
-                <div className="flex flex-col justify-between relative overflow-hidden">
-                  <AnimatePresence mode="wait">
-                    {isLoadingStats ? (
-                      <motion.div
-                        key="loading"
-                        className="flex items-center"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                      >
-                        <LoadingSpinner size="small" />
-                      </motion.div>
-                    ) : (
-                      <motion.div
-                        key="content"
-                        className="flex items-center justify-between"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ duration: 0.5 }}
-                      >
-                        <AnimatedNumber
-                          value={stats?.jobs?.total || 0}
-                          className="text-[32px] font-[500] text-[#1F1F21]"
-                          delay={150}
-                        />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+        <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+          <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
+            {/* Bar Chart Icon - Top Right */}
+            <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
+              <img
+                src={cellularbars}
+                alt="cellularbars"
+                className="w-auto h-auto max-w-[100px] max-h-[100px] object-contain border-2 border-[#EFEFEF] rounded-md p-2"
+              />
+            </div>
+
+
+
+            <div className="flex flex-col gap-3 relative z-10 border border-[#EFEFEF] rounded-md p-2 bg-[#FDFDFD]">
+              {/* Title */}
+              <motion.p
+                className="text-sm font-normal text-gray-500"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.15 }}
+              >
+                Jobs {getPeriodLabel()}
+              </motion.p>
+
+              {/* Main Value with Percentage Badge */}
+              <div className="flex items-center gap-3">
+                <AnimatePresence mode="wait">
+                  {isLoadingStats ? (
+                    <motion.div
+                      key="loading"
+                      className="flex items-center"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <LoadingSpinner size="small" />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="content"
+                      className="flex items-center gap-3"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.5 }}
+                    >
+                      <AnimatedNumber
+                        value={stats?.jobs?.total || 0}
+                        className="text-3xl font-bold text-[#1F1F21]"
+                        delay={150}
+                      />
+                      {renderPercentageBadge(
+                        previousPeriodData?.jobs
+                          ? calculatePercentageChange(
+                            stats?.jobs?.total || 0,
+                            previousPeriodData.jobs.total
+                          )
+                          : null
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-              {renderComparisonIndicator(
-                previousPeriodData?.jobs
-                  ? calculatePercentageChange(
-                    stats?.jobs?.total || 0,
-                    previousPeriodData.jobs.total
-                  )
-                  : null
-              )}
+
+              {/* Absolute Change */}
+
+            </div>
+
+            <div className='flex items-center justify-between p-2'>
+              <AnimatePresence mode="wait">
+                {!isLoadingStats && (
+                  <motion.p
+                    key="absolute-change"
+                    className="text-sm text-gray-500"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <span className="font-medium text-gray-700">
+                      {formatAbsoluteChange(
+                        calculateAbsoluteChange(
+                          stats?.jobs?.total || 0,
+                          previousPeriodData?.jobs?.total
+                        ),
+                        'number'
+                      )}
+                    </span>
+                    {' '}From {getFormattedComparisonLabel()}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+
+              <div className="absolute bottom-4 right-4">
+                <ArrowRight className="w-4 h-4 text-gray-400" />
+              </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Revenue This Month */}
-        <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
-          <CardContent className="px-6 py-4 relative">
-            <div className="flex items-start justify-between relative z-10">
-              <div className="flex-1">
-                <motion.p
-                  className="text-[15px] font-[500] text-[#1F1F21]"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.4 }}
-                >
-                  Billed {getPeriodLabel()}
-                </motion.p>
-                <div className="flex flex-col justify-between relative overflow-hidden">
-                  <AnimatePresence mode="wait">
-                    {isLoadingStats ? (
-                      <motion.div
-                        key="loading"
-                        className="flex items-center"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                      >
-                        <LoadingSpinner size="small" />
-                      </motion.div>
-                    ) : (
-                      <motion.div
-                        key="content"
-                        className="flex items-center justify-between"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ duration: 0.5 }}
-                      >
-                        <AnimatedNumber
-                          value={stats?.financial?.total_billed || 0}
-                          format="currency"
-                          className="text-[32px] font-[500] text-[#1F1F21]"
-                          delay={500}
-                        />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+        <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+          <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
+            {/* Bar Chart Icon - Top Right */}
+            <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
+              <img
+                src={cellularbars}
+                alt="cellularbars"
+                className="w-auto h-auto max-w-[100px] max-h-[100px] object-contain border-2 border-[#EFEFEF] rounded-md p-2"
+              />
+            </div>
+
+
+
+            <div className="flex flex-col gap-3 relative z-10 border border-[#EFEFEF] rounded-md p-2 bg-[#FDFDFD]">
+              {/* Title */}
+              <motion.p
+                className="text-sm font-normal text-gray-500"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.4 }}
+              >
+                Billed {getPeriodLabel()}
+              </motion.p>
+
+              {/* Main Value with Percentage Badge */}
+              <div className="flex items-center gap-3">
+                <AnimatePresence mode="wait">
+                  {isLoadingStats ? (
+                    <motion.div
+                      key="loading"
+                      className="flex items-center"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <LoadingSpinner size="small" />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="content"
+                      className="flex items-center gap-3"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.5 }}
+                    >
+                      <AnimatedNumber
+                        value={stats?.financial?.total_billed || 0}
+                        format="currency"
+                        className="text-3xl font-bold text-[#1F1F21]"
+                        delay={500}
+                      />
+                      {renderPercentageBadge(
+                        previousPeriodData?.financial
+                          ? calculatePercentageChange(
+                            stats?.financial?.total_billed || 0,
+                            previousPeriodData.financial.total_billed
+                          )
+                          : null
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-              {renderComparisonIndicator(
-                previousPeriodData?.financial
-                  ? calculatePercentageChange(
-                    stats?.financial?.total_billed || 0,
-                    previousPeriodData.financial.total_billed
-                  )
-                  : null
-              )}
+
+              {/* Absolute Change */}
+
+            </div>
+
+            <div className='flex items-center justify-between p-2'>
+              <AnimatePresence mode="wait">
+                {!isLoadingStats && (
+                  <motion.p
+                    key="absolute-change"
+                    className="text-sm text-gray-500"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <span className="font-medium text-gray-700">
+                      {formatAbsoluteChange(
+                        calculateAbsoluteChange(
+                          stats?.financial?.total_billed || 0,
+                          previousPeriodData?.financial?.total_billed
+                        ),
+                        'currency'
+                      )}
+                    </span>
+                    {' '}From {getFormattedComparisonLabel()}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+
+              <div className="absolute bottom-4 right-4">
+                <ArrowRight className="w-4 h-4 text-gray-400" />
+              </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Collections This Month */}
-        <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
-          <CardContent className="px-6 py-4  relative">
-            <div className="flex items-start justify-between relative z-10">
-              <div className="flex-1">
-                <motion.p
-                  className="text-[15px] font-[500] text-[#1F1F21]"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.5 }}
-                >
-                  Collected {getPeriodLabel()}
-                </motion.p>
-                <div className="flex flex-col justify-between relative overflow-hidden">
-                  <AnimatePresence mode="wait">
-                    {isLoadingStats ? (
-                      <motion.div
-                        key="loading"
-                        className="flex items-center "
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                      >
-                        <LoadingSpinner size="small" />
-                      </motion.div>
-                    ) : (
-                      <motion.div
-                        key="content"
-                        className="flex items-center justify-between"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ duration: 0.5 }}
-                      >
-                        <AnimatedNumber
-                          value={stats?.financial?.total_collected || 0}
-                          format="currency"
-                          className="text-[32px] font-[500] text-[#1F1F21]"
-                          delay={600}
-                        />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+        <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+          <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
+            {/* Bar Chart Icon - Top Right */}
+            <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
+              <img
+                src={cellularbars}
+                alt="cellularbars"
+                className="w-auto h-auto max-w-[100px] max-h-[100px] object-contain border-2 border-[#EFEFEF] rounded-md p-2"
+              />
+            </div>
+
+
+
+            <div className="flex flex-col gap-3 relative z-10 border border-[#EFEFEF] rounded-md p-2 bg-[#FDFDFD]">
+              {/* Title */}
+              <motion.p
+                className="text-sm font-normal text-gray-500"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.5 }}
+              >
+                Collected {getPeriodLabel()}
+              </motion.p>
+
+              {/* Main Value with Percentage Badge */}
+              <div className="flex items-center gap-3">
+                <AnimatePresence mode="wait">
+                  {isLoadingStats ? (
+                    <motion.div
+                      key="loading"
+                      className="flex items-center"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <LoadingSpinner size="small" />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="content"
+                      className="flex items-center gap-3"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.5 }}
+                    >
+                      <AnimatedNumber
+                        value={stats?.financial?.total_collected || 0}
+                        format="currency"
+                        className="text-3xl font-bold text-[#1F1F21]"
+                        delay={600}
+                      />
+                      {renderPercentageBadge(
+                        previousPeriodData?.financial
+                          ? calculatePercentageChange(
+                            stats?.financial?.total_collected || 0,
+                            previousPeriodData.financial.total_collected
+                          )
+                          : null
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-              {renderComparisonIndicator(
-                previousPeriodData?.financial
-                  ? calculatePercentageChange(
-                    stats?.financial?.total_collected || 0,
-                    previousPeriodData.financial.total_collected
-                  )
-                  : null
-              )}
+
+              {/* Absolute Change */}
+
+            </div>
+
+            <div className='flex items-center justify-between p-2'>
+              <AnimatePresence mode="wait">
+                {!isLoadingStats && (
+                  <motion.p
+                    key="absolute-change"
+                    className="text-sm text-gray-500"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <span className="font-medium text-gray-700">
+                      {formatAbsoluteChange(
+                        calculateAbsoluteChange(
+                          stats?.financial?.total_collected || 0,
+                          previousPeriodData?.financial?.total_collected
+                        ),
+                        'currency'
+                      )}
+                    </span>
+                    {' '}From {getFormattedComparisonLabel()}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+
+              <div className="absolute bottom-4 right-4">
+                <ArrowRight className="w-4 h-4 text-gray-400" />
+              </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Outstanding Amount */}
-        <Card className="group hover:shadow-xl transition-all duration-300 border border-slate-200/70 bg-white overflow-hidden rounded-2xl">
-          <CardContent className="px-6 py-4  relative">
-            <div className="flex items-start justify-between relative z-10">
-              <div className="flex-1">
-                <motion.p
-                  className="text-[15px] font-[500] text-[#1F1F21]"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.6 }}
-                >
-                  Outstanding
-                </motion.p>
-                <div className="flex flex-col justify-between relative overflow-hidden">
-                  <AnimatePresence mode="wait">
-                    {isLoadingStats ? (
-                      <motion.div
-                        key="loading"
-                        className="flex items-center"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                      >
-                        <LoadingSpinner size="small" />
-                      </motion.div>
-                    ) : (
-                      <motion.div
-                        key="content"
-                        className="flex items-center justify-between"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        transition={{ duration: 0.5 }}
-                      >
-                        <AnimatedNumber
-                          value={stats?.financial?.outstanding || 0}
-                          format="currency"
-                          className="text-[32px] font-[500] text-[#1F1F21]"
-                          delay={700}
-                        />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+        <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+          <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
+            {/* Bar Chart Icon - Top Right */}
+            <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
+              <img
+                src={cellularbars}
+                alt="cellularbars"
+                className="w-auto h-auto max-w-[100px] max-h-[100px] object-contain border-2 border-[#EFEFEF] rounded-md p-2"
+              />
+            </div>
+
+
+
+            <div className="flex flex-col gap-3 relative z-10 border border-[#EFEFEF] rounded-md p-2 bg-[#FDFDFD]">
+              {/* Title */}
+              <motion.p
+                className="text-sm font-normal text-gray-500"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.6 }}
+              >
+                Outstanding
+              </motion.p>
+
+              {/* Main Value with Percentage Badge */}
+              <div className="flex items-center gap-3">
+                <AnimatePresence mode="wait">
+                  {isLoadingStats ? (
+                    <motion.div
+                      key="loading"
+                      className="flex items-center"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <LoadingSpinner size="small" />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="content"
+                      className="flex items-center gap-3"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.5 }}
+                    >
+                      <AnimatedNumber
+                        value={stats?.financial?.outstanding || 0}
+                        format="currency"
+                        className="text-3xl font-bold text-[#1F1F21]"
+                        delay={700}
+                      />
+                      {renderPercentageBadge(
+                        previousPeriodData?.financial
+                          ? calculatePercentageChange(
+                            stats?.financial?.outstanding || 0,
+                            previousPeriodData.financial.outstanding
+                          )
+                          : null
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
-              {renderComparisonIndicator(
-                previousPeriodData?.financial
-                  ? calculatePercentageChange(
-                    stats?.financial?.outstanding || 0,
-                    previousPeriodData.financial.outstanding
-                  )
-                  : null
-              )}
+
+              {/* Absolute Change */}
+
+            </div>
+
+            <div className='flex items-center justify-between p-2'>
+              <AnimatePresence mode="wait">
+                {!isLoadingStats && (
+                  <motion.p
+                    key="absolute-change"
+                    className="text-sm text-gray-500"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <span className="font-medium text-gray-700">
+                      {formatAbsoluteChange(
+                        calculateAbsoluteChange(
+                          stats?.financial?.outstanding || 0,
+                          previousPeriodData?.financial?.outstanding
+                        ),
+                        'currency'
+                      )}
+                    </span>
+                    {' '}From {getFormattedComparisonLabel()}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+
+              <div className="absolute bottom-4 right-4">
+                <ArrowRight className="w-4 h-4 text-gray-400" />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1262,18 +1566,8 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
 
 
       {/* New Row with 2 Columns (6-6) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="col-span-1">
-          {/* Top Servers */}
-          <TopServers
-            serversData={topServersData}
-            isLoading={isTopServersLoading || isLoadingJobs}
-            period={topServersPeriod}
-            onPeriodChange={setTopServersPeriod}
-            timePeriods={topDataTimePeriods}
-          />
-        </div>
-        <div className="col-span-1">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+        <div className="col-span-1 md:col-span-2">
           {/* Jobs Status Summary (Real-time) */}
           <Card className="border border-slate-200/70 overflow-hidden rounded-lg bg-[#EFEFEF]">
             <CardHeader className="p-2">
@@ -1423,6 +1717,16 @@ export default function BusinessStatsPanel({ selectedPeriod }) {
               </div>
             </CardContent>
           </Card>
+        </div>
+        <div className="col-span-1 md:col-span-3">
+          {/* Top Servers */}
+          <TopServers
+            serversData={topServersData}
+            isLoading={isTopServersLoading || isLoadingJobs}
+            period={topServersPeriod}
+            onPeriodChange={setTopServersPeriod}
+            timePeriods={topDataTimePeriods}
+          />
         </div>
       </div>
 
