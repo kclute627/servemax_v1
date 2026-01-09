@@ -89,7 +89,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
               </select>
             </div> */}
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-[#FAFBFC] backdrop-blur-sm p-1 rounded-lg relative w-[300px] border border-[#EFEFEF]">
+            <div className="flex items-center gap-1 bg-[#FAFBFC] backdrop-blur-sm p-1 rounded-lg relative w-[200px] border border-[#EFEFEF]">
               <motion.div
                 animate={{
                   x: viewMode === 'jobs' ? '0%' : viewMode === 'revenue' ? '100%' : '200%'

@@ -156,3 +156,13 @@ button:focus-visible {
     @apply bg-white text-foreground;
   }
 }
+
+/* Hide scrollbar for mobile carousel */
+.mobile-carousel-container::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-carousel-container {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

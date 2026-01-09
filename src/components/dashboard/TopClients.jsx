@@ -70,7 +70,7 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
               </select>
             </div> */}
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-[#FAFBFC] backdrop-blur-sm p-1 rounded-lg relative w-[300px] border border-[#EFEFEF]">
+            <div className="flex items-center gap-1 bg-[#FAFBFC] backdrop-blur-sm p-1 rounded-lg relative w-[200px] border border-[#EFEFEF]">
               <motion.div
                 animate={{
                   x: viewMode === 'revenue' ? 0 : '100%'

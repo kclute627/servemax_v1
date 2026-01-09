@@ -70,6 +70,7 @@ export default function BusinessStatsPanel() {
     acceptance_rate: 0,
     mobile_app_usage: 0
   });
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
 
   // Time period options
   const timePeriods = [
@@ -945,9 +946,25 @@ export default function BusinessStatsPanel() {
       </div>
 
       {/* Key Performance Indicators */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Jobs This Month */}
-        <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+      <div className="relative">
+        {/* Mobile Carousel Container */}
+        <div className="md:hidden relative">
+          <div 
+            className="mobile-carousel-container flex overflow-x-auto snap-x snap-mandatory gap-6 pb-4"
+            style={{ 
+              scrollbarWidth: 'none', 
+              msOverflowStyle: 'none',
+              WebkitOverflowScrolling: 'touch'
+            }}
+            onScroll={(e) => {
+              const scrollLeft = e.target.scrollLeft;
+              const cardWidth = e.target.offsetWidth;
+              const index = Math.round(scrollLeft / cardWidth);
+              setCurrentCardIndex(index);
+            }}
+          >
+            {/* Jobs This Month */}
+            <Card className="min-w-full snap-center flex-shrink-0 group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
           <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
             {/* Bar Chart Icon - Top Right */}
             <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
@@ -1046,8 +1063,8 @@ export default function BusinessStatsPanel() {
           </CardContent>
         </Card>
 
-        {/* Revenue This Month */}
-        <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+            {/* Revenue This Month */}
+            <Card className="min-w-full snap-center flex-shrink-0 group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
           <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
             {/* Bar Chart Icon - Top Right */}
             <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
@@ -1147,8 +1164,8 @@ export default function BusinessStatsPanel() {
           </CardContent>
         </Card>
 
-        {/* Collections This Month */}
-        <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+            {/* Collections This Month */}
+            <Card className="min-w-full snap-center flex-shrink-0 group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
           <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
             {/* Bar Chart Icon - Top Right */}
             <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
@@ -1248,8 +1265,8 @@ export default function BusinessStatsPanel() {
           </CardContent>
         </Card>
 
-        {/* Outstanding Amount */}
-        <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+            {/* Outstanding Amount */}
+            <Card className="min-w-full snap-center flex-shrink-0 group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
           <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
             {/* Bar Chart Icon - Top Right */}
             <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
@@ -1348,10 +1365,395 @@ export default function BusinessStatsPanel() {
             </div>
           </CardContent>
         </Card>
+          </div>
+          
+          {/* Dots Indicator - Mobile Only */}
+          <div className="flex justify-center gap-2 mt-4 md:hidden">
+            {[0, 1, 2, 3].map((index) => (
+              <button
+                key={index}
+                onClick={() => {
+                  const container = document.querySelector('.mobile-carousel-container');
+                  if (container) {
+                    container.scrollTo({
+                      left: index * container.offsetWidth,
+                      behavior: 'smooth'
+                    });
+                  }
+                  setCurrentCardIndex(index);
+                }}
+                className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                  currentCardIndex === index
+                    ? 'bg-blue-600 w-6'
+                    : 'bg-gray-300'
+                }`}
+                aria-label={`Go to slide ${index + 1}`}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Desktop Grid - Hidden on Mobile */}
+        <div className="hidden md:grid grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Jobs This Month */}
+          <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+            <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
+              <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
+                <img
+                  src={cellularbars}
+                  alt="cellularbars"
+                  className="w-auto h-auto max-w-[100px] max-h-[100px] object-contain border-2 border-[#EFEFEF] rounded-md p-2"
+                />
+              </div>
+              <div className="flex flex-col gap-3 relative z-10 border border-[#EFEFEF] rounded-md p-2 bg-[#FDFDFD]">
+                <motion.p
+                  className="text-sm font-normal text-gray-500"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.15 }}
+                >
+                  Jobs {getPeriodLabel()}
+                </motion.p>
+                <div className="flex items-center gap-3">
+                  <AnimatePresence mode="wait">
+                    {isLoadingStats ? (
+                      <motion.div
+                        key="loading"
+                        className="flex items-center"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        <LoadingSpinner size="small" />
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="content"
+                        className="flex items-center gap-3"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        transition={{ duration: 0.5 }}
+                      >
+                        <AnimatedNumber
+                          value={stats?.jobs?.total || 0}
+                          className="text-3xl font-bold text-[#1F1F21]"
+                          delay={150}
+                        />
+                        {renderPercentageBadge(
+                          previousPeriodData?.jobs
+                            ? calculatePercentageChange(
+                              stats?.jobs?.total || 0,
+                              previousPeriodData.jobs.total
+                            )
+                            : null
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+              <div className='flex items-center justify-between p-2'>
+                <AnimatePresence mode="wait">
+                  {!isLoadingStats && (
+                    <motion.p
+                      key="absolute-change"
+                      className="text-sm text-gray-500"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <span className="font-medium text-gray-700">
+                        {formatAbsoluteChange(
+                          calculateAbsoluteChange(
+                            stats?.jobs?.total || 0,
+                            previousPeriodData?.jobs?.total
+                          ),
+                          'number'
+                        )}
+                      </span>
+                      {' '}From {getFormattedComparisonLabel()}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+                <div className="absolute bottom-4 right-4">
+                  <ArrowRight className="w-4 h-4 text-gray-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Revenue This Month */}
+          <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+            <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
+              <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
+                <img
+                  src={cellularbars}
+                  alt="cellularbars"
+                  className="w-auto h-auto max-w-[100px] max-h-[100px] object-contain border-2 border-[#EFEFEF] rounded-md p-2"
+                />
+              </div>
+              <div className="flex flex-col gap-3 relative z-10 border border-[#EFEFEF] rounded-md p-2 bg-[#FDFDFD]">
+                <motion.p
+                  className="text-sm font-normal text-gray-500"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.4 }}
+                >
+                  Billed {getPeriodLabel()}
+                </motion.p>
+                <div className="flex items-center gap-3">
+                  <AnimatePresence mode="wait">
+                    {isLoadingStats ? (
+                      <motion.div
+                        key="loading"
+                        className="flex items-center"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        <LoadingSpinner size="small" />
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="content"
+                        className="flex items-center gap-3"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        transition={{ duration: 0.5 }}
+                      >
+                        <AnimatedNumber
+                          value={stats?.financial?.total_billed || 0}
+                          format="currency"
+                          className="text-3xl font-bold text-[#1F1F21]"
+                          delay={500}
+                        />
+                        {renderPercentageBadge(
+                          previousPeriodData?.financial
+                            ? calculatePercentageChange(
+                              stats?.financial?.total_billed || 0,
+                              previousPeriodData.financial.total_billed
+                            )
+                            : null
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+              <div className='flex items-center justify-between p-2'>
+                <AnimatePresence mode="wait">
+                  {!isLoadingStats && (
+                    <motion.p
+                      key="absolute-change"
+                      className="text-sm text-gray-500"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <span className="font-medium text-gray-700">
+                        {formatAbsoluteChange(
+                          calculateAbsoluteChange(
+                            stats?.financial?.total_billed || 0,
+                            previousPeriodData?.financial?.total_billed
+                          ),
+                          'currency'
+                        )}
+                      </span>
+                      {' '}From {getFormattedComparisonLabel()}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+                <div className="absolute bottom-4 right-4">
+                  <ArrowRight className="w-4 h-4 text-gray-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Collections This Month */}
+          <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+            <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
+              <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
+                <img
+                  src={cellularbars}
+                  alt="cellularbars"
+                  className="w-auto h-auto max-w-[100px] max-h-[100px] object-contain border-2 border-[#EFEFEF] rounded-md p-2"
+                />
+              </div>
+              <div className="flex flex-col gap-3 relative z-10 border border-[#EFEFEF] rounded-md p-2 bg-[#FDFDFD]">
+                <motion.p
+                  className="text-sm font-normal text-gray-500"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.5 }}
+                >
+                  Collected {getPeriodLabel()}
+                </motion.p>
+                <div className="flex items-center gap-3">
+                  <AnimatePresence mode="wait">
+                    {isLoadingStats ? (
+                      <motion.div
+                        key="loading"
+                        className="flex items-center"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        <LoadingSpinner size="small" />
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="content"
+                        className="flex items-center gap-3"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        transition={{ duration: 0.5 }}
+                      >
+                        <AnimatedNumber
+                          value={stats?.financial?.total_collected || 0}
+                          format="currency"
+                          className="text-3xl font-bold text-[#1F1F21]"
+                          delay={600}
+                        />
+                        {renderPercentageBadge(
+                          previousPeriodData?.financial
+                            ? calculatePercentageChange(
+                              stats?.financial?.total_collected || 0,
+                              previousPeriodData.financial.total_collected
+                            )
+                            : null
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+              <div className='flex items-center justify-between p-2'>
+                <AnimatePresence mode="wait">
+                  {!isLoadingStats && (
+                    <motion.p
+                      key="absolute-change"
+                      className="text-sm text-gray-500"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <span className="font-medium text-gray-700">
+                        {formatAbsoluteChange(
+                          calculateAbsoluteChange(
+                            stats?.financial?.total_collected || 0,
+                            previousPeriodData?.financial?.total_collected
+                          ),
+                          'currency'
+                        )}
+                      </span>
+                      {' '}From {getFormattedComparisonLabel()}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+                <div className="absolute bottom-4 right-4">
+                  <ArrowRight className="w-4 h-4 text-gray-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Outstanding Amount */}
+          <Card className="group hover:shadow-xl transition-all duration-300 border border-[#EFEFEF] bg-[#FAFBFC] overflow-hidden rounded-lg relative">
+            <CardContent className="p-1 relative bg-[#FAFBFC] rounded-lg">
+              <div className="absolute top-[35%] right-4 -translate-y-1/2 z-20">
+                <img
+                  src={cellularbars}
+                  alt="cellularbars"
+                  className="w-auto h-auto max-w-[100px] max-h-[100px] object-contain border-2 border-[#EFEFEF] rounded-md p-2"
+                />
+              </div>
+              <div className="flex flex-col gap-3 relative z-10 border border-[#EFEFEF] rounded-md p-2 bg-[#FDFDFD]">
+                <motion.p
+                  className="text-sm font-normal text-gray-500"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.6 }}
+                >
+                  Outstanding
+                </motion.p>
+                <div className="flex items-center gap-3">
+                  <AnimatePresence mode="wait">
+                    {isLoadingStats ? (
+                      <motion.div
+                        key="loading"
+                        className="flex items-center"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        <LoadingSpinner size="small" />
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="content"
+                        className="flex items-center gap-3"
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        transition={{ duration: 0.5 }}
+                      >
+                        <AnimatedNumber
+                          value={stats?.financial?.outstanding || 0}
+                          format="currency"
+                          className="text-3xl font-bold text-[#1F1F21]"
+                          delay={700}
+                        />
+                        {renderPercentageBadge(
+                          previousPeriodData?.financial
+                            ? calculatePercentageChange(
+                              stats?.financial?.outstanding || 0,
+                              previousPeriodData.financial.outstanding
+                            )
+                            : null
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+              <div className='flex items-center justify-between p-2'>
+                <AnimatePresence mode="wait">
+                  {!isLoadingStats && (
+                    <motion.p
+                      key="absolute-change"
+                      className="text-sm text-gray-500"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
+                      <span className="font-medium text-gray-700">
+                        {formatAbsoluteChange(
+                          calculateAbsoluteChange(
+                            stats?.financial?.outstanding || 0,
+                            previousPeriodData?.financial?.outstanding
+                          ),
+                          'currency'
+                        )}
+                      </span>
+                      {' '}From {getFormattedComparisonLabel()}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+                <div className="absolute bottom-4 right-4">
+                  <ArrowRight className="w-4 h-4 text-gray-400" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="col-span-1">
           {/* Top Clients */}
           <TopClients
@@ -1566,8 +1968,8 @@ export default function BusinessStatsPanel() {
 
 
       {/* New Row with 2 Columns (6-6) */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-        <div className="col-span-1 md:col-span-2">
+      <div className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-5 gap-6">
+        <div className="col-span-1 lg:col-span-2">
           {/* Jobs Status Summary (Real-time) */}
           <Card className="border border-slate-200/70 overflow-hidden rounded-lg bg-[#EFEFEF]">
             <CardHeader className="p-2">
@@ -1718,7 +2120,7 @@ export default function BusinessStatsPanel() {
             </CardContent>
           </Card>
         </div>
-        <div className="col-span-1 md:col-span-3">
+        <div className="col-span-1 lg:col-span-3">
           {/* Top Servers */}
           <TopServers
             serversData={topServersData}
