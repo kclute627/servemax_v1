@@ -8,15 +8,13 @@ import {
   Menu,
   X,
   Plus,
-  Building2,
-  User
+  Settings,
+  Phone,
+  ChevronLeft,
+  ChevronRight,
+  PanelLeftClose,
+  PanelLeft
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { ClientAuthProvider, useClientAuth } from "@/components/auth/ClientAuthProvider";
 import { entities } from "@/firebase/database";
@@ -38,12 +36,22 @@ const getPortalNavItems = (companySlug) => [
     title: "Invoices",
     url: `/portal/${companySlug}/invoices`,
     icon: Receipt
+  },
+  {
+    title: "Contact",
+    url: `/portal/${companySlug}/contact`,
+    icon: Phone
+  },
+  {
+    title: "Settings",
+    url: `/portal/${companySlug}/settings`,
+    icon: Settings
   }
 ];
 
 function PortalSidebar({ companySlug, branding, companyName }) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const { clientUser, logout } = useClientAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -55,141 +63,184 @@ function PortalSidebar({ companySlug, branding, companyName }) {
     navigate(`/portal/${companySlug}/login`);
   };
 
-  // Dynamic styles based on branding
-  const primaryColor = branding?.primary_color || '#1e40af';
-  const accentColor = branding?.accent_color || '#3b82f6';
+  // Dynamic brand color
+  const primaryColor = branding?.primary_color || '#0f172a';
 
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full">
-      {/* Logo/Company Name */}
-      <div className="p-4 border-b border-slate-200">
-        {branding?.logo_url ? (
-          <img
-            src={branding.logo_url}
-            alt={companyName}
-            className={`${isCollapsed ? 'w-10 h-10' : 'h-12 max-w-[180px]'} object-contain`}
-          />
-        ) : (
-          <div className="flex items-center gap-2">
-            <Building2 className="w-8 h-8" style={{ color: primaryColor }} />
-            {!isCollapsed && (
-              <span className="font-semibold text-slate-900 truncate">
-                {companyName || 'Client Portal'}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 p-2 space-y-1">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.url;
-          return (
-            <TooltipProvider key={item.title} delayDuration={0}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <NavLink
-                    to={item.url}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                      isActive
-                        ? 'text-white'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                    style={isActive ? { backgroundColor: primaryColor } : {}}
-                    onClick={() => setIsMobileOpen(false)}
-                  >
-                    <item.icon className="w-5 h-5 shrink-0" />
-                    {!isCollapsed && <span>{item.title}</span>}
-                  </NavLink>
-                </TooltipTrigger>
-                {isCollapsed && (
-                  <TooltipContent side="right">
-                    {item.title}
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
-          );
-        })}
-      </nav>
-
-      {/* User Info & Logout */}
-      <div className="p-4 border-t border-slate-200">
-        {clientUser && !isCollapsed && (
-          <div className="flex items-center gap-2 mb-3 px-2">
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
-              style={{ backgroundColor: primaryColor }}
-            >
-              {clientUser.name?.charAt(0)?.toUpperCase() || 'U'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-slate-900 truncate">
-                {clientUser.name}
-              </p>
-              <p className="text-xs text-slate-500 truncate">
-                {clientUser.email}
-              </p>
-            </div>
-          </div>
-        )}
-        <Button
-          variant="ghost"
-          className={`w-full justify-start gap-3 text-slate-600 hover:text-red-600 hover:bg-red-50 ${
-            isCollapsed ? 'px-3' : ''
-          }`}
-          onClick={handleLogout}
-        >
-          <LogOut className="w-5 h-5" />
-          {!isCollapsed && <span>Logout</span>}
-        </Button>
-      </div>
-    </div>
-  );
+  // Close mobile menu on route change
+  useEffect(() => {
+    setIsMobileOpen(false);
+  }, [location.pathname]);
 
   return (
     <>
-      {/* Mobile Menu Button */}
-      <button
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-md"
-        onClick={() => setIsMobileOpen(!isMobileOpen)}
-      >
-        {isMobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-      </button>
+      {/* Mobile Header */}
+      <header className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-white border-b border-slate-200">
+        <div className="flex items-center justify-between px-4 h-16">
+          <button
+            onClick={() => setIsMobileOpen(true)}
+            className="p-2 -ml-2 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            <Menu className="w-5 h-5 text-slate-600" />
+          </button>
+
+          {/* Mobile Logo */}
+          <div className="flex items-center gap-2">
+            {branding?.logo_url ? (
+              <img
+                src={branding.logo_url}
+                alt={companyName}
+                className="h-8 max-w-[140px] object-contain"
+              />
+            ) : (
+              <span className="font-semibold text-slate-900">{companyName}</span>
+            )}
+          </div>
+
+          {/* New Order Button - Mobile */}
+          {clientUser?.role !== 'viewer' && (
+            <Button
+              size="sm"
+              onClick={() => navigate(`/portal/${companySlug}/orders/new`)}
+              style={{ backgroundColor: primaryColor }}
+              className="text-white"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
+      </header>
 
       {/* Mobile Overlay */}
       {isMobileOpen && (
         <div
-          className="lg:hidden fixed inset-0 bg-black/50 z-40"
+          className="lg:hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
           onClick={() => setIsMobileOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-40 bg-white border-r border-slate-200 transition-all duration-300 ${
-          isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        } ${isCollapsed ? 'w-16' : 'w-64'}`}
+        className={`
+          fixed lg:sticky top-0 left-0 z-50 h-screen
+          w-72 bg-gradient-to-b from-gray-200 to-slate-200 border-r border-slate-200
+          flex flex-col
+          transition-transform duration-300 ease-out
+          ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        `}
       >
-        <SidebarContent />
-      </aside>
+        {/* Logo Section */}
+        <div className="flex items-center justify-between p-6 border-b border-slate-100">
+          <div className="flex flex-col items-center gap-2 flex-1 min-w-0">
+            {/* Circular Logo Container */}
+            <div className="w-16 h-16 rounded-full overflow-hidden flex items-center justify-center bg-white border border-slate-200 shadow-md">
+              {branding?.logo_url ? (
+                <img
+                  src={branding.logo_url}
+                  alt={companyName}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div
+                  className="w-full h-full flex items-center justify-center font-bold text-white text-2xl"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {companyName?.charAt(0) || 'P'}
+                </div>
+              )}
+            </div>
+            {/* Company Name */}
+            <span className="font-bold text-slate-900 text-center truncate max-w-full">
+              {companyName || 'Portal'}
+            </span>
+            {/* Client Portal Subtitle */}
+            <span className="text-xs text-slate-500 -mt-1">
+              Client Portal
+            </span>
+          </div>
 
-      {/* Desktop Collapse Toggle */}
-      <button
-        className="hidden lg:flex absolute left-64 top-6 -ml-3 w-6 h-6 items-center justify-center bg-white border border-slate-200 rounded-full shadow-sm hover:bg-slate-50 z-50 transition-all duration-300"
-        style={{ left: isCollapsed ? '64px' : '256px' }}
-        onClick={() => setIsCollapsed(!isCollapsed)}
-      >
-        <svg
-          className={`w-4 h-4 text-slate-400 transition-transform ${isCollapsed ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-      </button>
+          {/* Mobile Close */}
+          <button
+            onClick={() => setIsMobileOpen(false)}
+            className="lg:hidden p-2 -mr-2 rounded-lg hover:bg-slate-100 transition-colors absolute top-4 right-4"
+          >
+            <X className="w-5 h-5 text-slate-500" />
+          </button>
+        </div>
+
+        {/* New Order CTA */}
+        {clientUser?.role !== 'viewer' && (
+          <div className="px-4 py-4">
+            <Button
+              className="w-full justify-center gap-2 h-11 text-white shadow-sm"
+              style={{ backgroundColor: primaryColor }}
+              onClick={() => navigate(`/portal/${companySlug}/orders/new`)}
+            >
+              <Plus className="w-4 h-4" />
+              New Order
+            </Button>
+          </div>
+        )}
+
+        {/* Navigation */}
+        <nav className="flex-1 px-3 py-2 overflow-y-auto">
+          <div className="space-y-1">
+            {navItems.map((item) => {
+              const isActive = location.pathname === item.url ||
+                (item.title === 'Orders' && location.pathname.includes('/orders'));
+
+              return (
+                <NavLink
+                  key={item.url}
+                  to={item.url}
+                  className={`
+                    flex items-center gap-3 px-3 py-2.5 rounded-xl
+                    font-medium text-sm transition-all duration-150
+                    ${isActive
+                      ? 'text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }
+                  `}
+                  style={isActive ? { backgroundColor: primaryColor } : {}}
+                >
+                  <item.icon className="w-5 h-5 flex-shrink-0" />
+                  <span>{item.title}</span>
+                </NavLink>
+              );
+            })}
+          </div>
+        </nav>
+
+        {/* User Section */}
+        <div className="p-4 border-t border-slate-100">
+          {clientUser && (
+            <div className="flex items-center gap-3 mb-3 px-1">
+              <div
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold flex-shrink-0"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {clientUser.name?.charAt(0)?.toUpperCase() || 'U'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-900 truncate">
+                  {clientUser.name}
+                </p>
+                <p className="text-xs text-slate-500 truncate">
+                  {clientUser.email}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-3 text-slate-500 hover:text-rose-600 hover:bg-rose-50"
+            onClick={handleLogout}
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </Button>
+        </div>
+      </aside>
     </>
   );
 }
@@ -203,29 +254,27 @@ function PortalContent() {
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      // Don't redirect if already on login or accept-invite pages
       if (!location.pathname.includes('/login') && !location.pathname.includes('/accept-invite')) {
         navigate(`/portal/${companySlug}/login`);
       }
     }
   }, [isLoading, isAuthenticated, companySlug, navigate, location.pathname]);
 
-  // Show loading state
+  // Loading state
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading portal...</p>
+          <div className="w-10 h-10 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm text-slate-500">Loading your portal...</p>
         </div>
       </div>
     );
   }
 
-  // Check if on login or accept-invite page (public routes)
+  // Public routes (login, accept-invite)
   const isPublicRoute = location.pathname.includes('/login') || location.pathname.includes('/accept-invite');
 
-  // For public routes, render without sidebar
   if (isPublicRoute) {
     return (
       <div className="min-h-screen bg-slate-50">
@@ -234,9 +283,9 @@ function PortalContent() {
     );
   }
 
-  // For protected routes, render with sidebar
+  // Protected routes
   if (!isAuthenticated) {
-    return null; // Will redirect in useEffect
+    return null;
   }
 
   return (
@@ -246,8 +295,10 @@ function PortalContent() {
         branding={portalData?.branding}
         companyName={portalData?.company?.name}
       />
-      <main className="flex-1 p-6 lg:p-8 overflow-auto">
-        <Outlet />
+      <main className="flex-1 min-w-0 pt-16 lg:pt-0">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
@@ -266,7 +317,6 @@ export default function PortalLayout() {
           'portal_settings.portal_slug': companySlug
         });
 
-        // If that doesn't work, try a different approach - get all companies and filter
         if (companies.length === 0) {
           const allCompanies = await entities.Company.list();
           const matchingCompany = allCompanies.find(
@@ -293,8 +343,8 @@ export default function PortalLayout() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading...</p>
+          <div className="w-10 h-10 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm text-slate-500">Loading...</p>
         </div>
       </div>
     );
@@ -302,12 +352,14 @@ export default function PortalLayout() {
 
   if (companyExists === false) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="text-center max-w-md">
-          <Building2 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+          <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-slate-100 flex items-center justify-center">
+            <Briefcase className="w-8 h-8 text-slate-300" />
+          </div>
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Portal Not Found</h1>
-          <p className="text-slate-600">
-            The client portal you're looking for doesn't exist or is not configured.
+          <p className="text-slate-500">
+            This client portal doesn't exist or hasn't been configured yet.
             Please check the URL and try again.
           </p>
         </div>

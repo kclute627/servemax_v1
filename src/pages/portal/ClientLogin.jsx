@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { Building2, Eye, EyeOff, LogIn } from "lucide-react";
+import { Building2, Eye, EyeOff, LogIn, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useClientAuth } from "@/components/auth/ClientAuthProvider";
 import { entities } from "@/firebase/database";
 
@@ -77,14 +75,14 @@ export default function ClientLogin() {
     }
   };
 
-  const primaryColor = companyData?.branding?.primary_color || '#1e40af';
+  const primaryColor = companyData?.branding?.primary_color || '#0f172a';
 
   if (loadingCompany) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading...</p>
+          <Loader2 className="w-8 h-8 animate-spin text-slate-400 mx-auto mb-4" />
+          <p className="text-slate-500">Loading...</p>
         </div>
       </div>
     );
@@ -92,118 +90,136 @@ export default function ClientLogin() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          {/* Company Logo or Name */}
-          <div className="mb-4">
+      <div className="w-full max-w-md">
+        {/* Login Card */}
+        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+          {/* Header with Logo */}
+          <div className="px-8 pt-10 pb-8 text-center">
             {companyData?.branding?.logo_url ? (
               <img
                 src={companyData.branding.logo_url}
                 alt={companyData.name}
-                className="h-16 max-w-[200px] mx-auto object-contain"
+                className="h-14 max-w-[180px] mx-auto object-contain mb-6"
               />
             ) : (
-              <div className="flex items-center justify-center gap-2">
-                <Building2 className="w-10 h-10" style={{ color: primaryColor }} />
+              <div className="flex items-center justify-center gap-3 mb-6">
+                <div
+                  className="w-12 h-12 rounded-2xl flex items-center justify-center"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  <Building2 className="w-6 h-6 text-white" />
+                </div>
                 <span className="text-2xl font-bold text-slate-900">
-                  {companyData?.name || 'Client Portal'}
+                  {companyData?.name || 'Portal'}
                 </span>
               </div>
             )}
+
+            <h1 className="text-2xl font-bold text-slate-900 mb-2">Welcome back</h1>
+            <p className="text-slate-500">
+              {companyData?.portalSettings?.welcome_message ||
+                "Sign in to view your orders and invoices"}
+            </p>
           </div>
 
-          <CardTitle className="text-xl">Client Portal Login</CardTitle>
-          <CardDescription>
-            {companyData?.portalSettings?.welcome_message ||
-              "Sign in to view your orders and invoices"}
-          </CardDescription>
-        </CardHeader>
+          {/* Form */}
+          <div className="px-8 pb-8">
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Error Alert */}
+              {error && (
+                <div className="flex items-start gap-3 p-4 bg-rose-50 rounded-xl border border-rose-100">
+                  <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                  <p className="text-sm text-rose-700">{error}</p>
+                </div>
+              )}
 
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
+              {/* Email Input */}
+              <div className="space-y-2">
+                <Label className="text-slate-700">Email address</Label>
                 <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
-                  autoComplete="current-password"
-                  className="pr-10"
+                  autoComplete="email"
+                  className="h-12 rounded-xl"
                 />
-                <button
-                  type="button"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
               </div>
-            </div>
 
-            <Button
-              type="submit"
-              className="w-full"
-              style={{ backgroundColor: primaryColor }}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              {/* Password Input */}
+              <div className="space-y-2">
+                <Label className="text-slate-700">Password</Label>
+                <div className="relative">
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    className="h-12 rounded-xl pr-12"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <Button
+                type="submit"
+                className="w-full h-12 text-white rounded-xl text-base font-medium shadow-lg shadow-slate-900/10"
+                style={{ backgroundColor: primaryColor }}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <LogIn className="w-5 h-5 mr-2" />
+                    Sign In
+                  </>
+                )}
+              </Button>
+            </form>
+          </div>
+
+          {/* Footer */}
+          <div className="px-8 py-5 bg-slate-50 border-t border-slate-100">
+            <p className="text-sm text-slate-500 text-center">
+              {companyData?.portalSettings?.allow_self_registration ? (
+                <>
+                  Don't have an account?{" "}
+                  <Link
+                    to={`/portal/${companySlug}/signup`}
+                    className="font-medium hover:underline"
+                    style={{ color: primaryColor }}
+                  >
+                    Create one
+                  </Link>
+                </>
               ) : (
                 <>
-                  <LogIn className="w-4 h-4 mr-2" />
-                  Sign In
+                  Need access? Contact{" "}
+                  <span className="font-medium text-slate-700">
+                    {companyData?.name || 'the company'}
+                  </span>
                 </>
               )}
-            </Button>
-          </form>
-
-          <div className="mt-6 text-center text-sm text-slate-500">
-            {companyData?.portalSettings?.allow_self_registration ? (
-              <p>
-                Don't have an account?{" "}
-                <Link
-                  to={`/portal/${companySlug}/signup`}
-                  className="font-medium hover:underline"
-                  style={{ color: primaryColor }}
-                >
-                  Create one here
-                </Link>
-              </p>
-            ) : (
-              <p>
-                Don't have an account? Contact{" "}
-                <span className="font-medium text-slate-700">
-                  {companyData?.name || 'the company'}
-                </span>{" "}
-                to request access.
-              </p>
-            )}
+            </p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        {/* Bottom Text */}
+        <p className="text-center text-xs text-slate-400 mt-6">
+          Secure client portal
+        </p>
+      </div>
     </div>
   );
 }

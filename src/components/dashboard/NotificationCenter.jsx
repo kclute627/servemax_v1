@@ -20,7 +20,10 @@ import {
   Clock,
   UserPlus,
   Eye,
-  FileText
+  FileText,
+  Zap,
+  AlertTriangle,
+  User
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -465,64 +468,90 @@ const NotificationCenter = ({ companyId }) => {
           ))}
 
           {/* Portal Order Notifications */}
-          {portalOrders.map((order) => (
-            <div
-              key={order.id}
-              className="bg-white rounded-lg border border-green-200 p-4 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3 flex-1">
-                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <FileText className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                        New Portal Order
-                      </Badge>
+          {portalOrders.map((order) => {
+            // Priority configuration
+            const priorityConfig = {
+              same_day: { label: 'Same Day', icon: AlertTriangle, className: 'bg-red-100 text-red-700 border-red-200' },
+              rush: { label: 'Rush', icon: Zap, className: 'bg-orange-100 text-orange-700 border-orange-200' },
+              standard: { label: 'Standard', icon: Clock, className: 'bg-slate-100 text-slate-600 border-slate-200' }
+            };
+            const priority = priorityConfig[order.priority] || priorityConfig.standard;
+            const PriorityIcon = priority.icon;
+
+            return (
+              <div
+                key={order.id}
+                className="bg-white rounded-lg border border-green-200 p-4 hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3 flex-1">
+                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <FileText className="w-5 h-5 text-blue-600" />
                     </div>
-                    <h4 className="font-semibold text-slate-900 mb-1">
-                      Order #{order.job_number}
-                    </h4>
-                    <div className="space-y-1 mb-2">
-                      <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <Users className="w-3 h-3" />
-                        <span>Submitted by {order.client_name}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                          New Portal Order
+                        </Badge>
                       </div>
+                      <h4 className="font-semibold text-slate-900 mb-1">
+                        Order #{order.job_number}
+                      </h4>
+                      <div className="space-y-1.5 mb-2">
+                        {order.recipient_name && (
+                          <div className="flex items-center gap-2 text-sm text-slate-700">
+                            <User className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="font-medium">{order.recipient_name}</span>
+                          </div>
+                        )}
+                        {order.address && (
+                          <div className="flex items-start gap-2 text-sm text-slate-600">
+                            <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                            <span className="line-clamp-1">{order.address}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${priority.className}`}>
+                            <PriorityIcon className="w-3 h-3" />
+                            {priority.label}
+                          </span>
+                          <span className="text-xs text-slate-500">from {order.client_name}</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {order.created_at?.toDate &&
+                          format(order.created_at.toDate(), 'MMM d, yyyy h:mm a')
+                        }
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-500">
-                      {order.created_at?.toDate &&
-                        format(order.created_at.toDate(), 'MMM d, yyyy h:mm a')
-                      }
-                    </p>
                   </div>
-                </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => navigate(`/jobs/${order.job_id}`)}
-                    className="text-blue-600 border-blue-200 hover:bg-blue-50"
-                  >
-                    <Eye className="w-4 h-4 mr-1" />
-                    View
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => handleDismissPortalOrder(order.id)}
-                    disabled={responding === order.id}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    {responding === order.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <CheckCircle className="w-4 h-4" />
-                    )}
-                  </Button>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigate(`/jobs/${order.job_id}`)}
+                      className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                    >
+                      <Eye className="w-4 h-4 mr-1" />
+                      View
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => handleDismissPortalOrder(order.id)}
+                      disabled={responding === order.id}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      {responding === order.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <CheckCircle className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

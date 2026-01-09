@@ -326,6 +326,18 @@ export class FirebaseFunctions {
     }
   }
 
+  // Update client profile
+  static async updateClientProfile(profileData) {
+    try {
+      const updateClientProfile = httpsCallable(functions, 'updateClientProfile');
+      const result = await updateClientProfile(profileData);
+      return result.data;
+    } catch (error) {
+      console.error('Update client profile error:', error);
+      throw error;
+    }
+  }
+
   // Send attempt notification email to client
   static async sendAttemptNotification(attemptId, jobId, companyId) {
     try {
@@ -370,6 +382,58 @@ export class FirebaseFunctions {
       return result.data;
     } catch (error) {
       console.error('Send client password reset error:', error);
+      throw error;
+    }
+  }
+
+  // === Email Verification Functions ===
+
+  // Send verification email to a new user
+  static async sendVerificationEmail(userId, email, userName) {
+    try {
+      const sendVerificationEmail = httpsCallable(functions, 'sendVerificationEmail');
+      const result = await sendVerificationEmail({ userId, email, userName });
+      return result.data;
+    } catch (error) {
+      console.error('Send verification email error:', error);
+      throw error;
+    }
+  }
+
+  // Verify email with token
+  static async verifyEmail(token) {
+    try {
+      const verifyEmail = httpsCallable(functions, 'verifyEmail');
+      const result = await verifyEmail({ token });
+      return result.data;
+    } catch (error) {
+      console.error('Verify email error:', error);
+      throw error;
+    }
+  }
+
+  // Resend verification email
+  static async resendVerificationEmail(userId, email, userName) {
+    try {
+      const resendVerificationEmail = httpsCallable(functions, 'resendVerificationEmail');
+      const result = await resendVerificationEmail({ userId, email, userName });
+      return result.data;
+    } catch (error) {
+      console.error('Resend verification email error:', error);
+      throw error;
+    }
+  }
+
+  // === Job Email Functions ===
+
+  // Send job update email with selected content
+  static async sendJobEmail(data) {
+    try {
+      const sendJobEmail = httpsCallable(functions, 'sendJobEmail');
+      const result = await sendJobEmail(data);
+      return result.data;
+    } catch (error) {
+      console.error('Send job email error:', error);
       throw error;
     }
   }

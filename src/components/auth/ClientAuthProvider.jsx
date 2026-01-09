@@ -39,6 +39,7 @@ export function ClientAuthProvider({ children, companySlug }) {
           company: data.company,
           branding: data.branding,
           portalSettings: data.portalSettings,
+          enabled_job_types: data.enabled_job_types,
           jobs: data.jobs,
           invoices: data.invoices
         });

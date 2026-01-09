@@ -22,10 +22,17 @@ import {
 } from './schemas';
 import { entities } from './database';
 import { UsageTracker } from './usageTracker';
+import { FirebaseFunctions } from './functions';
 
 export class FirebaseAuth {
   static currentUser = null;
   static authStateChangeCallbacks = [];
+  static isRegistering = false;
+
+  // Check if a registration is currently in progress
+  static isRegistrationInProgress() {
+    return this.isRegistering;
+  }
 
   // Initialize auth state listener
   static initialize() {
@@ -96,6 +103,14 @@ export class FirebaseAuth {
           }
         } catch (error) {
           console.error('Error loading user data from Firestore:', error);
+
+          // If we're in the middle of registration, don't propagate incomplete user data
+          // The refreshCurrentUser call at the end of registration will handle it
+          if (this.isRegistering) {
+            console.log('Registration in progress, skipping auth state callback');
+            return;
+          }
+
           // Fallback to basic auth data if Firestore fails
           this.currentUser = {
             uid: user.uid,
@@ -105,6 +120,13 @@ export class FirebaseAuth {
         }
       } else {
         this.currentUser = null;
+      }
+
+      // If registration is in progress and user has no user_type, skip callbacks
+      // The refreshCurrentUser call at the end of registration will handle it
+      if (this.isRegistering && this.currentUser && !this.currentUser.user_type) {
+        console.log('Registration in progress, waiting for user document to be created');
+        return;
       }
 
       // Notify all callbacks
@@ -180,6 +202,9 @@ export class FirebaseAuth {
 
   // Register company owner (creates both user and company)
   static async registerCompanyOwner(userData, companyData) {
+    // Set registration flag to prevent premature signout from auth state listeners
+    this.isRegistering = true;
+
     try {
       // Create Firebase Auth user
       const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.password);
@@ -194,11 +219,13 @@ export class FirebaseAuth {
       const company = await CompanyManager.createCompany(companyData, user.uid);
 
       // Create user document with company association
+      // Note: email_verified defaults to false in the schema
       const userSchema = createUserSchema({
         ...userData,
         user_type: USER_TYPES.COMPANY_OWNER,
         company_id: company.id,
-        employee_role: EMPLOYEE_ROLES.ADMIN
+        employee_role: EMPLOYEE_ROLES.ADMIN,
+        email_verified: false
       });
 
       await setDoc(doc(db, 'users', user.uid), userSchema);
@@ -223,11 +250,28 @@ export class FirebaseAuth {
       // Track platform-wide usage stats for new user registration
       UsageTracker.trackUserAdded();
 
+      // Send verification email
+      try {
+        await FirebaseFunctions.sendVerificationEmail(
+          user.uid,
+          userData.email,
+          userData.full_name || `${userData.first_name} ${userData.last_name}`
+        );
+      } catch (emailError) {
+        // Don't fail registration if email fails - user can resend later
+        console.error('Failed to send verification email:', emailError);
+      }
+
+      // Clear registration flag before refresh so callbacks fire with complete data
+      this.isRegistering = false;
+
       // Force refresh the current user data to include the new Firestore data
       await this.refreshCurrentUser();
 
-      return { user, company };
+      return { user, company, emailVerificationSent: true };
     } catch (error) {
+      // Clear registration flag on error
+      this.isRegistering = false;
       throw new Error(`Registration failed: ${error.message}`);
     }
   }

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { CompanySettings } from "@/api/entities";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { entities } from "@/firebase/database";
-import { DirectoryManager, CompanyManager, COMPANY_TYPES } from "@/firebase/schemas";
+import { DirectoryManager, CompanyManager, COMPANY_TYPES, JOB_TYPES, JOB_TYPE_LABELS, JOB_TYPE_DESCRIPTIONS } from "@/firebase/schemas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser, Globe, Phone, Briefcase, ChevronDown, Palette, Upload, X, Image } from "lucide-react";
+import { Plus, Trash2, Save, Settings, Share2, Receipt, Building, BookUser, Globe, Phone, Briefcase, ChevronDown, Palette, Upload, X, Image, ListChecks, Lock } from "lucide-react";
 import AddressAutocomplete from "../jobs/AddressAutocomplete";
 import { useGlobalData } from "@/components/GlobalDataContext";
 import { useToast } from "@/components/ui/use-toast";
@@ -57,11 +57,13 @@ export default function CompanySettingsPanel() {
   const [isSaving, setIsSaving] = useState(false);
   const [isAddressLoading, setIsAddressLoading] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [enabledJobTypes, setEnabledJobTypes] = useState([JOB_TYPES.PROCESS_SERVING]); // Process serving always enabled
 
   // Collapsible section states - Company Info open by default, others closed
   const [openSections, setOpenSections] = useState({
     companyInfo: true,
     branding: false,
+    jobTypes: false,
     jobSharing: false,
     directory: false,
     kanban: false,
@@ -102,6 +104,14 @@ export default function CompanySettingsPanel() {
         email_tagline: companyData.branding?.email_tagline || '',
         google_review_url: companyData.branding?.google_review_url || ''
       });
+
+      // Load enabled job types (process_serving is always included)
+      const savedJobTypes = companyData.enabled_job_types || [JOB_TYPES.PROCESS_SERVING];
+      // Ensure process_serving is always in the list
+      if (!savedJobTypes.includes(JOB_TYPES.PROCESS_SERVING)) {
+        savedJobTypes.unshift(JOB_TYPES.PROCESS_SERVING);
+      }
+      setEnabledJobTypes(savedJobTypes);
     }
   }, [companyData]);
 
@@ -202,6 +212,11 @@ export default function CompanySettingsPanel() {
           email_tagline: branding.email_tagline,
           google_review_url: branding.google_review_url
         },
+
+        // Enabled job types (ensure process_serving is always included)
+        enabled_job_types: enabledJobTypes.includes(JOB_TYPES.PROCESS_SERVING)
+          ? enabledJobTypes
+          : [JOB_TYPES.PROCESS_SERVING, ...enabledJobTypes],
 
         updated_at: new Date()
       };
@@ -851,6 +866,85 @@ export default function CompanySettingsPanel() {
                   </div>
                 </div>
               </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
+      {/* Job Types - Collapsed by default */}
+      <Collapsible open={openSections.jobTypes} onOpenChange={() => toggleSection('jobTypes')}>
+        <Card>
+          <CollapsibleCardHeader icon={ListChecks} title="Job Types" section="jobTypes" isOpen={openSections.jobTypes} />
+          <CollapsibleContent>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Select which services your company offers. These will be available when creating new jobs.
+              </p>
+
+              <div className="space-y-3">
+                {/* Process Serving - Always enabled, cannot be disabled */}
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-900">{JOB_TYPE_LABELS[JOB_TYPES.PROCESS_SERVING]}</span>
+                        <Badge variant="secondary" className="text-xs">
+                          <Lock className="w-3 h-3 mr-1" />
+                          Required
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-slate-500 mt-1">{JOB_TYPE_DESCRIPTIONS[JOB_TYPES.PROCESS_SERVING]}</p>
+                    </div>
+                  </div>
+                  <Switch checked={true} disabled className="opacity-50" />
+                </div>
+
+                {/* Court Reporting - Coming Soon */}
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 opacity-60">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-500">{JOB_TYPE_LABELS[JOB_TYPES.COURT_REPORTING]}</span>
+                      <Badge variant="outline" className="text-xs bg-slate-100 text-slate-500 border-slate-300">
+                        Coming Soon
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-slate-400 mt-1">{JOB_TYPE_DESCRIPTIONS[JOB_TYPES.COURT_REPORTING]}</p>
+                  </div>
+                  <Switch checked={false} disabled className="opacity-50" />
+                </div>
+
+                {/* E-filing - Coming Soon */}
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 opacity-60">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-500">{JOB_TYPE_LABELS[JOB_TYPES.EFILING]}</span>
+                      <Badge variant="outline" className="text-xs bg-slate-100 text-slate-500 border-slate-300">
+                        Coming Soon
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-slate-400 mt-1">{JOB_TYPE_DESCRIPTIONS[JOB_TYPES.EFILING]}</p>
+                  </div>
+                  <Switch checked={false} disabled className="opacity-50" />
+                </div>
+
+                {/* Document Retrieval - Coming Soon */}
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 opacity-60">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-500">{JOB_TYPE_LABELS[JOB_TYPES.DOCUMENT_RETRIEVAL]}</span>
+                      <Badge variant="outline" className="text-xs bg-slate-100 text-slate-500 border-slate-300">
+                        Coming Soon
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-slate-400 mt-1">{JOB_TYPE_DESCRIPTIONS[JOB_TYPES.DOCUMENT_RETRIEVAL]}</p>
+                  </div>
+                  <Switch checked={false} disabled className="opacity-50" />
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-400 mt-4">
+                Additional job types will be available in job creation once enabled.
+              </p>
             </CardContent>
           </CollapsibleContent>
         </Card>

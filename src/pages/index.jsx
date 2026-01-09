@@ -40,6 +40,10 @@ import ForgotPassword from "./ForgotPassword";
 
 import ResetPassword from "./ResetPassword";
 
+import VerifyEmail from "./VerifyEmail";
+
+import CheckEmail from "./CheckEmail";
+
 import ChangePassword from "./ChangePassword";
 
 import TemplateEditor from "./TemplateEditor";
@@ -64,11 +68,14 @@ import AcceptInvite from "./portal/AcceptInvite";
 import AdminPreview from "./portal/AdminPreview";
 import ClientSignup from "./portal/ClientSignup";
 import ClientOrderForm from "./portal/ClientOrderForm";
+import ClientSettings from "./portal/ClientSettings";
+import ClientContact from "./portal/ClientContact";
 
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { GlobalDataProvider } from "../components/GlobalDataContext";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ProtectedRoute, PublicRoute } from "@/components/auth/ProtectedRoute";
+import { ClientAuthProvider } from "@/components/auth/ClientAuthProvider.jsx";
 
 const PAGES = {
 
@@ -160,6 +167,9 @@ function PagesContent() {
                 <Route path="/InviteSignUp" element={<PublicRoute><InviteSignUp /></PublicRoute>} />
                 <Route path="/ForgotPassword" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
                 <Route path="/ResetPassword" element={<PublicRoute><ResetPassword /></PublicRoute>} />
+                <Route path="/check-email" element={<PublicRoute><CheckEmail /></PublicRoute>} />
+                {/* Verify email works for both logged-in and logged-out users */}
+                <Route path="/verify-email/:token" element={<VerifyEmail />} />
 
                 {/* Protected routes for authenticated users */}
                 <Route path="/Dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -206,6 +216,8 @@ function PortalRoutes() {
                 <Route path="orders/:orderId" element={<ClientOrders />} />
                 <Route path="invoices" element={<ClientInvoices />} />
                 <Route path="invoices/:invoiceId" element={<ClientInvoices />} />
+                <Route path="contact" element={<ClientContact />} />
+                <Route path="settings" element={<ClientSettings />} />
                 <Route index element={<ClientLogin />} />
             </Route>
         </Routes>

@@ -1,0 +1,38 @@
+<h2>New Order Received via Client Portal</h2>
+
+<div class="info-box" style="background-color: #dbeafe; border-left-color: #3b82f6;">
+  <p style="margin: 0; font-weight: 600; color: #1e40af;">A new order has been submitted through your client portal</p>
+</div>
+
+<h3 style="color: #1e293b; font-size: 16px; margin: 24px 0 12px 0;">Order Details</h3>
+<div class="info-box">
+  <p><strong>Job Number:</strong> #{{jobNumber}}</p>
+  <p><strong>Recipient:</strong> {{recipientName}}</p>
+  {{#if address}}<p><strong>Location:</strong> {{address}}</p>{{/if}}
+  <p><strong>Priority:</strong>
+    {{#eq priority 'rush'}}
+      <span style="background-color: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">RUSH</span>
+    {{/eq}}
+    {{#eq priority 'same_day'}}
+      <span style="background-color: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">SAME DAY</span>
+    {{/eq}}
+    {{#eq priority 'standard'}}
+      <span style="background-color: #f1f5f9; color: #475569; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">STANDARD</span>
+    {{/eq}}
+  </p>
+</div>
+
+<h3 style="color: #1e293b; font-size: 16px; margin: 24px 0 12px 0;">Submitted By</h3>
+<div class="info-box">
+  <p><strong>Client:</strong> {{clientName}}</p>
+  <p><strong>Portal User:</strong> {{submittedBy}}</p>
+  {{#if submittedByEmail}}<p><strong>Email:</strong> {{submittedByEmail}}</p>{{/if}}
+</div>
+
+<p style="text-align: center; margin-top: 24px;">
+  <a href="{{jobUrl}}" class="button">View Job Details</a>
+</p>
+
+<p style="font-size: 13px; color: #64748b; text-align: center; margin-top: 16px;">
+  This order requires review and assignment before service can begin.
+</p>

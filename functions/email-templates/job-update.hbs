@@ -1,0 +1,128 @@
+<h2>Job Update</h2>
+
+<p>Hello {{recipient_name}},</p>
+
+{{#if custom_message}}
+<div class="info-box" style="background-color: #eff6ff; border-left-color: #3b82f6;">
+  <p style="white-space: pre-wrap; margin: 0;">{{custom_message}}</p>
+</div>
+{{/if}}
+
+{{#if include_service_info}}
+<h3 style="color: #1e293b; font-size: 16px; margin: 24px 0 12px 0;">Service Information</h3>
+<div class="info-box">
+  {{#if job_number}}<p><strong>Job Number:</strong> {{job_number}}</p>{{/if}}
+  {{#if case_caption}}<p><strong>Case:</strong> {{case_caption}}</p>{{/if}}
+  {{#if case_number}}<p><strong>Case Number:</strong> {{case_number}}</p>{{/if}}
+  {{#if court_name}}<p><strong>Court:</strong> {{court_name}}</p>{{/if}}
+  <p><strong>Status:</strong>
+    {{#eq job_status 'served'}}
+      <span style="background-color: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">SERVED</span>
+    {{/eq}}
+    {{#eq job_status 'in_progress'}}
+      <span style="background-color: #dbeafe; color: #1e40af; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">IN PROGRESS</span>
+    {{/eq}}
+    {{#eq job_status 'pending'}}
+      <span style="background-color: #fef9c3; color: #854d0e; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">PENDING</span>
+    {{/eq}}
+    {{#eq job_status 'unable_to_serve'}}
+      <span style="background-color: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">UNABLE TO SERVE</span>
+    {{/eq}}
+    {{#eq job_status 'cancelled'}}
+      <span style="background-color: #f1f5f9; color: #475569; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">CANCELLED</span>
+    {{/eq}}
+  </p>
+  {{#if recipients.length}}
+  <p><strong>Recipient(s):</strong></p>
+  <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+    {{#each recipients}}
+    <li>{{this.name}}{{#if this.address}} - {{this.address}}{{/if}}</li>
+    {{/each}}
+  </ul>
+  {{/if}}
+  {{#if service_address}}<p><strong>Service Address:</strong> {{service_address}}</p>{{/if}}
+  {{#if due_date}}<p><strong>Due Date:</strong> {{formatDate due_date 'MMMM d, yyyy'}}</p>{{/if}}
+</div>
+{{/if}}
+
+{{#if include_attempts}}
+<h3 style="color: #1e293b; font-size: 16px; margin: 24px 0 12px 0;">Service Attempts ({{attempts.length}})</h3>
+{{#each attempts}}
+<div class="info-box" style="margin-bottom: 16px;">
+  <p><strong>Attempt #{{add @index 1}}</strong> - {{formatDate this.date 'MMMM d, yyyy'}} at {{this.time}}</p>
+  <p><strong>Status:</strong>
+    {{#eq this.status 'served'}}
+      <span style="background-color: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">SERVED</span>
+    {{/eq}}
+    {{#eq this.status 'not_served'}}
+      <span style="background-color: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">NOT SERVED</span>
+    {{/eq}}
+    {{#eq this.status 'contact_made'}}
+      <span style="background-color: #fef9c3; color: #854d0e; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">CONTACT MADE</span>
+    {{/eq}}
+    {{#eq this.status 'vacant'}}
+      <span style="background-color: #f1f5f9; color: #475569; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">VACANT</span>
+    {{/eq}}
+    {{#eq this.status 'bad_address'}}
+      <span style="background-color: #ffedd5; color: #c2410c; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">BAD ADDRESS</span>
+    {{/eq}}
+  </p>
+  {{#if this.address}}<p><strong>Address:</strong> {{this.address}}</p>{{/if}}
+  {{#if this.person_served}}<p><strong>Person Served:</strong> {{this.person_served}}</p>{{/if}}
+  {{#if this.notes}}<p><strong>Notes:</strong> {{this.notes}}</p>{{/if}}
+  {{#if this.server_name}}<p style="font-size: 13px; color: #64748b;"><strong>Server:</strong> {{this.server_name}}</p>{{/if}}
+</div>
+{{/each}}
+{{#unless attempts.length}}
+<div class="info-box">
+  <p>No service attempts have been logged yet.</p>
+</div>
+{{/unless}}
+{{/if}}
+
+{{#if include_affidavit}}
+<h3 style="color: #1e293b; font-size: 16px; margin: 24px 0 12px 0;">Affidavit</h3>
+<div class="info-box">
+  {{#if affidavit_url}}
+  <p><strong>Status:</strong> <span style="background-color: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">AVAILABLE</span></p>
+  <p style="margin-top: 12px;">
+    <a href="{{affidavit_url}}" class="button" style="display: inline-block; padding: 10px 20px; font-size: 14px;">Download Affidavit</a>
+  </p>
+  {{else}}
+  <p><strong>Status:</strong> <span style="background-color: #fef9c3; color: #854d0e; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">PENDING</span></p>
+  <p>The affidavit will be available once service is completed.</p>
+  {{/if}}
+</div>
+{{/if}}
+
+{{#if include_invoice}}
+<h3 style="color: #1e293b; font-size: 16px; margin: 24px 0 12px 0;">Invoice</h3>
+<div class="info-box">
+  {{#if invoice_number}}<p><strong>Invoice #:</strong> {{invoice_number}}</p>{{/if}}
+  {{#if invoice_amount}}<p><strong>Amount:</strong> ${{invoice_amount}}</p>{{/if}}
+  {{#if invoice_status}}
+  <p><strong>Status:</strong>
+    {{#eq invoice_status 'paid'}}
+      <span style="background-color: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">PAID</span>
+    {{/eq}}
+    {{#eq invoice_status 'pending'}}
+      <span style="background-color: #fef9c3; color: #854d0e; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">PENDING</span>
+    {{/eq}}
+    {{#eq invoice_status 'overdue'}}
+      <span style="background-color: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 12px;">OVERDUE</span>
+    {{/eq}}
+  </p>
+  {{/if}}
+  {{#if invoice_due_date}}<p><strong>Due Date:</strong> {{formatDate invoice_due_date 'MMMM d, yyyy'}}</p>{{/if}}
+</div>
+{{/if}}
+
+{{#if job_view_url}}
+<p style="text-align: center; margin-top: 24px;">
+  <a href="{{job_view_url}}" class="button">View Full Job Details</a>
+</p>
+{{/if}}
+
+<p style="font-size: 13px; color: #64748b; text-align: center; margin-top: 16px;">
+  If you have any questions, please don't hesitate to contact us.
+</p>
