@@ -55,7 +55,7 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
             </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             {/* Time Period Selector */}
-            {/* <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-[#1F1F21]" />
               <select
                 value={period}
@@ -68,7 +68,7 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
                   </option>
                 ))}
               </select>
-            </div> */}
+            </div>
             {/* View Mode Toggle */}
             <div className="flex items-center gap-1 bg-[#FAFBFC] backdrop-blur-sm p-1 rounded-lg relative w-[200px] border border-[#EFEFEF]">
               <motion.div
