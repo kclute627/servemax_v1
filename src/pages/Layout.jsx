@@ -30,6 +30,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getAvailableMenuItems, isSuperAdmin } from "@/utils/permissions";
+import logo from "../../src/images/logo12.png";
+import logo1 from "../../src/images/logo13.png";
 
 // Regular user navigation
 const navigationItems = [
@@ -171,8 +173,8 @@ export default function Layout({ children, currentPageName }) {
   // Authenticated: Render full layout with sidebar
   return (
     <TooltipProvider>
-        <div className="w-full min-h-screen bg-slate-50">
-          <style>{`
+      <div className="w-full min-h-screen bg-slate-50">
+        <style>{`
             /* Hide number input arrows */
             input[type=number]::-webkit-inner-spin-button,
             input[type=number]::-webkit-outer-spin-button {
