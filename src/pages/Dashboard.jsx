@@ -4,13 +4,15 @@
 // calls to Firestore's `getDocs` on the corresponding collections. The data processing and state
 // setting logic after the fetch will remain largely the same.
 
-import React from "react";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   Briefcase,
-  Plus
+  Plus,
+  Calendar,
+  Copy
 } from "lucide-react";
 
 import BusinessStatsPanel from "../components/dashboard/BusinessStatsPanel";
@@ -24,6 +26,7 @@ import { isSuperAdmin } from "@/utils/permissions";
 export default function Dashboard() {
   const { user } = useAuth();
 
+
   // Super admin gets their own dashboard
   if (user && isSuperAdmin(user)) {
     return <SuperAdminDashboard />;
@@ -33,28 +36,31 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <div className="p-6 md:p-8">
-        <div className="max-w-full mx-auto space-y-8">
+        <div className="max-w-full mx-auto space-y-2">
           {/* Header with Action Buttons */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white rounded-xl p-8">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-900 mb-3">Dashboard</h1>
-              <p className="text-slate-600 text-sm">Welcome back! Here's what's happening with your process serving operations.</p>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-[#EFEFEF] pb-4">
+            <div className="flex items-center gap-4">
+              <h1 className="text-[32px] font-[500]">Dashboard</h1>
             </div>
-            <div className="flex gap-3 flex-wrap">
+
+
+
+
+            <div className="flex gap-2">
               <Link to={createPageUrl("Jobs")}>
-                <Button 
-                  variant="outline" 
-                  size="lg" 
-                  className="gap-3 border-2 border-slate-300 bg-white hover:border-blue-500 hover:bg-blue-50 hover:text-blue-700 shadow-sm hover:shadow-md transition-all duration-300 font-semibold rounded-full"
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-3 border-2 border-slate-300 bg-[#F5F7FB] hover:border-blue-500 hover:bg-blue-50 hover:text-blue-700 shadow-sm hover:shadow-md transition-all duration-300 font-semibold rounded-md"
                 >
-                  <Briefcase className="w-5 h-5" />
+                  {/* <Copy className="w-5 h-5" /> */}
                   View All Jobs
                 </Button>
               </Link>
               <Link to={createPageUrl("CreateJob")}>
-                <Button 
-                  size="lg" 
-                  className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white gap-3 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold rounded-full"
+                <Button
+                  size="sm"
+                  className="bg-[#3A5B52] hover:from-green-700 hover:to-green-800 text-white gap-3 shadow-lg hover:shadow-xl transition-all duration-300 font-semibold rounded-md"
                 >
                   <Plus className="w-5 h-5" />
                   New Job

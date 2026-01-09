@@ -211,6 +211,7 @@ export default function StandardAffidavitInteractiveForm({
   const [pages, setPages] = useState([]);
   const [user, setUser] = useState(null);
   const [signButtonPosition, setSignButtonPosition] = useState(null);
+  const [pagesForIndicator, setPagesForIndicator] = useState([]);
 
   useEffect(() => {
     User.me()
@@ -299,22 +300,54 @@ export default function StandardAffidavitInteractiveForm({
   };
 
   if (isEditing) {
+    // Initialize pagesForIndicator on mount / html change
+    useEffect(() => {
+      if (html) setPagesForIndicator(paginateContent(html, pageWidth));
+    }, [html, pageWidth]);
+  
     return (
-      <div
-        contentEditable
-        ref={contentRef}
-        suppressContentEditableWarning
-        onBlur={() =>
-          onDataChange("html_content_edited", contentRef.current.innerHTML)
-        }
-        style={{
-          width: pageWidth,
-          minHeight: "792pt",
-          background: "#fff",
-          outline: "2px solid #3B82F6",
-        }}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      <div style={{ position: "relative", width: pageWidth }}>
+        <div
+          contentEditable
+          ref={contentRef}
+          suppressContentEditableWarning
+          onInput={() => {
+            const updatedHtml = contentRef.current.innerHTML;
+            setPagesForIndicator(paginateContent(updatedHtml, pageWidth));
+          }}
+          onBlur={() =>
+            onDataChange("html_content_edited", contentRef.current.innerHTML)
+          }
+          style={{
+            width: "100%",
+            minHeight: "1056px",
+            background: "#fff",
+            boxSizing: "border-box",
+            padding: "48px 0",
+            outline: "2px solid #3B82F6",
+          }}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+  
+        {/* Pagination Indicators */}
+        {pagesForIndicator.length > 1 &&
+          pagesForIndicator.slice(0, -1).map((_, i) => (
+            <div
+              key={i}
+              style={{
+                position: "absolute",
+                top: `${(i + 1) * 1056}px`,
+                left: 0,
+                right: 0,
+                height: "20px",
+                borderTop: "2px dashed #9ca3af",
+                borderBottom: "2px dashed #9ca3af",
+                pointerEvents: "none",
+                zIndex: 10,
+              }}
+            />
+          ))}
+      </div>
     );
   }
 

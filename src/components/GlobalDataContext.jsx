@@ -263,7 +263,9 @@ export const GlobalDataProvider = ({ children }) => {
     allAssignableServers,
     isLoading,
     refreshData: () => loadAllData(true),
-    lastRefresh
+    lastRefresh,
+    user, 
+    isAuthenticated 
   };
 
   return (

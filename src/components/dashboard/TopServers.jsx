@@ -60,26 +60,26 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
   }, [serversData, viewMode]);
 
   return (
-    <Card className="border-0 shadow-xl bg-white overflow-hidden">
-      <CardHeader className="bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 text-white pb-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
+    <Card className="border-0  bg-[#F0F0F0] overflow-hidden">
+      <CardHeader className="bg-[#F0F0F0] text-black p-2 pb-2">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#FDFDFD] rounded-lg p-2 border border-gray-200">
+          <div className="flex items-center gap-4">
+            {/* <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
                 <Trophy className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <CardTitle className="text-2xl font-bold text-white">Top Servers</CardTitle>
-                <p className="text-emerald-100">Your highest performing process servers by activity and rating.</p>
-              </div>
+              </div> */}
+            <div>
+              <CardTitle className="text-[15px] font-[500] text[#1F1F21] py-6">Top Servers</CardTitle>
+
             </div>
+          </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             {/* Time Period Selector */}
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-emerald-100" />
+            {/* <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-[#1F1F21]" />
               <select
                 value={period}
                 onChange={(e) => onPeriodChange(e.target.value)}
-                className="flex h-9 items-center justify-between rounded-lg border border-white/30 bg-white/10 backdrop-blur-sm px-3 py-2 text-sm text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-white/50"
+                className="flex h-9 items-center justify-between rounded-lg border border-black/30 bg-white/10 backdrop-blur-sm px-3 py-2 text-sm text-[#1F1F21] shadow-sm focus:outline-none focus:ring-2 focus:ring-white/50"
               >
                 {timePeriods.map(p => (
                   <option key={p.value} value={p.value} className="text-slate-800">
@@ -87,75 +87,84 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                   </option>
                 ))}
               </select>
-            </div>
+            </div> */}
             {/* View Mode Toggle */}
-            <div className="flex items-center gap-1 bg-white/10 backdrop-blur-sm p-1 rounded-xl relative">
+            <div className="flex items-center gap-1 bg-[#FAFBFC] backdrop-blur-sm p-1 rounded-lg relative w-[300px] border border-[#EFEFEF]">
               <motion.div
                 animate={{
-                  x: viewMode === 'jobs' ? 0 : viewMode === 'revenue' ? '100%' : '200%'
+                  x: viewMode === 'jobs' ? '0%' : viewMode === 'revenue' ? '100%' : '200%'
                 }}
                 transition={{
                   type: "spring",
                   stiffness: 400,
                   damping: 30
                 }}
-                className="absolute inset-y-1 left-1 bg-white rounded-lg shadow-lg"
-                style={{ width: 'calc(33.333% - 2px)' }}
+                className="absolute inset-y-1 left-1 bg-white rounded-lg"
+                style={{ width: 'calc(33.333% - 4px)' }}
               />
+
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('jobs')}
-                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
-                  viewMode === 'jobs' ? 'text-emerald-600' : 'text-white/80 hover:text-white'
-                }`}
+                className={`flex-1 h-6 flex items-center justify-center leading-none
+    relative z-10 transition-colors hover:bg-transparent
+    ${viewMode === 'jobs'
+                    ? 'text-dark'
+                    : 'text-[#1F1F21] hover:text-[#12872F]'}`}
               >
-                <Briefcase className="w-4 h-4" />
                 Jobs
               </Button>
+
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('revenue')}
-                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
-                  viewMode === 'revenue' ? 'text-emerald-600' : 'text-white/80 hover:text-white'
-                }`}
+                className={`flex-1 h-6 flex items-center justify-center leading-none
+    relative z-10 transition-colors hover:bg-transparent
+    ${viewMode === 'revenue'
+                    ? 'text-dark'
+                    : 'text-[#1F1F21] hover:text-[#12872F]'}`}
               >
-                <DollarSign className="w-4 h-4" />
                 Revenue
               </Button>
+
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setViewMode('rating')}
-                className={`gap-2 h-8 px-3 relative z-10 transition-colors duration-200 hover:bg-transparent ${
-                  viewMode === 'rating' ? 'text-emerald-600' : 'text-white/80 hover:text-white'
-                }`}
+                className={`flex-1 h-6 flex items-center justify-center leading-none
+    relative z-10 transition-colors hover:bg-transparent
+    ${viewMode === 'rating'
+                    ? 'text-dark'
+                    : 'text-[#1F1F21] hover:text-[#12872F]'}`}
               >
-                <Star className="w-4 h-4" />
                 Rating
               </Button>
             </div>
+
           </div>
         </div>
+        {/* <p className="text-[15px] font-[400] text-[#1F1F21]">Your highest performing process servers by activity and rating.</p> */}
       </CardHeader>
       <CardContent className="p-0">
-        <div className="h-96 overflow-x-auto overflow-y-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
-                <TableHead className="w-[70px] text-center font-bold text-slate-700">Rank</TableHead>
-                <TableHead className="font-bold text-slate-700 whitespace-nowrap">Server</TableHead>
+        <div className="h-[330px] overflow-x-auto overflow-y-auto px-1">
+          <div className="w-[98%] mx-auto bg-[#FDFDFD] rounded-lg border-b border-gray-200 overflow-hidden ">
+            <Table className="w-full">
+            <TableHeader className="bg-[#FDFDFD] rounded-lg h-[50px]">
+              <TableRow className="bg-[#FDFDFD] rounded-md">
+                <TableHead className="w-[70px] text-center  text-[15px] font-[500] text-[#1F1F21]">Rank</TableHead>
+                <TableHead className=" text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Server</TableHead>
                 {viewMode === 'revenue' ? (
                   <>
-                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">Server Pay</TableHead>
-                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">Client Billing</TableHead>
-                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">Profit/Loss</TableHead>
+                    <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Server Pay</TableHead>
+                    <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Client Billing</TableHead>
+                    <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Profit/Loss</TableHead>
                   </>
                 ) : (
                   <>
-                    <TableHead className="text-center font-bold text-slate-700">Jobs</TableHead>
-                    <TableHead className="text-right font-bold text-slate-700 whitespace-nowrap">
+                    <TableHead className="text-center  text-[15px] font-[500] text-[#1F1F21]">Jobs</TableHead>
+                    <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">
                       {viewMode === 'jobs' ? 'Total Jobs' : 'Rating'}
                     </TableHead>
                   </>
@@ -194,11 +203,10 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
                       transition={{ delay: index * 0.05 }}
-                      className={`border-b transition-all duration-200 cursor-pointer ${
-                        index < 3
-                          ? 'bg-gradient-to-r from-slate-50 to-slate-100 hover:from-teal-100 hover:to-emerald-100'
-                          : 'hover:bg-slate-100'
-                      }`}
+                      className={`border-b transition-all duration-200 cursor-pointer ${index < 3
+                        ? 'bg-gradient-to-r from-slate-50 to-slate-100 hover:from-teal-100 hover:to-emerald-100'
+                        : 'hover:bg-slate-100'
+                        }`}
                     >
                       <TableCell className="text-center py-4">
                         <div className={`w-8 h-8 font-bold text-sm rounded-full flex items-center justify-center mx-auto ${getRankBadgeStyle(index + 1)}`}>
@@ -207,9 +215,8 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                       </TableCell>
                       <TableCell className="py-4">
                         <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${
-                            index < 3 ? 'bg-teal-600 text-white' : 'bg-slate-300 text-slate-700'
-                          }`}>
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${index < 3 ? 'bg-teal-600 text-white' : 'bg-slate-300 text-slate-700'
+                            }`}>
                             {(item.server.first_name?.charAt(0) || '') + (item.server.last_name?.charAt(0) || '')}
                           </div>
                           <span className="font-semibold text-slate-900">
@@ -242,11 +249,10 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                             </span>
                           </TableCell>
                           <TableCell className="text-right py-4">
-                            <div className={`inline-flex items-center gap-1.5 font-bold px-3 py-1.5 rounded-lg ${
-                              (item.profit || 0) >= 0
-                                ? 'text-green-800 bg-green-200'
-                                : 'text-red-800 bg-red-200'
-                            }`}>
+                            <div className={`inline-flex items-center gap-1.5 font-bold px-3 py-1.5 rounded-lg ${(item.profit || 0) >= 0
+                              ? 'text-green-800 bg-green-200'
+                              : 'text-red-800 bg-red-200'
+                              }`}>
                               {(item.profit || 0) >= 0
                                 ? <TrendingUp className="w-4 h-4" />
                                 : <TrendingDown className="w-4 h-4" />
@@ -315,6 +321,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
               </AnimatePresence>
             </TableBody>
           </Table>
+          </div>
         </div>
       </CardContent>
     </Card>

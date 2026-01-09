@@ -14,89 +14,89 @@ import StandardAffidavitInteractiveForm from './StandardAffidavitInteractiveForm
  * Same logic as in TemplateCodeEditor for consistent pagination
  */
 const paginateContent = (htmlContent) => {
-  if (!htmlContent) return [];
+    if (!htmlContent) return [];
 
-  try {
-    const container = document.createElement('div');
-    container.style.position = 'absolute';
-    container.style.left = '-9999px';
-    container.style.visibility = 'hidden';
-    container.style.width = '816px'; // US Letter width at 96dpi (612pt)
-    container.innerHTML = htmlContent;
-    document.body.appendChild(container);
+    try {
+        const container = document.createElement('div');
+        container.style.position = 'absolute';
+        container.style.left = '-9999px';
+        container.style.visibility = 'hidden';
+        container.style.width = '816px'; // US Letter width at 96dpi (612pt)
+        container.innerHTML = htmlContent;
+        document.body.appendChild(container);
 
-    const PAGE_HEIGHT = 1056; // US Letter height at 96dpi (792pt)
-    const pages = [];
-    let currentPage = document.createElement('div');
-    let currentHeight = 0;
+        const PAGE_HEIGHT = 1056; // US Letter height at 96dpi (792pt)
+        const pages = [];
+        let currentPage = document.createElement('div');
+        let currentHeight = 0;
 
-    const mainContainer = container.querySelector('[style*="612pt"]') || container.firstElementChild;
-    if (!mainContainer) {
-      document.body.removeChild(container);
-      return [htmlContent];
+        const mainContainer = container.querySelector('[style*="612pt"]') || container.firstElementChild;
+        if (!mainContainer) {
+            document.body.removeChild(container);
+            return [htmlContent];
+        }
+
+        const children = Array.from(mainContainer.children);
+        const containerStyle = mainContainer.getAttribute('style') || '';
+
+        children.forEach((child) => {
+            // Measure element height
+            const clone = child.cloneNode(true);
+            const tempDiv = document.createElement('div');
+            tempDiv.style.position = 'absolute';
+            tempDiv.style.left = '-9999px';
+            tempDiv.style.width = '816px';
+            tempDiv.appendChild(clone);
+            document.body.appendChild(tempDiv);
+            const elementHeight = tempDiv.offsetHeight;
+            document.body.removeChild(tempDiv);
+
+            // Check if element should stay together
+            const computedStyle = window.getComputedStyle(child);
+            const shouldKeepTogether = computedStyle.pageBreakInside === 'avoid' ||
+                computedStyle.breakInside === 'avoid' ||
+                child.style.pageBreakInside === 'avoid' ||
+                child.style.breakInside === 'avoid';
+
+            // If element would overflow page and should stay together, move to next page
+            if (shouldKeepTogether && currentHeight + elementHeight > PAGE_HEIGHT && currentHeight > 0) {
+                const pageWrapper = document.createElement('div');
+                pageWrapper.setAttribute('style', containerStyle);
+                pageWrapper.innerHTML = currentPage.innerHTML;
+                pages.push(pageWrapper.outerHTML);
+                currentPage = document.createElement('div');
+                currentHeight = 0;
+            }
+
+            // Add element to current page
+            currentPage.appendChild(child.cloneNode(true));
+            currentHeight += elementHeight;
+
+            // If current page is full, start new page
+            if (currentHeight >= PAGE_HEIGHT && !shouldKeepTogether) {
+                const pageWrapper = document.createElement('div');
+                pageWrapper.setAttribute('style', containerStyle);
+                pageWrapper.innerHTML = currentPage.innerHTML;
+                pages.push(pageWrapper.outerHTML);
+                currentPage = document.createElement('div');
+                currentHeight = 0;
+            }
+        });
+
+        // Add remaining content
+        if (currentPage.children.length > 0) {
+            const pageWrapper = document.createElement('div');
+            pageWrapper.setAttribute('style', containerStyle);
+            pageWrapper.innerHTML = currentPage.innerHTML;
+            pages.push(pageWrapper.outerHTML);
+        }
+
+        document.body.removeChild(container);
+        return pages.length > 0 ? pages : [htmlContent];
+    } catch (error) {
+        console.error('Pagination error:', error);
+        return [htmlContent];
     }
-
-    const children = Array.from(mainContainer.children);
-    const containerStyle = mainContainer.getAttribute('style') || '';
-
-    children.forEach((child) => {
-      // Measure element height
-      const clone = child.cloneNode(true);
-      const tempDiv = document.createElement('div');
-      tempDiv.style.position = 'absolute';
-      tempDiv.style.left = '-9999px';
-      tempDiv.style.width = '816px';
-      tempDiv.appendChild(clone);
-      document.body.appendChild(tempDiv);
-      const elementHeight = tempDiv.offsetHeight;
-      document.body.removeChild(tempDiv);
-
-      // Check if element should stay together
-      const computedStyle = window.getComputedStyle(child);
-      const shouldKeepTogether = computedStyle.pageBreakInside === 'avoid' ||
-                                 computedStyle.breakInside === 'avoid' ||
-                                 child.style.pageBreakInside === 'avoid' ||
-                                 child.style.breakInside === 'avoid';
-
-      // If element would overflow page and should stay together, move to next page
-      if (shouldKeepTogether && currentHeight + elementHeight > PAGE_HEIGHT && currentHeight > 0) {
-        const pageWrapper = document.createElement('div');
-        pageWrapper.setAttribute('style', containerStyle);
-        pageWrapper.innerHTML = currentPage.innerHTML;
-        pages.push(pageWrapper.outerHTML);
-        currentPage = document.createElement('div');
-        currentHeight = 0;
-      }
-
-      // Add element to current page
-      currentPage.appendChild(child.cloneNode(true));
-      currentHeight += elementHeight;
-
-      // If current page is full, start new page
-      if (currentHeight >= PAGE_HEIGHT && !shouldKeepTogether) {
-        const pageWrapper = document.createElement('div');
-        pageWrapper.setAttribute('style', containerStyle);
-        pageWrapper.innerHTML = currentPage.innerHTML;
-        pages.push(pageWrapper.outerHTML);
-        currentPage = document.createElement('div');
-        currentHeight = 0;
-      }
-    });
-
-    // Add remaining content
-    if (currentPage.children.length > 0) {
-      const pageWrapper = document.createElement('div');
-      pageWrapper.setAttribute('style', containerStyle);
-      pageWrapper.innerHTML = currentPage.innerHTML;
-      pages.push(pageWrapper.outerHTML);
-    }
-
-    document.body.removeChild(container);
-    return pages.length > 0 ? pages : [htmlContent];
-  } catch (error) {
-    console.error('Pagination error:', error);
-    return [htmlContent];
-  }
 };
 
 const EditableField = ({ value, isEditing, onChange, as = 'input', className = '', ...props }) => {
@@ -128,7 +128,7 @@ const EditableField = ({ value, isEditing, onChange, as = 'input', className = '
     return <div className={className} style={{ fontFamily: 'Times, serif', fontSize: '10pt', lineHeight: '12pt' }}>{value}</div>;
 };
 
-export default function AffidavitPreview({ affidavitData, template, isEditing, onDataChange }) {
+export default function AffidavitPreview({ affidavitData, template, isEditing, onDataChange, selectedPhotos = [] }) {
     const [user, setUser] = useState(null);
     const [placedSignature, setPlacedSignature] = useState(affidavitData?.placed_signature || null);
     const [isDragging, setIsDragging] = useState(false);
@@ -141,6 +141,93 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
 
     const signatureRef = useRef(null);
     const signatureContainerRef = useRef(null);
+    console.log('Selected Photos:', selectedPhotos);
+
+    // Inside AffidavitPreview component, after state declarations
+    const renderPhotoExhibits = () => {
+        if (!selectedPhotos || selectedPhotos.length === 0) {
+            return null;
+        }
+
+        return selectedPhotos.map((photo, index) => {
+            const exhibitNumber = index + 1;
+
+
+
+            return (
+                <div
+                    key={`exhibit-${exhibitNumber}`}
+                    style={{
+                        width: '612pt',
+                        minHeight: '792pt',
+                        backgroundColor: '#FFFFFF',
+                        padding: '40pt',
+                        pageBreakBefore: 'always',
+                        marginTop: '20pt',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        position: 'relative'
+                    }}
+                >
+                    {/* Photo - Top/Center */}
+                    <div>
+                        <img
+                            src={photo.file_url}
+                            alt={`Exhibit ${exhibitNumber}`}
+                            style={{
+                                maxWidth: '100%',
+                                maxHeight: '600pt',
+                                height: 'auto',
+                                objectFit: 'contain'
+                            }}
+                        />
+                    </div>
+
+                    {/* Photo Metadata - Middle */}
+                    {(photo.attemptDate || photo.address_of_attempt) && (
+                        <div style={{
+                            marginTop: '5pt',
+                            marginBottom: 'auto',
+                            fontSize: '8pt',
+                            color: '#333333',
+                            textAlign: 'left',
+                            paddingLeft: '0'
+                        }}>
+                            {photo.attemptDate && (
+                                <div style={{
+                                    marginBottom: '12pt',
+                                    fontWeight: 'normal'
+                                }}>
+                                    {format(new Date(photo.attemptDate), 'MMM d, yyyy h:mm a')}
+                                </div>
+                            )}
+                            {photo.address_of_attempt && (
+                                <div style={{
+                                    fontSize: '7pt',
+                                    color: '#4d4d4d'
+                                }}>
+                                    {photo.address_of_attempt.length > 35
+                                        ? photo.address_of_attempt.substring(0, 32) + '...'
+                                        : photo.address_of_attempt}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Exhibit Footer - Bottom */}
+                    <div style={{
+                        textAlign: 'center',
+                        fontSize: '16pt',
+                        fontWeight: 'bold',
+                        marginTop: 'auto',
+                        paddingTop: '20pt',
+                    }}>
+                        EXHIBIT {exhibitNumber}
+                    </div>
+                </div>
+            );
+        });
+    };
 
     useEffect(() => {
         const fetchUser = async () => {
@@ -380,11 +467,11 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
 
         // Check if this is the AO 440 template (original version, not CSS test)
         const isAO440Template = (template?.id === 'ao440_federal' ||
-                                template?.name?.includes('AO 440') ||
-                                template?.name?.includes('Federal Proof of Service')) &&
-                                !template?.id?.includes('css_test') &&
-                                !template?.name?.toLowerCase().includes('css test') &&
-                                !template?.uses_table_layout;
+            template?.name?.includes('AO 440') ||
+            template?.name?.includes('Federal Proof of Service')) &&
+            !template?.id?.includes('css_test') &&
+            !template?.name?.toLowerCase().includes('css test') &&
+            !template?.uses_table_layout;
 
         // AO 440 Template - ALWAYS use interactive form component (in both edit and view modes)
         if (isAO440Template) {
@@ -392,23 +479,26 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
             console.log('[AffidavitPreview] affidavitData.placed_signature:', affidavitData?.placed_signature ? 'EXISTS' : 'NULL');
 
             return (
-                <AO440InteractiveForm
-                    key={isEditing ? 'editing' : 'viewing'}
-                    affidavitData={affidavitData}
-                    onDataChange={onDataChange}
-                    isEditing={isEditing}
-                />
+                <>
+                    <AO440InteractiveForm
+                        key={isEditing ? 'editing' : 'viewing'}
+                        affidavitData={affidavitData}
+                        onDataChange={onDataChange}
+                        isEditing={isEditing}
+                    />
+                    {renderPhotoExhibits()}
+                </>
             );
         }
 
         // Check if this is the Standard Affidavit template OR a CSS test template
         // CSS test templates use the same table-based approach as Standard
         const isStandardTemplate = template?.id === 'standard' ||
-                                   template?.name?.includes('Standard Affidavit');
+            template?.name?.includes('Standard Affidavit');
 
         const isCSSTestTemplate = template?.id?.includes('css_test') ||
-                                  template?.name?.toLowerCase().includes('css test') ||
-                                  template?.uses_table_layout === true;
+            template?.name?.toLowerCase().includes('css test') ||
+            template?.uses_table_layout === true;
 
         // Standard Affidavit and CSS Test templates - use simple rendering component
         // This handles table-based layouts properly for both preview and PDF
@@ -417,13 +507,16 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
             console.log('[AffidavitPreview] Template:', template?.name, 'isCSSTest:', isCSSTestTemplate);
 
             return (
-                <StandardAffidavitInteractiveForm
-                    key={isEditing ? 'editing' : 'viewing'}
-                    affidavitData={affidavitData}
-                    template={template}
-                    isEditing={isEditing}
-                    onDataChange={onDataChange}
-                />
+                <>
+                    <StandardAffidavitInteractiveForm
+                        key={isEditing ? 'editing' : 'viewing'}
+                        affidavitData={affidavitData}
+                        template={template}
+                        isEditing={isEditing}
+                        onDataChange={onDataChange}
+                    />
+                    {renderPhotoExhibits()}
+                </>
             );
         }
 
@@ -439,14 +532,18 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                 console.log('[AffidavitPreview] Edited HTML length:', affidavitData.html_content_edited.length);
                 console.log('[AffidavitPreview] First 300 chars:', affidavitData.html_content_edited.substring(0, 300));
                 return (
-                    <div
-                        style={{
-                            width: '612pt',
-                            minHeight: '792pt',
-                            backgroundColor: '#FFFFFF'
-                        }}
-                        dangerouslySetInnerHTML={{ __html: affidavitData.html_content_edited }}
-                    />
+                    <>
+                        <div
+                            style={{
+                                width: '612pt',
+                                minHeight: '792pt',
+                                backgroundColor: '#FFFFFF'
+                            }}
+                            dangerouslySetInnerHTML={{ __html: affidavitData.html_content_edited }}
+                        />
+
+                        {renderPhotoExhibits()}
+                    </>
                 );
             }
 
@@ -472,6 +569,8 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                             )}
                         </React.Fragment>
                     ))}
+                    {/* Add photos after main content */}
+                    {renderPhotoExhibits()}
                 </>
             );
         }
@@ -519,6 +618,7 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                         )}
                     </React.Fragment>
                 ))}
+                {renderPhotoExhibits()}
             </>
         );
     }
@@ -554,10 +654,10 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                         </td>
                         <td style={cellStyle()}>
                             <EditableField as="textarea" value={`${court_name || ''}\n${court_county || ''}`} isEditing={isEditing} onChange={e => {
-                                    const parts = e.target.value.split('\n');
-                                    handleFieldChange('court_name', parts[0] ? parts[0].trim() : '');
-                                    handleFieldChange('court_county', parts[1] ? parts[1].trim() : '');
-                                }} />
+                                const parts = e.target.value.split('\n');
+                                handleFieldChange('court_name', parts[0] ? parts[0].trim() : '');
+                                handleFieldChange('court_county', parts[1] ? parts[1].trim() : '');
+                            }} />
                         </td>
                     </tr>
                     <tr>
@@ -566,10 +666,10 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                     </tr>
                     <tr>
                         <td style={cellStyle()}>
-                            <EditableField value={plaintiff} isEditing={isEditing} onChange={e => handleFieldChange('case_caption', `${e.target.value} v. ${defendant}`)} style={singleLineInputStyle}/>
+                            <EditableField value={plaintiff} isEditing={isEditing} onChange={e => handleFieldChange('case_caption', `${e.target.value} v. ${defendant}`)} style={singleLineInputStyle} />
                         </td>
                         <td style={cellStyle()}>
-                            <EditableField value={defendant} isEditing={isEditing} onChange={e => handleFieldChange('case_caption', `${plaintiff} v. ${e.target.value}`)} style={singleLineInputStyle}/>
+                            <EditableField value={defendant} isEditing={isEditing} onChange={e => handleFieldChange('case_caption', `${plaintiff} v. ${e.target.value}`)} style={singleLineInputStyle} />
                         </td>
                     </tr>
                 </tbody>
@@ -599,22 +699,22 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                     <tr>
                         <td style={cellStyle()}>
                             <EditableField as="textarea" value={`${affidavitData.recipient_name || ''}\n${affidavitData.service_address || ''}`} isEditing={isEditing} onChange={e => {
-                                   const parts = e.target.value.split('\n');
-                                   handleFieldChange('recipient_name', parts[0] || '');
-                                   handleFieldChange('service_address', parts.slice(1).join('\n'));
-                                }} />
+                                const parts = e.target.value.split('\n');
+                                handleFieldChange('recipient_name', parts[0] || '');
+                                handleFieldChange('service_address', parts.slice(1).join('\n'));
+                            }} />
                         </td>
                     </tr>
                     <tr><td style={cellStyle(true)}>MANNER OF SERVICE</td></tr>
                     <tr>
                         <td style={cellStyle()}>
-                            <EditableField value={service_manner === 'other' ? service_manner_other : (service_manner ? service_manner.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : '')} isEditing={isEditing} onChange={e => handleFieldChange('service_manner', e.target.value)} style={singleLineInputStyle}/>
+                            <EditableField value={service_manner === 'other' ? service_manner_other : (service_manner ? service_manner.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : '')} isEditing={isEditing} onChange={e => handleFieldChange('service_manner', e.target.value)} style={singleLineInputStyle} />
                         </td>
                     </tr>
                     <tr><td style={cellStyle(true)}>DOCUMENTS</td></tr>
                     <tr>
                         <td style={cellStyle()}>
-                            <EditableField as="textarea" value={documents_served && documents_served.length > 0 ? documents_served.map(d => d.title).join('\n') : ''} isEditing={isEditing} onChange={e => handleFieldChange('documents_served', e.target.value.split('\n').filter(Boolean).map(title => ({title})))} />
+                            <EditableField as="textarea" value={documents_served && documents_served.length > 0 ? documents_served.map(d => d.title).join('\n') : ''} isEditing={isEditing} onChange={e => handleFieldChange('documents_served', e.target.value.split('\n').filter(Boolean).map(title => ({ title })))} />
                         </td>
                     </tr>
                     <tr><td style={cellStyle(true)}>DATE OF SERVICE</td></tr>
@@ -623,7 +723,7 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                             <EditableField
                                 value={`${serviceDate} at approximately ${service_time || ''}`}
                                 isEditing={isEditing}
-                                onChange={() => {}} // This field is for display, not direct edit
+                                onChange={() => { }} // This field is for display, not direct edit
                                 style={singleLineInputStyle}
                             />
                         </td>
@@ -664,7 +764,7 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
 
                     {/* Signature Block (Right) */}
                     <div className={`flex-shrink-0 ${!include_notary ? 'ml-auto' : ''}`}>
-                         <div className="flex gap-6 items-end">
+                        <div className="flex gap-6 items-end">
                             <div
                                 ref={signatureContainerRef}
                                 className="relative border-b border-slate-500 h-10 w-40"
@@ -702,7 +802,7 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                                 ) : null}
                             </div>
                             <div className="border-b border-slate-500 h-10 w-20 flex items-end pb-1 text-xs">
-                               {placedSignature?.signed_date && format(new Date(placedSignature.signed_date), 'MM/dd/yyyy')}
+                                {placedSignature?.signed_date && format(new Date(placedSignature.signed_date), 'MM/dd/yyyy')}
                             </div>
                         </div>
                         <div className="flex gap-6 text-xs mt-1">
