@@ -152,7 +152,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
           <div className="w-[98%] mx-auto bg-[#FDFDFD] rounded-lg border-b border-gray-200 overflow-hidden ">
             <Table className="w-full">
             <TableHeader className="bg-[#FDFDFD] rounded-lg h-[50px]">
-              <TableRow className="bg-[#FDFDFD] rounded-md">
+              <TableRow className="bg-[#F7F7F7] rounded-md">
                 <TableHead className="w-[70px] text-center  text-[15px] font-[500] text-[#1F1F21]">Rank</TableHead>
                 <TableHead className=" text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Server</TableHead>
                 {viewMode === 'revenue' ? (
@@ -164,7 +164,7 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                 ) : (
                   <>
                     <TableHead className="text-center  text-[15px] font-[500] text-[#1F1F21]">Jobs</TableHead>
-                    <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">
+                    <TableHead className={`text-right text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap ${viewMode === 'rating' ? 'pr-10' : ''}`}>
                       {viewMode === 'jobs' ? 'Total Jobs' : 'Rating'}
                     </TableHead>
                   </>
@@ -203,31 +203,22 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
                       transition={{ delay: index * 0.05 }}
-                      className={`border-b transition-all duration-200 cursor-pointer ${index < 3
-                        ? 'bg-gradient-to-r from-slate-50 to-slate-100 hover:from-teal-100 hover:to-emerald-100'
-                        : 'hover:bg-slate-100'
-                        }`}
+                      className="border-b border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
                     >
-                      <TableCell className="text-center py-4">
-                        <div className={`w-8 h-8 font-bold text-sm rounded-full flex items-center justify-center mx-auto ${getRankBadgeStyle(index + 1)}`}>
+                      <TableCell className="text-center py-3">
+                        <span className="text-[#1F1F21] font-medium">
                           {index + 1}
-                        </div>
+                        </span>
                       </TableCell>
-                      <TableCell className="py-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${index < 3 ? 'bg-teal-600 text-white' : 'bg-slate-300 text-slate-700'
-                            }`}>
-                            {(item.server.first_name?.charAt(0) || '') + (item.server.last_name?.charAt(0) || '')}
-                          </div>
-                          <span className="font-semibold text-slate-900">
-                            {item.server.first_name} {item.server.last_name}
-                          </span>
-                        </div>
+                      <TableCell className="py-3">
+                        <span className="text-[#1F1F21] font-medium">
+                          {item.server.first_name} {item.server.last_name}
+                        </span>
                       </TableCell>
                       {viewMode === 'revenue' ? (
                         <>
-                          <TableCell className="text-right py-4">
-                            <span className="font-semibold text-orange-800 bg-orange-100 px-3 py-1.5 rounded-md">
+                          <TableCell className="text-right py-3 pr-10">
+                            <span className="text-[#1F1F21] font-medium">
                               <AnimatedNumber
                                 value={item.serverPay || 0}
                                 format="currency"
@@ -237,8 +228,8 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                               />
                             </span>
                           </TableCell>
-                          <TableCell className="text-right py-4">
-                            <span className="font-semibold text-blue-800 bg-blue-100 px-3 py-1.5 rounded-md">
+                          <TableCell className="text-right py-3 pr-10">
+                            <span className="text-[#1F1F21] font-medium">
                               <AnimatedNumber
                                 value={item.clientBilling || 0}
                                 format="currency"
@@ -248,15 +239,8 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                               />
                             </span>
                           </TableCell>
-                          <TableCell className="text-right py-4">
-                            <div className={`inline-flex items-center gap-1.5 font-bold px-3 py-1.5 rounded-lg ${(item.profit || 0) >= 0
-                              ? 'text-green-800 bg-green-200'
-                              : 'text-red-800 bg-red-200'
-                              }`}>
-                              {(item.profit || 0) >= 0
-                                ? <TrendingUp className="w-4 h-4" />
-                                : <TrendingDown className="w-4 h-4" />
-                              }
+                          <TableCell className="text-right py-3 pr-10">
+                            <span className="text-[#1F1F21] font-medium">
                               <AnimatedNumber
                                 value={item.profit || 0}
                                 format="currency"
@@ -264,13 +248,13 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                                 delay={index * 20 + 100}
                                 className="inline-block"
                               />
-                            </div>
+                            </span>
                           </TableCell>
                         </>
                       ) : (
                         <>
-                          <TableCell className="text-center py-4">
-                            <span className="text-slate-700 bg-slate-200 px-3 py-1.5 rounded-full font-semibold">
+                          <TableCell className="text-center py-3">
+                            <span className="text-[#1F1F21] font-medium">
                               <AnimatedNumber
                                 value={item.jobs || 0}
                                 delay={index * 20 + 60}
@@ -278,9 +262,9 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                               />
                             </span>
                           </TableCell>
-                          <TableCell className="text-right py-4">
+                          <TableCell className="text-right py-3 pr-10">
                             {viewMode === 'jobs' ? (
-                              <span className="font-bold text-teal-800 bg-teal-200 px-3 py-1.5 rounded-lg">
+                              <span className="text-[#1F1F21] font-medium">
                                 <AnimatedNumber
                                   value={item.jobs || 0}
                                   delay={index * 20 + 80}
@@ -288,22 +272,22 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                                 />
                               </span>
                             ) : (
-                              <div className="inline-flex items-center gap-1.5 bg-amber-200 px-3 py-1.5 rounded-lg">
-                                <Star className="w-4 h-4 text-amber-600 fill-amber-600" />
+                              <span className="text-[#1F1F21] font-medium">
+                                <Star className="w-4 h-4 text-amber-600 fill-amber-600 inline-block mr-1" />
                                 <AnimatedNumber
                                   value={item.rating}
                                   decimals={1}
-                                  className="font-bold text-amber-800 inline-block"
+                                  className="inline-block"
                                   delay={index * 20 + 100}
                                 />
-                              </div>
+                              </span>
                             )}
                           </TableCell>
                         </>
                       )}
                     </motion.tr>
                   ))
-                ) : (
+                                ) : (
                   <TableRow key="no-data">
                     <TableCell colSpan={viewMode === 'revenue' ? 5 : 4} className="h-64 text-center">
                       <div className="py-8">

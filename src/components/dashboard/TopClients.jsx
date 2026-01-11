@@ -116,7 +116,7 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
           <div className="w-[98%] mx-auto bg-[#FDFDFD] rounded-lg border-b border-gray-200 overflow-hidden ">
             <Table className="w-full">
             <TableHeader>
-              <TableRow className="bg-[#FDFDFD] rounded-md">
+              <TableRow className="bg-[#F7F7F7] rounded-md">
                 <TableHead className="w-[70px] text-center text-[15px] font-[500] text-[#1F1F21]">Rank</TableHead>
                 <TableHead className=" text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">Client</TableHead>
                 <TableHead className="text-right  text-[15px] font-[500] text-[#1F1F21] whitespace-nowrap">
@@ -145,35 +145,20 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -10 }}
                       transition={{ delay: index * 0.05 }}
-                      className={`border-b transition-all duration-200 cursor-pointer ${
-                        index < 3
-                          ? 'bg-gradient-to-r from-slate-50 to-slate-100 hover:from-blue-100 hover:to-indigo-100'
-                          : 'hover:bg-slate-100'
-                      }`}
+                      className="border-b border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
                     >
-                      <TableCell className="text-center py-4">
-                        <div className={`w-8 h-8 font-bold text-sm rounded-full flex items-center justify-center mx-auto ${getRankBadgeStyle(index + 1)}`}>
+                      <TableCell className="py-3 text-center">
+                        <span className="text-[#1F1F21] font-medium">
                           {index + 1}
-                        </div>
+                        </span>
                       </TableCell>
-                      <TableCell className="py-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${
-                            index < 3 ? 'bg-blue-600 text-white' : 'bg-slate-300 text-slate-700'
-                          }`}>
-                            {(item.client.company_name?.charAt(0) || 'C').toUpperCase()}
-                          </div>
-                          <span className="font-semibold text-slate-900">
-                            {item.client.company_name}
-                          </span>
-                        </div>
+                      <TableCell className="py-3">
+                        <span className="text-[#1F1F21] font-medium ">
+                          {item.client.company_name}
+                        </span>
                       </TableCell>
-                      <TableCell className="text-right py-4">
-                        <span className={`font-bold px-3 py-1.5 rounded-lg ${
-                          viewMode === 'revenue'
-                            ? 'text-blue-800 bg-blue-200'
-                            : 'text-indigo-800 bg-indigo-200'
-                        }`}>
+                      <TableCell className="text-right py-3 pr-10">
+                        <span className="text-[#1F1F21] font-medium">
                           <AnimatedNumber
                             value={viewMode === 'revenue' ? item.revenue : item.jobs}
                             format={viewMode === 'revenue' ? 'currency' : 'number'}
