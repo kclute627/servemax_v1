@@ -4369,6 +4369,55 @@ exports.inviteClientUser = onCall(async (request) => {
 });
 
 /**
+ * Get public portal information by slug (no authentication required)
+ * Returns company name, branding, and portal settings for the signup/login pages
+ * @param {Object} data - { portalSlug }
+ * @returns {Object} - { success: boolean, data: { name, branding, portalSettings } }
+ */
+exports.getPortalInfo = onCall(async (request) => {
+  try {
+    const { portalSlug } = request.data;
+
+    if (!portalSlug) {
+      throw new HttpsError("invalid-argument", "Portal slug is required");
+    }
+
+    // Find company by portal slug
+    const companiesSnapshot = await admin.firestore()
+        .collection("companies")
+        .where("portal_settings.portal_slug", "==", portalSlug)
+        .limit(1)
+        .get();
+
+    if (companiesSnapshot.empty) {
+      throw new HttpsError("not-found", "Portal not found");
+    }
+
+    const company = companiesSnapshot.docs[0].data();
+
+    // Return only public information needed for signup/login pages
+    return {
+      success: true,
+      data: {
+        id: companiesSnapshot.docs[0].id,
+        name: company.name || company.company_name,
+        branding: company.branding || {},
+        portalSettings: {
+          allow_self_registration: company.portal_settings?.allow_self_registration || false,
+          registration_welcome_message: company.portal_settings?.registration_welcome_message || "",
+        },
+      },
+    };
+  } catch (error) {
+    console.error("[getPortalInfo] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to get portal info: ${error.message}`);
+  }
+});
+
+/**
  * Self-registration for client portal users
  * Creates a new client company and client_user record
  * @param {Object} data - { email, password, companyName, contactName, phone, address, city, state, zip, portalSlug }
@@ -4396,6 +4445,9 @@ exports.selfRegisterClientUser = onCall(async (request) => {
     if (!contactName) throw new HttpsError("invalid-argument", "Contact name is required");
     if (!phone) throw new HttpsError("invalid-argument", "Phone number is required");
     if (!portalSlug) throw new HttpsError("invalid-argument", "Portal slug is required");
+
+    // Extract email domain for tracking/grouping
+    const emailDomain = email.split('@')[1]?.toLowerCase() || '';
 
     console.log(`[selfRegisterClientUser] Self-registration attempt for ${email} on portal ${portalSlug}`);
 

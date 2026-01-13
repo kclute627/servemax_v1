@@ -588,14 +588,14 @@ export default function CompanySettingsPanel() {
             </div>
             <div>
               <Label htmlFor="email">Email</Label>
-              <Input 
+              <Input
                 id="email"
                 type="email"
-                value={companyInfo.email} 
-                onChange={(e) => updateCompanyInfo('email', e.target.value)} 
-                placeholder="info@company.com"
-                autoComplete="off"
+                value={companyInfo.email}
+                disabled
+                className="bg-slate-100 cursor-not-allowed"
               />
+              <p className="text-xs text-slate-500 mt-1">Email is linked to your account and cannot be changed.</p>
             </div>
           </div>
         </CardContent>
