@@ -6,6 +6,9 @@ import { User } from "@/api/entities";
 import { Button } from "@/components/ui/button";
 import { PenTool, X, Check } from "lucide-react";
 
+// Letter page height at 96dpi (792pt * 96/72 = 1056px)
+const PAGE_HEIGHT_PX = 1056;
+
 /**
  * Pagination - handles different page widths
  * Preserves <style> tags for CSS class-based templates
@@ -304,7 +307,7 @@ export default function StandardAffidavitInteractiveForm({
     useEffect(() => {
       if (html) setPagesForIndicator(paginateContent(html, pageWidth));
     }, [html, pageWidth]);
-  
+
     return (
       <div style={{ position: "relative", width: pageWidth }}>
         <div
@@ -328,7 +331,7 @@ export default function StandardAffidavitInteractiveForm({
           }}
           dangerouslySetInnerHTML={{ __html: html }}
         />
-  
+
         {/* Pagination Indicators */}
         {pagesForIndicator.length > 1 &&
           pagesForIndicator.slice(0, -1).map((_, i) => (
@@ -355,11 +358,61 @@ export default function StandardAffidavitInteractiveForm({
 
   return (
     <div ref={containerRef} style={{ position: "relative" }}>
+      {/* Preview-only styles (do not affect PDF generation) */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media print {
+              .sm-preview-badge,
+              .sm-page-sep {
+                display: none !important;
+              }
+              .sm-page-wrap {
+                box-shadow: none !important;
+                margin: 0 !important;
+                break-after: page;
+                page-break-after: always;
+              }
+            }
+          `,
+        }}
+      />
+
+      {/* Multi-page indicator badge */}
+      {pages.length > 1 && (
+        <div
+          className="sm-preview-badge"
+          style={{
+            position: "sticky",
+            top: "10px",
+            zIndex: 100,
+            display: "flex",
+            justifyContent: "center",
+            marginBottom: "10px",
+          }}
+        >
+          <div
+            style={{
+              background: "rgba(59, 130, 246, 0.9)",
+              color: "white",
+              padding: "6px 12px",
+              borderRadius: "20px",
+              fontSize: "12px",
+              fontWeight: "600",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            }}
+          >
+            {pages.length} Page{pages.length > 1 ? "s" : ""}
+          </div>
+        </div>
+      )}
+
       {pages.map((pageHTML, i) => (
         <React.Fragment key={i}>
           {/* Page separator (shown between pages, not before first page) */}
           {i > 0 && (
             <div
+              className="sm-page-sep"
               style={{
                 height: "20px",
                 background: "linear-gradient(to bottom, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%)",
@@ -378,18 +431,35 @@ export default function StandardAffidavitInteractiveForm({
                 padding: "2px 8px",
                 borderRadius: "4px"
               }}>
-                Page {i + 1}
+                Page {i + 1} of {pages.length}
               </span>
             </div>
           )}
           <div
+            className="sm-page-wrap"
             style={{
               width: pageWidth,
-              minHeight: "792pt",
+              height: `${PAGE_HEIGHT_PX}px`,
               background: "white",
               position: "relative",
+              overflow: "hidden",
+              boxSizing: "border-box",
+              boxShadow: pages.length > 1 ? "0 2px 8px rgba(0,0,0,0.1)" : "none",
+              marginBottom: pages.length > 1 && i < pages.length - 1 ? "8px" : "0",
             }}
           >
+            {/* Keep template's internal .page constrained to our fixed wrapper height */}
+            <style
+              dangerouslySetInnerHTML={{
+                __html: `
+                  .page {
+                    min-height: auto !important;
+                    max-height: 100% !important;
+                    box-sizing: border-box !important;
+                  }
+                `,
+              }}
+            />
             <div dangerouslySetInnerHTML={{ __html: pageHTML }} />
           </div>
         </React.Fragment>
