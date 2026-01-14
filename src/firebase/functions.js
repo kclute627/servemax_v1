@@ -290,6 +290,18 @@ export class FirebaseFunctions {
     }
   }
 
+  // Get public portal info by slug (no auth required)
+  static async getPortalInfo(portalSlug) {
+    try {
+      const getPortalInfo = httpsCallable(functions, 'getPortalInfo');
+      const result = await getPortalInfo({ portalSlug });
+      return result.data;
+    } catch (error) {
+      console.error('Get portal info error:', error);
+      throw error;
+    }
+  }
+
   // Self-register as a client portal user (creates company + user)
   static async selfRegisterClient(data) {
     try {

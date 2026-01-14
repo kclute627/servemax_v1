@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useClientAuth } from "@/components/auth/ClientAuthProvider";
-import { entities } from "@/firebase/database";
+import { FirebaseFunctions } from "@/firebase/functions";
 
 export default function ClientLogin() {
   const { companySlug } = useParams();
@@ -20,20 +20,17 @@ export default function ClientLogin() {
   const [companyData, setCompanyData] = useState(null);
   const [loadingCompany, setLoadingCompany] = useState(true);
 
-  // Load company branding
+  // Load company branding using public Cloud Function (no auth required)
   useEffect(() => {
     const loadCompany = async () => {
       try {
-        const allCompanies = await entities.Company.list();
-        const company = allCompanies.find(
-          c => c.portal_settings?.portal_slug === companySlug
-        );
+        const result = await FirebaseFunctions.getPortalInfo(companySlug);
 
-        if (company) {
+        if (result.success && result.data) {
           setCompanyData({
-            name: company.name,
-            branding: company.branding || {},
-            portalSettings: company.portal_settings || {}
+            name: result.data.name,
+            branding: result.data.branding || {},
+            portalSettings: result.data.portalSettings || {}
           });
         }
       } catch (err) {
@@ -115,7 +112,7 @@ export default function ClientLogin() {
               </div>
             )}
 
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">Welcome back</h1>
+            <h1 className="text-2xl font-bold text-slate-900 mb-2">Sign in to {companyData?.name}</h1>
             <p className="text-slate-500">
               {companyData?.portalSettings?.welcome_message ||
                 "Sign in to view your orders and invoices"}
