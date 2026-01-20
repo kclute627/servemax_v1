@@ -1127,9 +1127,9 @@ export default function JobDetailsPage() {
         break;
       case 'caseInfo':
         setEditFormData({
-          case_number: courtCase?.case_number || '',
-          plaintiff: courtCase?.plaintiff || '',
-          defendant: courtCase?.defendant || ''
+          case_number: courtCase?.case_number || job?.case_number || '',
+          plaintiff: courtCase?.plaintiff || job?.plaintiff || '',
+          defendant: courtCase?.defendant || job?.defendant || ''
         });
         setIsEditingCaseInfo(true);
         break;
@@ -1246,7 +1246,13 @@ export default function JobDetailsPage() {
             }));
             logDescription = 'Case information updated.';
           } else {
-            alert("No court case linked to this job to update.");
+            // No court case linked - update case info directly on job document
+            updateData = {
+              case_number: editFormData.case_number,
+              plaintiff: editFormData.plaintiff,
+              defendant: editFormData.defendant
+            };
+            logDescription = 'Case information updated.';
           }
           break;
         case 'serviceDetails':
@@ -3547,8 +3553,103 @@ export default function JobDetailsPage() {
                     </>
                   );
                 } else {
-                  // Legacy: Display editable line items from job data for jobs without invoices
-                  // ... existing legacy code ...
+                  // Display editable line items for jobs without invoices
+                  return (
+                    <div className="space-y-4">
+                      <div className="space-y-3">
+                        {Array.isArray(lineItems) && lineItems.map((item, index) => (
+                          <div key={index} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                            <div className="flex-1 space-y-2">
+                              <div className="flex gap-2">
+                                <Input
+                                  placeholder="Description"
+                                  value={item.description || ''}
+                                  onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
+                                  className="flex-1"
+                                />
+                                {invoicePresets && invoicePresets.length > 0 && (
+                                  <select
+                                    className="px-2 py-1 text-sm border rounded-md bg-white"
+                                    value=""
+                                    onChange={(e) => {
+                                      if (e.target.value) {
+                                        handlePresetSelect(index, e.target.value);
+                                      }
+                                    }}
+                                  >
+                                    <option value="">Presets</option>
+                                    {invoicePresets.map((preset, i) => (
+                                      <option key={i} value={preset.description}>
+                                        {preset.description} (${preset.rate || preset.default_amount || 0})
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                              <div className="flex gap-2 items-center">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs text-slate-500">Qty:</span>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    value={item.quantity || 1}
+                                    onChange={(e) => handleLineItemChange(index, 'quantity', parseInt(e.target.value) || 1)}
+                                    className="w-16 text-center"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs text-slate-500">Rate:</span>
+                                  <div className="relative">
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={item.rate || 0}
+                                      onChange={(e) => handleLineItemChange(index, 'rate', parseFloat(e.target.value) || 0)}
+                                      className="w-24 pl-5"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 ml-auto">
+                                  <span className="text-sm font-medium">
+                                    ${((item.quantity || 1) * (item.rate || 0)).toFixed(2)}
+                                  </span>
+                                </div>
+                                {lineItems.length > 1 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRemoveLineItem(index)}
+                                    className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleAddLineItem}
+                        className="gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Line Item
+                      </Button>
+
+                      <div className="border-t pt-4">
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold text-slate-900">Total:</span>
+                          <span className="text-xl font-bold text-slate-900">${totalFee.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
                 }
               })()}
               </CardContent>
@@ -3707,19 +3808,28 @@ export default function JobDetailsPage() {
                       >
                         <div className="flex justify-between items-start">
                           <span className="text-slate-600 text-sm">Case Number:</span>
-                          <span className="font-medium text-sm text-right">{courtCase?.case_number || 'N/A'}</span>
+                          {(courtCase?.case_number || job?.case_number) ? (
+                            <Link
+                              to={`/jobs?search=${encodeURIComponent(courtCase?.case_number || job?.case_number)}&view=case`}
+                              className="font-medium text-sm text-right text-blue-600 hover:text-blue-800 hover:underline"
+                            >
+                              {courtCase?.case_number || job?.case_number}
+                            </Link>
+                          ) : (
+                            <span className="font-medium text-sm text-right">N/A</span>
+                          )}
                         </div>
                         <div className="flex justify-between items-start">
                           <span className="text-slate-600 text-sm">Court:</span>
-                          <span className="font-medium text-sm text-right">{courtCase?.court_name || 'N/A'}</span>
+                          <span className="font-medium text-sm text-right">{courtCase?.court_name || job?.court_name || 'N/A'}</span>
                         </div>
                         <div className="flex justify-between items-start">
                           <span className="text-slate-600 text-sm">Plaintiff:</span>
-                          <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.plaintiff || 'N/A'}</span>
+                          <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.plaintiff || job?.plaintiff || 'N/A'}</span>
                         </div>
                         <div className="flex justify-between items-start">
                           <span className="text-slate-600 text-sm">Defendant:</span>
-                          <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.defendant || 'N/A'}</span>
+                          <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.defendant || job?.defendant || 'N/A'}</span>
                         </div>
                       </motion.div>
                     )}

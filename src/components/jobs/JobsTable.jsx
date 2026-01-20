@@ -69,7 +69,7 @@ function getWorkflowStatus(job, jobInvoice) {
   if (job.status === 'unable_to_serve') return 'unable_to_serve';
 
   // Check if invoice is issued → Completed
-  if (jobInvoice && jobInvoice.status === 'issued') return 'completed';
+  if (jobInvoice && ['issued', 'sent'].includes(jobInvoice.status?.toLowerCase())) return 'completed';
 
   // Check if has signed affidavit but no issued invoice → Needs Invoice
   if (job.has_signed_affidavit) return 'needs_invoice';

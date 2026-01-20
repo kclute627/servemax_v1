@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Link, useLocation } from "react-router-dom"; // Import useLocation
+import { Link, useLocation, useSearchParams } from "react-router-dom"; // Import useLocation and useSearchParams
 import { createPageUrl } from "@/utils";
 // FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
 import { updateSharedJobStatus } from "@/api/functions";
@@ -49,9 +49,10 @@ export default function JobsPage() {
   } = useGlobalData(); // Changed from useJobs() to useGlobalData()
 
   const location = useLocation(); // Get location object
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [filteredJobs, setFilteredJobs] = useState([]);
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || "");
   const [selectedJobs, setSelectedJobs] = useState([]);
 
   // New pagination state
@@ -155,6 +156,14 @@ export default function JobsPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm]);
+
+  // Sync URL search param with searchTerm
+  useEffect(() => {
+    const urlSearch = searchParams.get('search');
+    if (urlSearch && urlSearch !== searchTerm) {
+      setSearchTerm(urlSearch);
+    }
+  }, [searchParams]);
 
   // Get paginated jobs for current page
   const paginatedJobs = useMemo(() => {
@@ -387,6 +396,7 @@ export default function JobsPage() {
                 companySettings={companySettings}
                 searchTerm={searchTerm}
                 onSearchChange={setSearchTerm}
+                initialView={searchParams.get('view') || 'list'}
               />
             ))}
           </div>

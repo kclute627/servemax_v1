@@ -2255,7 +2255,7 @@ exports.generateAffidavit = onCall(
 
         return {
           success: true,
-          data: Buffer.from(pdfBytes),
+          data: Buffer.from(pdfBytes).toString('base64'),
           message: "Affidavit generated successfully (HTML mode)",
         };
       }
@@ -2281,7 +2281,7 @@ exports.generateAffidavit = onCall(
 
       return {
         success: true,
-        data: Buffer.from(pdfBytes),
+        data: Buffer.from(pdfBytes).toString('base64'),
         message: "Affidavit generated (simple mode)",
       };
     } catch (err) {
@@ -5476,9 +5476,12 @@ exports.createClientJob = onCall(
     }
 
     // Trigger document extraction if documents were uploaded
+    console.log(`[createClientJob] Checking for documents. uploaded_documents:`, JSON.stringify(jobData.uploaded_documents || []));
     if (jobData.uploaded_documents && jobData.uploaded_documents.length > 0) {
       const firstDoc = jobData.uploaded_documents[0];
-      console.log(`[createClientJob] Triggering document extraction for: ${firstDoc.url || firstDoc.file_url}`);
+      const fileUrl = firstDoc.url || firstDoc.file_url;
+      console.log(`[createClientJob] First document:`, JSON.stringify(firstDoc));
+      console.log(`[createClientJob] Triggering document extraction for URL: ${fileUrl}`);
 
       try {
         // Call extractDocumentClaudeVision internally
@@ -5496,8 +5499,10 @@ FIELDS TO RETURN (only if found):
 
 OUTPUT FORMAT - Return ONLY the raw JSON object, no markdown.`;
 
-        const fileUrl = firstDoc.url || firstDoc.file_url;
-        const response = await fetch(fileUrl);
+        const docFileUrl = firstDoc.url || firstDoc.file_url;
+        console.log(`[createClientJob] Fetching document from: ${docFileUrl}`);
+        const response = await fetch(docFileUrl);
+        console.log(`[createClientJob] Fetch response status: ${response.status} ${response.statusText}`);
         if (response.ok) {
           const pdfBytes = await response.arrayBuffer();
           const pdfDoc = await PDFDocument.load(pdfBytes);
@@ -5542,8 +5547,10 @@ OUTPUT FORMAT - Return ONLY the raw JSON object, no markdown.`;
             ],
           });
 
+          console.log(`[createClientJob] Claude response stop_reason: ${message.stop_reason}`);
           if (message.stop_reason !== "refusal" && message.content[0]) {
             const responseText = message.content[0].text;
+            console.log(`[createClientJob] Claude raw response:`, responseText.substring(0, 500));
             const cleanedText = responseText
                 .replace(/```json/gi, "")
                 .replace(/```/g, "")
@@ -5552,10 +5559,15 @@ OUTPUT FORMAT - Return ONLY the raw JSON object, no markdown.`;
             let extractedData = {};
             try {
               extractedData = JSON.parse(cleanedText);
+              console.log(`[createClientJob] Parsed extracted data:`, JSON.stringify(extractedData));
             } catch (parseErr) {
+              console.log(`[createClientJob] JSON parse failed, trying regex match`);
               const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
               if (jsonMatch) {
                 extractedData = JSON.parse(jsonMatch[0]);
+                console.log(`[createClientJob] Regex extracted data:`, JSON.stringify(extractedData));
+              } else {
+                console.log(`[createClientJob] No JSON found in response`);
               }
             }
 
@@ -5578,14 +5590,22 @@ OUTPUT FORMAT - Return ONLY the raw JSON object, no markdown.`;
               }
 
               await jobRef.update(updateData);
-              console.log(`[createClientJob] Updated job with extracted case info:`, Object.keys(updateData));
+              console.log(`[createClientJob] Updated job with extracted case info:`, JSON.stringify(updateData));
+            } else {
+              console.log(`[createClientJob] No fields to update from extraction`);
             }
+          } else {
+            console.log(`[createClientJob] Claude refused or empty response`);
           }
+        } else {
+          console.log(`[createClientJob] Fetch failed: ${response.status} ${response.statusText}`);
         }
       } catch (extractError) {
-        console.log(`[createClientJob] Document extraction failed (job still created):`, extractError.message);
+        console.error(`[createClientJob] Document extraction failed (job still created):`, extractError.message, extractError.stack);
         // Don't fail the job creation if extraction fails
       }
+    } else {
+      console.log(`[createClientJob] No documents uploaded, skipping extraction`);
     }
 
     return {
