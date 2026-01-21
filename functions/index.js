@@ -5342,6 +5342,10 @@ exports.createClientJob = onCall(
         description: "Order submitted via client portal.",
       }],
 
+      // Contact info - set contact_email from client user who submitted
+      contact_email: clientUser.email || "",
+      contact_name: clientUser.name || "",
+
       // Metadata
       source: "client_portal",
       submitted_by_client_user_id: clientUserQuery.docs[0].id,

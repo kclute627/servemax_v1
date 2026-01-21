@@ -564,6 +564,7 @@ export default function JobDetailsPage() {
   // Line 555 ke baad add karo
   const [isEditingInvoice, setIsEditingInvoice] = useState(false);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const [isCreatingInvoice, setIsCreatingInvoice] = useState(false);
   const [saveInvoiceTrigger, setSaveInvoiceTrigger] = useState(0);
   const [showPDFPreview, setShowPDFPreview] = useState(false);
 
@@ -1651,6 +1652,106 @@ export default function JobDetailsPage() {
   };
 
   /**
+   * Creates a new invoice record from the job's line items
+   */
+  const handleCreateInvoice = async () => {
+    if (!job?.id || !Array.isArray(lineItems) || lineItems.length === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Please add at least one line item before creating an invoice.'
+      });
+      return;
+    }
+
+    // Check if line items have valid data
+    const hasValidItems = lineItems.some(item => item.description && item.rate > 0);
+    if (!hasValidItems) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Please add at least one line item with a description and rate.'
+      });
+      return;
+    }
+
+    setIsCreatingInvoice(true);
+    try {
+      const invoiceDate = new Date();
+      const invoiceDueDate = new Date(invoiceDate);
+      invoiceDueDate.setDate(invoiceDate.getDate() + 30);
+
+      // Format line items for invoice
+      const formattedLineItems = lineItems.map(item => ({
+        item_name: item.description || '',
+        description: item.description || '',
+        quantity: item.quantity || 1,
+        unit_price: item.rate || 0,
+        rate: item.rate || 0,
+        total: (item.quantity || 1) * (item.rate || 0),
+        amount: (item.quantity || 1) * (item.rate || 0)
+      }));
+
+      const subtotal = formattedLineItems.reduce((sum, item) => sum + item.total, 0);
+      const taxRate = invoiceSettings?.default_tax_rate || 0;
+      const taxAmount = subtotal * taxRate;
+      const total = subtotal + taxAmount;
+
+      const newInvoice = await Invoice.create({
+        invoice_number: job.job_number,
+        client_id: job.client_id,
+        company_id: user?.company_id || companyData?.id || null,
+        invoice_type: "job",
+        invoice_date: invoiceDate.toISOString().split('T')[0],
+        due_date: invoiceDueDate.toISOString().split('T')[0],
+        job_ids: [job.id],
+        line_items: formattedLineItems,
+        subtotal: subtotal,
+        discount_amount: 0,
+        discount_type: "fixed",
+        tax_rate: taxRate,
+        total_tax_amount: taxAmount,
+        total: total,
+        balance_due: total,
+        total_paid: 0,
+        currency: "USD",
+        status: "Draft",
+        locked: false,
+        taxes_enabled: taxRate > 0,
+        terms: invoiceSettings?.default_terms || "Thanks for your business. Please pay within 30 days."
+      });
+
+      // Update local invoices state
+      setInvoices(prev => [...prev, newInvoice]);
+
+      // Also save line items to job for consistency
+      await Job.update(job.id, {
+        line_items: lineItems,
+        total_fee: totalFee
+      });
+
+      toast({
+        title: 'Invoice Created',
+        description: `Invoice #${job.job_number} has been created as a draft.`,
+        className: 'border-green-200 bg-green-50 text-green-900'
+      });
+
+      // Refresh data to ensure consistency
+      refreshData();
+
+    } catch (error) {
+      console.error('Failed to create invoice:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to create invoice: ' + error.message
+      });
+    } finally {
+      setIsCreatingInvoice(false);
+    }
+  };
+
+  /**
    * Callback for when a new contact is created in the dialog.
    * FIREBASE TRANSITION: The dialog itself will contain the Firebase `updateDoc` call
    * to add the contact to the client. This handler just updates the local UI state.
@@ -1952,11 +2053,16 @@ export default function JobDetailsPage() {
   };
 
   const handleEmailInvoice = async (invoice) => {
-    // Get client email from contact or job
-    const clientEmail = job?.contact_email;
+    // Get client email from multiple sources
+    const clientEmail = job?.contact_email ||
+      job?.submitted_by?.email ||
+      client?.contact_email ||
+      client?.email ||
+      (Array.isArray(client?.contacts) && client.contacts.find(c => c.primary)?.email) ||
+      (Array.isArray(client?.contacts) && client.contacts[0]?.email);
 
     if (!clientEmail) {
-      toast({ variant: 'destructive', title: 'No Email', description: 'No client email address found for this job.' });
+      toast({ variant: 'destructive', title: 'No Email', description: 'No client email address found. Please add a contact email to the client or job.' });
       return;
     }
 
@@ -2010,8 +2116,14 @@ export default function JobDetailsPage() {
         activity_log: [...(prev.activity_log || []), newLogEntry]
       }));
 
-      // Then send email
-      const clientEmail = job?.contact_email;
+      // Then send email - check multiple sources for client email
+      const clientEmail = job?.contact_email ||
+        job?.submitted_by?.email ||
+        client?.contact_email ||
+        client?.email ||
+        (Array.isArray(client?.contacts) && client.contacts.find(c => c.primary)?.email) ||
+        (Array.isArray(client?.contacts) && client.contacts[0]?.email);
+
       if (clientEmail) {
         await InvoiceManager.sendInvoiceEmail(invoice.id, clientEmail, {
           invoice_number: invoice.invoice_number,
@@ -2021,7 +2133,7 @@ export default function JobDetailsPage() {
         toast({ title: 'Invoice Issued & Email Queued', description: `Invoice issued and email queued for ${clientEmail}` });
         await refreshData();
       } else {
-        toast({ title: 'Invoice Issued', description: 'Invoice issued but no email address found for client.' });
+        toast({ title: 'Invoice Issued', description: 'Invoice issued but no email address found for client. Please add a contact email.' });
       }
     } catch (error) {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to issue and email invoice.' });
@@ -3382,24 +3494,53 @@ export default function JobDetailsPage() {
                       </div>
                     );
                   } else {
-                    // Legacy: If no invoice exists, show save button
+                    // If no invoice exists, show Save and Create Invoice buttons
                     return (
-                      <Button variant="outline" size="sm" onClick={saveInvoiceItems} className="gap-2 relative">
-                        {areInvoiceItemsDirty && !invoiceSaved && (
-                          <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                          </span>
-                        )}
-                        {invoiceSaved ? (
-                          <>
-                            <CheckCircle className="w-4 h-4 text-green-600" />
-                            Saved
-                          </>
-                        ) : (
-                          'Save Invoice'
-                        )}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={saveInvoiceItems}
+                          className="gap-2 relative"
+                          disabled={isCreatingInvoice}
+                        >
+                          {areInvoiceItemsDirty && !invoiceSaved && (
+                            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                            </span>
+                          )}
+                          {invoiceSaved ? (
+                            <>
+                              <CheckCircle className="w-4 h-4 text-green-600" />
+                              Saved
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-4 h-4" />
+                              Save
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleCreateInvoice}
+                          className="gap-2 bg-slate-900 hover:bg-slate-800"
+                          disabled={isCreatingInvoice || lineItems.length === 0}
+                        >
+                          {isCreatingInvoice ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Creating...
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-4 h-4" />
+                              Create Invoice
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     );
                   }
                 })()}
