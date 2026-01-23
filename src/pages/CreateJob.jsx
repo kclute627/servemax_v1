@@ -9,7 +9,7 @@
 //   - `Document.bulkCreate`: Replace with a Firestore `writeBatch` to add all documents atomically.
 //   - `generateFieldSheet`: Will be a call to your new Firebase Cloud Function.
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useGlobalData } from "@/components/GlobalDataContext";
 // FIREBASE TRANSITION: Replace with Firebase SDK imports.
 import { Job, Client, Employee, CourtCase, Document, Court, CompanySettings, User, ServerPayRecord, Invoice } from "@/api/entities"; // Added User import, Added ServerPayRecord, Added Invoice
@@ -47,7 +47,12 @@ import {
   X,
   AlertTriangle,
   Store,
-  FileText
+  FileText,
+  ChevronsLeft,
+  ChevronsRight,
+  MapPin,
+  ClipboardList,
+  Receipt
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -148,6 +153,128 @@ export default function CreateJobPage() {
   const [courtFromExtraction, setCourtFromExtraction] = useState(false); // Flag to skip autocomplete when court is from AI extraction
   const [showPDFViewer, setShowPDFViewer] = useState(false); // PDF viewer visibility
   const [pdfViewerWidth, setPdfViewerWidth] = useState(50); // PDF viewer width as percentage (min 25, max 75)
+
+  // Section navigation (competitor-style): click any section to jump there (no gating)
+  const enabledJobTypes = useMemo(
+    () => companyData?.enabled_job_types || [JOB_TYPES.PROCESS_SERVING],
+    [companyData?.enabled_job_types]
+  );
+  const showJobTypeSelector = enabledJobTypes.length > 1;
+
+  const [isSectionNavHidden, setIsSectionNavHidden] = useState(() => {
+    try {
+      return localStorage.getItem("createJob.hideSectionNav") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("createJob.hideSectionNav", String(isSectionNavHidden));
+    } catch {
+      // ignore
+    }
+  }, [isSectionNavHidden]);
+
+  const sections = useMemo(() => {
+    const list = [];
+
+    // Labels/icons to match competitor-style nav
+    if (showJobTypeSelector) list.push({ id: "job-type", label: "Job Type", icon: ClipboardList });
+    list.push({ id: "service-documents", label: "Service Documents", icon: FileText });
+    list.push({ id: "client-info", label: "Client Information", icon: UserIcon });
+
+    if (formData.job_type === JOB_TYPES.COURT_REPORTING) {
+      list.push({ id: "court-reporting", label: "Court Reporting", icon: Landmark });
+    }
+
+    if (formData.job_type === JOB_TYPES.PROCESS_SERVING) {
+      list.push(
+        { id: "case-info", label: "Case Information", icon: ClipboardList },
+        { id: "court-info", label: "Court Information", icon: Landmark },
+        { id: "recipient-address", label: "Recipient & Service Address", icon: MapPin },
+        { id: "service-details", label: "Service Details" },
+        { id: "server-assignment", label: "Server", icon: HardHat },
+        { id: "quick-invoice", label: "Quick Invoice", icon: Receipt }
+      );
+    }
+
+    return list;
+  }, [formData.job_type, showJobTypeSelector]);
+
+  const sectionRefs = useRef({});
+  const [activeSectionId, setActiveSectionId] = useState(null);
+
+  const setSectionRef = (id) => (el) => {
+    if (el) sectionRefs.current[id] = el;
+  };
+
+  const scrollToSection = (id) => {
+    const el = sectionRefs.current[id] || document.getElementById(id);
+    if (!el) return;
+    // Click-only active behavior: stays active until another nav item is clicked.
+    setActiveSectionId(id);
+
+    // More reliable than scrollIntoView() in some layouts: compute target scroll position.
+    const topOffset = 120; // keep in sync with observer/header spacing
+    const y = el.getBoundingClientRect().top + window.scrollY - topOffset;
+    window.scrollTo({ top: Math.max(y, 0), behavior: "smooth" });
+  };
+
+  // Ensure we always have a valid active section (e.g., job type changes can change sections list)
+  useEffect(() => {
+    const ids = sections.map((s) => s.id);
+    if (ids.length === 0) return;
+    if (!activeSectionId || !ids.includes(activeSectionId)) {
+      setActiveSectionId(ids[0]);
+    }
+  }, [sections, activeSectionId]);
+
+  // Visual-only completion status for the right-side check badges (no gating)
+  const sectionCompletion = useMemo(() => {
+    const primaryAddress = formData.addresses?.find((a) => a.primary) || formData.addresses?.[0];
+    const hasValidAddress =
+      !!primaryAddress &&
+      !!primaryAddress.address1 &&
+      !!primaryAddress.city &&
+      !!primaryAddress.state &&
+      !!primaryAddress.postal_code;
+
+    const map = {
+      "job-type": true,
+      "service-documents": (uploadedDocuments?.length || 0) > 0,
+      "client-info": !!formData.client_id,
+    };
+
+    if (formData.job_type === JOB_TYPES.COURT_REPORTING) {
+      map["court-reporting"] = true;
+    }
+
+    if (formData.job_type === JOB_TYPES.PROCESS_SERVING) {
+      map["case-info"] = !!formData.case_number || !!selectedCase;
+      map["court-info"] = !!formData.court_name || !!selectedCourtFromAutocomplete;
+      map["recipient-address"] = !!formData.recipient_name && hasValidAddress;
+      map["service-details"] = true;
+      map["server-assignment"] = true;
+      map["quick-invoice"] = true;
+    }
+
+    return map;
+  }, [
+    formData.addresses,
+    formData.case_number,
+    formData.client_id,
+    formData.court_name,
+    formData.job_type,
+    formData.recipient_name,
+    selectedCase,
+    selectedCourtFromAutocomplete,
+    uploadedDocuments,
+  ]);
+
+  // NOTE: We intentionally do NOT auto-update active section on scroll.
+  // Active highlight is click-driven (stays active until user clicks another item).
 
   useEffect(() => {
     const loadAndSetEmployees = async () => {
@@ -1051,90 +1178,90 @@ export default function CreateJobPage() {
 
       // Only create court/case for process serving jobs
       if (formData.job_type === JOB_TYPES.PROCESS_SERVING) {
-      // STEP 1: Handle Court Creation
-      if (selectedCourtFromAutocomplete) {
-        // User selected existing court from autocomplete
-        courtId = selectedCourtFromAutocomplete.id;
-        console.log('[CreateJob] Using selected court:', courtId);
+        // STEP 1: Handle Court Creation
+        if (selectedCourtFromAutocomplete) {
+          // User selected existing court from autocomplete
+          courtId = selectedCourtFromAutocomplete.id;
+          console.log('[CreateJob] Using selected court:', courtId);
 
-      } else if (formData.court_name) {
-        // User typed a court name - CREATE NEW COURT
-        console.log('[CreateJob] Creating new court:', formData.court_name);
+        } else if (formData.court_name) {
+          // User typed a court name - CREATE NEW COURT
+          console.log('[CreateJob] Creating new court:', formData.court_name);
 
-        // Geocode court address if we have address data but no coordinates
-        let courtAddressWithCoords = formData.court_address || {};
-        if (courtAddressWithCoords.address1 && !courtAddressWithCoords.latitude) {
-          try {
-            console.log('[CreateJob] Geocoding court address...');
-            const fullCourtAddress = [
-              courtAddressWithCoords.address1,
-              courtAddressWithCoords.city,
-              courtAddressWithCoords.state,
-              courtAddressWithCoords.postal_code
-            ].filter(Boolean).join(', ');
+          // Geocode court address if we have address data but no coordinates
+          let courtAddressWithCoords = formData.court_address || {};
+          if (courtAddressWithCoords.address1 && !courtAddressWithCoords.latitude) {
+            try {
+              console.log('[CreateJob] Geocoding court address...');
+              const fullCourtAddress = [
+                courtAddressWithCoords.address1,
+                courtAddressWithCoords.city,
+                courtAddressWithCoords.state,
+                courtAddressWithCoords.postal_code
+              ].filter(Boolean).join(', ');
 
-            const geoResult = await geocodeAddress(fullCourtAddress);
-            console.log('[CreateJob] Court geocoding result:', geoResult);
+              const geoResult = await geocodeAddress(fullCourtAddress);
+              console.log('[CreateJob] Court geocoding result:', geoResult);
 
-            courtAddressWithCoords = {
-              ...courtAddressWithCoords,
-              latitude: geoResult.latitude,
-              longitude: geoResult.longitude
-            };
-          } catch (error) {
-            console.error('[CreateJob] Error geocoding court address:', error);
-            // Continue without coordinates
+              courtAddressWithCoords = {
+                ...courtAddressWithCoords,
+                latitude: geoResult.latitude,
+                longitude: geoResult.longitude
+              };
+            } catch (error) {
+              console.error('[CreateJob] Error geocoding court address:', error);
+              // Continue without coordinates
+            }
           }
+
+          const newCourt = await SecureCourtAccess.create({
+            branch_name: formData.court_name,
+            county: formData.court_county || "Unknown County",
+            address: courtAddressWithCoords
+          });
+
+          courtId = newCourt.id;
+          console.log('[CreateJob] ✓ New court created with ID:', courtId);
         }
 
-        const newCourt = await SecureCourtAccess.create({
-          branch_name: formData.court_name,
-          county: formData.court_county || "Unknown County",
-          address: courtAddressWithCoords
-        });
+        // STEP 2: Create Court Case with court_id link
+        // CRITICAL: Case MUST have court_id to link to court
+        if (selectedCase && isEditingCase) {
+          // Update existing case
+          await CourtCase.update(selectedCase.id, {
+            case_name: `${formData.plaintiff} vs ${formData.defendant}`,
+            case_number: formData.case_number,
+            plaintiff: formData.plaintiff,
+            defendant: formData.defendant,
+            court_id: courtId, // ← CRITICAL LINK
+            court_name: formData.court_name,
+            court_county: formData.court_county,
+            court_address: JSON.stringify(formData.court_address)
+          });
+          courtCaseId = selectedCase.id;
 
-        courtId = newCourt.id;
-        console.log('[CreateJob] ✓ New court created with ID:', courtId);
-      }
+        } else if (selectedCase) {
+          // Use existing case as-is
+          courtCaseId = selectedCase.id;
 
-      // STEP 2: Create Court Case with court_id link
-      // CRITICAL: Case MUST have court_id to link to court
-      if (selectedCase && isEditingCase) {
-        // Update existing case
-        await CourtCase.update(selectedCase.id, {
-          case_name: `${formData.plaintiff} vs ${formData.defendant}`,
-          case_number: formData.case_number,
-          plaintiff: formData.plaintiff,
-          defendant: formData.defendant,
-          court_id: courtId, // ← CRITICAL LINK
-          court_name: formData.court_name,
-          court_county: formData.court_county,
-          court_address: JSON.stringify(formData.court_address)
-        });
-        courtCaseId = selectedCase.id;
+        } else {
+          // Create NEW case
+          console.log('[CreateJob] Creating new case with court_id:', courtId);
 
-      } else if (selectedCase) {
-        // Use existing case as-is
-        courtCaseId = selectedCase.id;
+          const newCourtCase = await SecureCaseAccess.create({
+            case_name: `${formData.plaintiff} vs ${formData.defendant}`,
+            case_number: formData.case_number,
+            plaintiff: formData.plaintiff,
+            defendant: formData.defendant,
+            court_id: courtId, // ← CRITICAL LINK
+            court_name: formData.court_name,
+            court_county: formData.court_county,
+            court_address: JSON.stringify(formData.court_address)
+          });
 
-      } else {
-        // Create NEW case
-        console.log('[CreateJob] Creating new case with court_id:', courtId);
-
-        const newCourtCase = await SecureCaseAccess.create({
-          case_name: `${formData.plaintiff} vs ${formData.defendant}`,
-          case_number: formData.case_number,
-          plaintiff: formData.plaintiff,
-          defendant: formData.defendant,
-          court_id: courtId, // ← CRITICAL LINK
-          court_name: formData.court_name,
-          court_county: formData.court_county,
-          court_address: JSON.stringify(formData.court_address)
-        });
-
-        courtCaseId = newCourtCase.id;
-        console.log('[CreateJob] ✓ New case created with court_id:', courtId);
-      }
+          courtCaseId = newCourtCase.id;
+          console.log('[CreateJob] ✓ New case created with court_id:', courtId);
+        }
       } // End of process serving court/case creation
 
       // STEP 3: Create Job with case_id (handled below in newJobData)
@@ -1503,930 +1630,1032 @@ export default function CreateJobPage() {
   const isFormValid = formData.client_id;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      {/* Main Content */}
-      <div
-        className="flex-1 transition-all duration-300"
-        style={{
-          width: showPDFViewer ? `${100 - pdfViewerWidth}%` : '100%'
-        }}
-      >
-        <div className="p-6 md:p-8">
-          <div className="max-w-screen mx-auto">
-            {/* Header */}
-            <div className="flex items-center gap-4 mb-8">
-              <Link to={createPageUrl("Jobs")}>
+    <>
+      {/* Header */}
+      <div className="flex items-center gap-4 mb-4 p-4">
+        {/* <Link to={createPageUrl("Jobs")}>
                 <Button variant="outline" size="icon">
                   <ArrowLeft className="w-4 h-4" />
                 </Button>
-              </Link>
-              <div>
-                <h1 className="text-3xl font-bold text-slate-900 mb-2">Create New Job</h1>
-                <p className="text-slate-600">
-                  Enter job details for {JOB_TYPE_LABELS[formData.job_type] || 'your job'}
-                </p>
-              </div>
+              </Link> */}
+
+        {/* Show/Hide Sections (desktop) */}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="hidden lg:inline-flex"
+          onClick={() => setIsSectionNavHidden((v) => !v)}
+          title={isSectionNavHidden ? "Show sections" : "Hide sections"}
+          aria-label={isSectionNavHidden ? "Show sections" : "Hide sections"}
+        >
+          {isSectionNavHidden ? (
+            <ChevronsRight className="w-4 h-4" />
+          ) : (
+            <ChevronsLeft className="w-4 h-4" />
+          )}
+        </Button>
+
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">Create New Job</h1>
+          <p className="text-slate-600">
+            Enter job details for {JOB_TYPE_LABELS[formData.job_type] || 'your job'}
+          </p>
+        </div>
+      </div>
+      <div className="min-h-screen bg-slate-50 flex">
+
+
+        {/* Left Section Nav (desktop) */}
+        {!isSectionNavHidden ? (
+          <aside className="hidden lg:block w-72 shrink-0 ">
+            <div className="sticky top-0 h-screen px-3 py-1 overflow-y-auto">
+              {/* <div className="flex items-center justify-between mb-4">
+              <div className="text-sm font-semibold text-slate-900">Sections</div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setIsSectionNavHidden(true)}
+                title="Hide sections"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </Button>
+            </div> */}
+
+              <nav className="space-y-1">
+                {sections.map((section) => {
+                  const isActive = activeSectionId === section.id;
+                  const isDone = !!sectionCompletion[section.id];
+                  const Icon = section.icon || ClipboardList;
+                  return (
+                    <button
+                      key={section.id}
+                      type="button"
+                      onClick={() => scrollToSection(section.id)}
+                      className={`w-full flex items-center justify-between  px-3 py-6 transition-all ${
+                        isActive
+                          ? "bg-[#F5F7FB] shadow-sm border border-slate-200 border-l-4 border-l-emerald-800"
+                          : "bg-transparent hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Icon className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                        <span className="text-sm text-slate-800 truncate">{section.label}</span>
+                      </div>
+
+                      <span
+                        className={`ml-3 inline-flex h-5 w-5 items-center justify-center rounded-full border ${
+                          isDone
+                            ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                            : "bg-white border-slate-200 text-slate-400"
+                        }`}
+                        title={isDone ? "Complete" : "Incomplete"}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </span>
+                    </button>
+                  );
+                })}
+              </nav>
             </div>
+          </aside>
+        ) : (
+          null
+        )}
 
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Job Type Selector - Only show if company has more than one job type */}
-              {(() => {
-                const enabledJobTypes = companyData?.enabled_job_types || [JOB_TYPES.PROCESS_SERVING];
-                if (enabledJobTypes.length <= 1) return null;
+        {/* Main Content */}
+        <div
+          className="flex-1 transition-all duration-300 px-4 pb-2"
+          style={{
+            marginRight: showPDFViewer ? `${pdfViewerWidth}%` : undefined,
+          }}
+        >
 
-                return (
+          <div className="">
+            <div className="max-w-screen mx-auto">
+
+
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Job Type Selector - Only show if company has more than one job type */}
+                {showJobTypeSelector ? (
+                  <div id="job-type" ref={setSectionRef("job-type")} className="scroll-mt-6">
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Job Type</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex flex-wrap gap-2">
+                          {enabledJobTypes.map((jobType) => (
+                            <button
+                              key={jobType}
+                              type="button"
+                              onClick={() => setFormData((prev) => ({ ...prev, job_type: jobType }))}
+                              className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${formData.job_type === jobType
+                                ? "border-blue-600 bg-blue-50 text-blue-700"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                                }`}
+                            >
+                              {JOB_TYPE_LABELS[jobType] || jobType}
+                            </button>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                ) : null}
+
+                {/* Service Documents */}
+                <div id="service-documents" ref={setSectionRef("service-documents")} className="scroll-mt-6">
                   <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base">Job Type</CardTitle>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle>Service Documents</CardTitle>
+                        {uploadedDocuments.some((doc) => doc.content_type === "application/pdf" && doc.file_url) && (
+                          <Button
+                            type="button"
+                            variant={showPDFViewer ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setShowPDFViewer(!showPDFViewer)}
+                            className="gap-2 hidden lg:flex"
+                          >
+                            <FileText className="w-4 h-4" />
+                            {showPDFViewer ? "Hide PDFs" : "View PDFs"}
+                          </Button>
+                        )}
+                      </div>
                     </CardHeader>
                     <CardContent>
-                      <div className="flex flex-wrap gap-2">
-                        {enabledJobTypes.map((jobType) => (
-                          <button
-                            key={jobType}
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, job_type: jobType }))}
-                            className={`px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
-                              formData.job_type === jobType
-                                ? 'border-blue-600 bg-blue-50 text-blue-700'
-                                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                            }`}
-                          >
-                            {JOB_TYPE_LABELS[jobType] || jobType}
-                          </button>
-                        ))}
-                      </div>
+                      <DocumentUpload
+                        documents={uploadedDocuments}
+                        onDocumentsChange={setUploadedDocuments}
+                        onExtractedData={handleExtractedData}
+                      />
                     </CardContent>
                   </Card>
-                );
-              })()}
+                </div>
 
-              {/* Service Documents */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>Service Documents</CardTitle>
-                    {uploadedDocuments.some(doc => doc.content_type === 'application/pdf' && doc.file_url) && (
-                      <Button
-                        type="button"
-                        variant={showPDFViewer ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setShowPDFViewer(!showPDFViewer)}
-                        className="gap-2 hidden lg:flex"
-                      >
-                        <FileText className="w-4 h-4" />
-                        {showPDFViewer ? 'Hide PDFs' : 'View PDFs'}
-                      </Button>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <DocumentUpload
-                    documents={uploadedDocuments}
-                    onDocumentsChange={setUploadedDocuments}
-                    onExtractedData={handleExtractedData}
-                  />
-                </CardContent>
-              </Card>
-
-              {/* Client Selection */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Building2 className="w-5 h-5" />
-                    Client Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-4">
-                    {!showNewClientForm && !selectedClient && (
-                      <div>
-                        <Label>Client</Label>
-
-                        <div className="flex items-center gap-2 mb-2">
-
-                          <div className="w-[80%]"> {/* ✅ 80% width */}
-                            <ClientSearchInput
-                              value={clientSearchText}
-                              onValueChange={setClientSearchText}
-                              onClientSelected={handleClientSelected}
-                              onShowNewClient={() => setShowNewClientForm(true)}
-                              selectedClient={selectedClient}
-                            />
-                          </div>
-                          <Button
-                            type="button"
-                            variant="default" // ✅ Changed from "outline" to "default" (blue)
-                            size="sm"
-                            onClick={() => setShowNewClientDialog(true)}
-                            className="gap-2 w-[20%] flex-shrink-0 bg-blue-600 hover:bg-blue-700 text-white" // ✅ Blue background
-                          >
-                            <Plus className="w-4 h-4" />
-                            Add Client
-                          </Button>
-
-                        </div>
-
-                      </div>
-                    )}
-
-                    {selectedClient && !showNewClientForm && (
-                      <SelectedClientBox
-                        client={selectedClient}
-                        contacts={clientContacts}
-                        selectedContactId={formData.contact_id}
-                        onContactChange={(contactId) => {
-                          const selectedContact = clientContacts.find(c => c.id === contactId);
-                          if (selectedContact) {
-                            setFormData(prev => ({
-                              ...prev,
-                              contact_id: selectedContact.id,
-                              contact_email: selectedContact.email
-                            }));
-                          }
-                        }}
-                        onRemoveClient={handleRemoveClient}
-                        onAddContact={() => setShowNewContactDialog(true)}
-                      />
-                    )}
-
-                    <div>
-                      <Label htmlFor="client_job_number">Client Reference Number</Label>
-                      <Input
-                        id="client_job_number"
-                        value={formData.client_job_number}
-                        onChange={(e) => handleInputChange('client_job_number', e.target.value)}
-                        placeholder="Client's internal job/ref #"
-                      />
-                    </div>
-                  </div>
-
-                  <Dialog open={showNewClientDialog} onOpenChange={setShowNewClientDialog} >
-                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto  [&>button]:hidden p-0">
-
-                      <NewClientQuickForm
-                        onClientCreated={(newClient) => {
-                          handleNewClientCreated(newClient);
-                          setShowNewClientDialog(false); // ✅ Close modal
-                        }}
-                        onCancel={() => {
-                          setShowNewClientDialog(false); // ✅ Close modal
-                          setClientSearchText("");
-                        }}
-                        initialCompanyName={clientSearchText}
-                      />
-                    </DialogContent>
-                  </Dialog>
-                </CardContent>
-              </Card>
-
-              {/* Court Reporting Form - shown when job type is court_reporting */}
-              {formData.job_type === JOB_TYPES.COURT_REPORTING && (
-                <CourtReportingForm
-                  formData={formData}
-                  onChange={(field, value) => handleInputChange(field, value)}
-                  employees={employees}
-                />
-              )}
-
-              {/* Process Serving Sections - shown when job type is process_serving */}
-              {formData.job_type === JOB_TYPES.PROCESS_SERVING && (
-                <>
-              {/* Case Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Case Information</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {selectedCase && !isEditingCase ? (
-                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4 className="font-semibold text-slate-900">{selectedCase.case_number}</h4>
-                          <p className="text-sm text-slate-600">{selectedCase.case_name}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="gap-2"
-                            onClick={async () => {
-                              // Count jobs linked to this case
-                              try {
-                                const jobs = await Job.filter({ court_case_id: selectedCase.id });
-                                setAssociatedJobsCount(jobs.length);
-                              } catch (error) {
-                                console.error('Error counting linked jobs:', error);
-                                setAssociatedJobsCount(0);
-                              }
-                              setShowCaseEditWarning(true);
-                            }}
-                          >
-                            <Pencil className="w-4 h-4" />
-                            Edit Case
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:bg-slate-200"
-                            onClick={handleClearCaseSelection}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <Label htmlFor="case_number">Case Number</Label>
-                        <CaseNumberAutocomplete
-                          id="case_number"
-                          value={formData.case_number}
-                          onChange={(value) => handleInputChange('case_number', value)}
-                          onCaseSelect={isEditingCase ? undefined : handleCaseSelect}
-                          placeholder="Enter case number or search existing cases..."
-                          disabled={selectedCase && !isEditingCase}
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  <div>
-                    <Label htmlFor="plaintiff">Plaintiff</Label>
-                    <Textarea
-                      id="plaintiff"
-                      value={formData.plaintiff}
-                      onChange={(e) => handleInputChange('plaintiff', e.target.value)}
-                      rows={2}
-                      placeholder="Enter plaintiff name(s)"
-                      className="resize-none"
-                      disabled={selectedCase && !isEditingCase}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-center py-2">
-                    <div className="text-lg font-semibold text-slate-600 bg-slate-100 px-4 py-1 rounded-full">
-                      vs
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="defendant">Defendant</Label>
-                    <Textarea
-                      id="defendant"
-                      value={formData.defendant}
-                      onChange={(e) => handleInputChange('defendant', e.target.value)}
-                      rows={2}
-                      placeholder="Enter defendant name(s)"
-                      className="resize-none"
-                      disabled={selectedCase && !isEditingCase}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Court Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Landmark className="w-5 h-5" />
-                    Court Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {selectedCourtFromAutocomplete ? (
-                    <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4 className="font-semibold text-slate-900">{selectedCourtFromAutocomplete.branch_name}</h4>
-                          <p className="text-sm text-slate-600">{selectedCourtFromAutocomplete.county}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="gap-2"
-                            onClick={() => setShowCourtEditWarning(true)}
-                            disabled={selectedCase && !isEditingCase}
-                          >
-                            <Pencil className="w-4 h-4" />
-                            Edit
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:bg-slate-200"
-                            onClick={handleClearCourtSelection}
-                            disabled={selectedCase && !isEditingCase}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                      {selectedCourtFromAutocomplete.address?.address1 && (
-                        <div className="text-sm text-slate-600 space-y-1">
-                          <p>{selectedCourtFromAutocomplete.address.address1}</p>
-                          {selectedCourtFromAutocomplete.address.address2 && (
-                            <p>{selectedCourtFromAutocomplete.address.address2}</p>
-                          )}
-                          <p>
-                            {selectedCourtFromAutocomplete.address.city}, {selectedCourtFromAutocomplete.address.state} {selectedCourtFromAutocomplete.address.postal_code}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <Label htmlFor="court_name">Court Name</Label>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-grow">
-                            <CourtAutocomplete
-                              id="court_name"
-                              value={formData.court_name}
-                              onChange={(value) => {
-                                handleInputChange('court_name', value);
-                                // Reset flag when user manually types
-                                setCourtFromExtraction(false);
-                              }}
-                              onCourtSelect={handleCourtSelect}
-                              selectedCourt={selectedCourtFromAutocomplete}
-                              onClearSelection={handleClearCourtSelection}
-                              placeholder="e.g., 12th Judicial Circuit Court"
-                              disabled={(selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew) || (selectedCase && !isEditingCase)}
-                              fromExtraction={courtFromExtraction}
-                            />
-                          </div>
-                          {isEditingExistingCourt && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-9 w-9 text-slate-500 hover:bg-slate-200 flex-shrink-0"
-                              onClick={handleClearCourtSelection}
-                              title="Cancel edit"
-                            >
-                              <X className="w-4 h-4" />
-                            </Button>
-                          )}
-                          {selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew && !isEditingExistingCourt && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="gap-2 flex-shrink-0"
-                              onClick={async () => {
-                                // Count cases linked to this court
-                                try {
-                                  const cases = await CourtCase.filter({ court_id: selectedCourtFromAutocomplete.id });
-                                  setAssociatedJobsCount(cases.length);
-                                  setShowCourtEditWarning(true);
-                                } catch (error) {
-                                  console.error('Error counting linked cases:', error);
-                                  // Proceed with edit even if count fails
-                                  setAssociatedJobsCount(0);
-                                  setShowCourtEditWarning(true);
-                                }
-                              }}
-                            >
-                              <Pencil className="w-4 h-4" />
-                              Edit Court
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      {formData.court_name && (
-                        <div className="flex justify-start">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="gap-2 border-dashed border-slate-300 hover:border-slate-400 text-slate-600 hover:text-slate-700"
-                            onClick={() => setShowCourtDetails(!showCourtDetails)}
-                            disabled={selectedCase && !isEditingCase}
-                          >
-                            <Plus className="w-4 h-4" />
-                            {showCourtDetails ? 'Hide Additional Court Information' : 'Add Additional Court Information'}
-                          </Button>
-                        </div>
-                      )}
-
-                      <div className={!showCourtDetails ? "hidden" : "block"}>
-                        <div className="space-y-4 pt-4 border-t border-slate-200">
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="md:col-span-2">
-                              <Label htmlFor="court_address1">Street Address</Label>
-                              <AddressAutocomplete
-                                id="court_address1"
-                                value={formData.court_address?.address1 || ''}
-                                onChange={(value) => handleCourtAddressChange('address1', value)}
-                                onAddressSelect={handleCourtAddressSelect}
-                                onLoadingChange={setIsCourtAddressLoading}
-                                placeholder="Start typing court address..."
-                                disabled={selectedCase && !isEditingCase}
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor="court_address2">Suite / Courtroom</Label>
-                              <Input
-                                id="court_address2"
-                                value={formData.court_address?.address2 || ''}
-                                onChange={(e) => handleCourtAddressChange('address2', e.target.value)}
-                                placeholder="Suite, courtroom, etc."
-                                disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
-                                autoComplete="nope"
-                              />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="relative">
-                              <Label htmlFor="court_city">City</Label>
-                              <Input
-                                id="court_city"
-                                value={formData.court_address?.city || ''}
-                                onChange={(e) => handleCourtAddressChange('city', e.target.value)}
-                                disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
-                                autoComplete="nope"
-                              />
-                              {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
-                            </div>
-                            <div className="relative">
-                              <Label htmlFor="court_state">State</Label>
-                              <Input
-                                id="court_state"
-                                value={formData.court_address?.state || ''}
-                                onChange={(e) => handleCourtAddressChange('state', e.target.value)}
-                                disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
-                                autoComplete="nope"
-                              />
-                              {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
-                            </div>
-                            <div className="relative">
-                              <Label htmlFor="court_zip">ZIP Code</Label>
-                              <Input
-                                id="court_zip"
-                                value={formData.court_address?.postal_code || ''}
-                                onChange={(e) => handleCourtAddressChange('postal_code', e.target.value)}
-                                disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
-                                autoComplete="nope"
-                              />
-                              {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
-                            </div>
-                          </div>
+                {/* Client Selection */}
+                <div id="client-info" ref={setSectionRef("client-info")} className="scroll-mt-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Building2 className="w-5 h-5" />
+                        Client Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="space-y-4">
+                        {!showNewClientForm && !selectedClient && (
                           <div>
-                            <Label htmlFor="court_county">County</Label>
-                            <Input
-                              id="court_county"
-                              value={formData.court_county}
-                              onChange={(e) => handleInputChange('court_county', e.target.value)}
-                              placeholder="e.g., Cook County"
-                              autoComplete="nope"
+                            <Label>Client</Label>
+
+                            <div className="flex items-center gap-2 mb-2">
+
+                              <div className="w-[80%]"> {/* ✅ 80% width */}
+                                <ClientSearchInput
+                                  value={clientSearchText}
+                                  onValueChange={setClientSearchText}
+                                  onClientSelected={handleClientSelected}
+                                  onShowNewClient={() => setShowNewClientForm(true)}
+                                  selectedClient={selectedClient}
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="default" // ✅ Changed from "outline" to "default" (blue)
+                                size="sm"
+                                onClick={() => setShowNewClientDialog(true)}
+                                className="gap-2 w-[20%] flex-shrink-0 bg-blue-600 hover:bg-blue-700 text-white" // ✅ Blue background
+                              >
+                                <Plus className="w-4 h-4" />
+                                Add Client
+                              </Button>
+
+                            </div>
+
+                          </div>
+                        )}
+
+                        {selectedClient && !showNewClientForm && (
+                          <SelectedClientBox
+                            client={selectedClient}
+                            contacts={clientContacts}
+                            selectedContactId={formData.contact_id}
+                            onContactChange={(contactId) => {
+                              const selectedContact = clientContacts.find(c => c.id === contactId);
+                              if (selectedContact) {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  contact_id: selectedContact.id,
+                                  contact_email: selectedContact.email
+                                }));
+                              }
+                            }}
+                            onRemoveClient={handleRemoveClient}
+                            onAddContact={() => setShowNewContactDialog(true)}
+                          />
+                        )}
+
+                        <div>
+                          <Label htmlFor="client_job_number">Client Reference Number</Label>
+                          <Input
+                            id="client_job_number"
+                            value={formData.client_job_number}
+                            onChange={(e) => handleInputChange('client_job_number', e.target.value)}
+                            placeholder="Client's internal job/ref #"
+                          />
+                        </div>
+                      </div>
+
+                      <Dialog open={showNewClientDialog} onOpenChange={setShowNewClientDialog} >
+                        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto  [&>button]:hidden p-0">
+
+                          <NewClientQuickForm
+                            onClientCreated={(newClient) => {
+                              handleNewClientCreated(newClient);
+                              setShowNewClientDialog(false); // ✅ Close modal
+                            }}
+                            onCancel={() => {
+                              setShowNewClientDialog(false); // ✅ Close modal
+                              setClientSearchText("");
+                            }}
+                            initialCompanyName={clientSearchText}
+                          />
+                        </DialogContent>
+                      </Dialog>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Court Reporting Form - shown when job type is court_reporting */}
+                {formData.job_type === JOB_TYPES.COURT_REPORTING && (
+                  <div id="court-reporting" ref={setSectionRef("court-reporting")} className="scroll-mt-6">
+                    <CourtReportingForm
+                      formData={formData}
+                      onChange={(field, value) => handleInputChange(field, value)}
+                      employees={employees}
+                    />
+                  </div>
+                )}
+
+                {/* Process Serving Sections - shown when job type is process_serving */}
+                {formData.job_type === JOB_TYPES.PROCESS_SERVING && (
+                  <>
+                    {/* Case Information */}
+                    <div id="case-info" ref={setSectionRef("case-info")} className="scroll-mt-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Case Information</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {selectedCase && !isEditingCase ? (
+                            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                              <div className="flex items-start justify-between mb-3">
+                                <div>
+                                  <h4 className="font-semibold text-slate-900">{selectedCase.case_number}</h4>
+                                  <p className="text-sm text-slate-600">{selectedCase.case_name}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-2"
+                                    onClick={async () => {
+                                      // Count jobs linked to this case
+                                      try {
+                                        const jobs = await Job.filter({ court_case_id: selectedCase.id });
+                                        setAssociatedJobsCount(jobs.length);
+                                      } catch (error) {
+                                        console.error('Error counting linked jobs:', error);
+                                        setAssociatedJobsCount(0);
+                                      }
+                                      setShowCaseEditWarning(true);
+                                    }}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                    Edit Case
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-slate-500 hover:bg-slate-200"
+                                    onClick={handleClearCaseSelection}
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div>
+                                <Label htmlFor="case_number">Case Number</Label>
+                                <CaseNumberAutocomplete
+                                  id="case_number"
+                                  value={formData.case_number}
+                                  onChange={(value) => handleInputChange('case_number', value)}
+                                  onCaseSelect={isEditingCase ? undefined : handleCaseSelect}
+                                  placeholder="Enter case number or search existing cases..."
+                                  disabled={selectedCase && !isEditingCase}
+                                />
+                              </div>
+                            </>
+                          )}
+
+                          <div>
+                            <Label htmlFor="plaintiff">Plaintiff</Label>
+                            <Textarea
+                              id="plaintiff"
+                              value={formData.plaintiff}
+                              onChange={(e) => handleInputChange('plaintiff', e.target.value)}
+                              rows={2}
+                              placeholder="Enter plaintiff name(s)"
+                              className="resize-none"
                               disabled={selectedCase && !isEditingCase}
                             />
                           </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
 
-              {/* Recipient & Service Address */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Recipient & Service Address</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="md:col-span-2">
-                      <Label htmlFor="recipient_name">Recipient Name</Label>
-                      <Input
-                        id="recipient_name"
-                        value={formData.recipient_name}
-                        onChange={(e) => handleInputChange('recipient_name', e.target.value)}
-                        placeholder="Name of person/entity to be served"
-                        autoComplete="off"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="recipient_type">Recipient Type</Label>
-                      <select
-                        id="recipient_type"
-                        value={formData.recipient_type}
-                        onChange={(e) => handleInputChange('recipient_type', e.target.value)}
-                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <option value="individual">Individual</option>
-                        <option value="company">Company</option>
-                        <option value="government">Government</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <AddressListManager
-                    addresses={formData.addresses}
-                    onChange={(addresses) => {
-                      console.log('[CreateJob] Updating addresses:', addresses);
-                      setFormData(prev => {
-                        const updated = { ...prev, addresses };
-                        console.log('[CreateJob] Updated formData:', updated);
-                        return updated;
-                      });
-                    }}
-                    isAddressLoading={isAddressLoading}
-                    setIsAddressLoading={setIsAddressLoading}
-                  />
-                </CardContent>
-              </Card>
-
-              {/* Service Details */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Service Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <Label htmlFor="priority">Priority</Label>
-                      <select
-                        id="priority"
-                        value={formData.priority}
-                        onChange={(e) => handleInputChange('priority', e.target.value)}
-                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {prioritySettings.map(priority => (
-                          <option key={priority.name} value={priority.name}>
-                            {priority.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <Label htmlFor="due_date">Due Date</Label>
-                      <Input
-                        id="due_date"
-                        type="date"
-                        value={formData.due_date}
-                        onChange={(e) => handleInputChange('due_date', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="first_attempt_due_date">First Attempt Due</Label>
-                      <Input
-                        id="first_attempt_due_date"
-                        type="date"
-                        value={formData.first_attempt_due_date}
-                        onChange={(e) => handleInputChange('first_attempt_due_date', e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="service_instructions">Service Instructions</Label>
-                    <Textarea
-                      id="service_instructions"
-                      value={formData.service_instructions}
-                      onChange={(e) => handleInputChange('service_instructions', e.target.value)}
-                      rows={4}
-                      placeholder="Special instructions for the process server..."
-                      className="resize-none"
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Server Assignment */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Server</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label>Server Type</Label>
-                    <div className="grid grid-cols-3 gap-2 rounded-md bg-slate-100 p-1 mt-1">
-                      <Button
-                        type="button"
-                        onClick={() => {
-                          handleInputChange('server_type', 'employee');
-                          setSelectedContractor(null);
-                          setContractorSearchText("");
-                          const defaultServer = employees.find(e => e.is_default_server === true);
-                          if (defaultServer) {
-                            handleInputChange('assigned_server_id', String(defaultServer.id));
-                          } else {
-                            handleInputChange('assigned_server_id', 'unassigned');
-                          }
-                        }}
-                        className={`gap-2 justify-center transition-colors ${formData.server_type === 'employee'
-                          ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
-                          : 'bg-transparent text-slate-600 hover:bg-slate-200'
-                          }`}
-                        variant="ghost"
-                      >
-                        <UserIcon className="w-4 h-4" />
-                        Employee
-                      </Button>
-                      <Button
-                        type="button"
-                        onClick={() => {
-                          handleInputChange('server_type', 'contractor');
-                          handleInputChange('assigned_server_id', 'unassigned');
-                          setSelectedContractor(null);
-                          setContractorSearchText("");
-                        }}
-                        className={`gap-2 justify-center transition-colors ${formData.server_type === 'contractor'
-                          ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
-                          : 'bg-transparent text-slate-600 hover:bg-slate-200'
-                          }`}
-                        variant="ghost"
-                      >
-                        <HardHat className="w-4 h-4" />
-                        Contractor
-                      </Button>
-                      <Tooltip delayDuration={0}>
-                        <TooltipTrigger asChild>
-                          <span
-                            className="inline-block w-full"
-                            style={!isMarketplaceAvailable() ? { cursor: 'not-allowed' } : undefined}
-                          >
-                            <Button
-                              type="button"
-                              onClick={() => {
-                                handleInputChange('server_type', 'marketplace');
-                                handleInputChange('assigned_server_id', 'marketplace');
-                                setSelectedContractor(null);
-                                setContractorSearchText("");
-                              }}
-                              disabled={!isMarketplaceAvailable()}
-                              className={`w-full gap-2 justify-center transition-colors ${formData.server_type === 'marketplace'
-                                ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
-                                : 'bg-transparent text-slate-600 hover:bg-slate-200'
-                                }`}
-                              variant="ghost"
-                            >
-                              <Store className="w-4 h-4" />
-                              Marketplace
-                            </Button>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs">
-                          {!isMarketplaceAvailable() ? (
-                            <p>{getMarketplaceDisabledReason()}</p>
-                          ) : (
-                            <p>Post this job to the marketplace for other companies to bid on</p>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </div>
-
-                  {formData.server_type !== 'marketplace' && (
-                    <div>
-                      <Label htmlFor="assigned_server_id">
-                        Assign To {formData.server_type === 'employee' ? 'Employee' : 'Contractor'}
-                      </Label>
-                      {formData.server_type === 'employee' ? (
-                        <select
-                          id="assigned_server_id"
-                          value={String(formData.assigned_server_id || 'unassigned')}
-                          onChange={(e) => handleInputChange('assigned_server_id', e.target.value)}
-                          className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <option value="unassigned">Unassigned</option>
-                          {employees.map(employee => (
-                            <option key={employee.id} value={String(employee.id)}>
-                              {employee.first_name} {employee.last_name} {employee.is_default_server ? '★' : ''}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <ContractorSearchInput
-                          value={contractorSearchText}
-                          onValueChange={setContractorSearchText}
-                          onContractorSelected={handleContractorSelected}
-                          selectedContractor={selectedContractor}
-                          currentClientId={formData.client_id}
-                        />
-                      )}
-                    </div>
-                  )}
-
-                  {formData.server_type === 'marketplace' && (
-                    <div className={`transition-all duration-300 ease-in-out rounded-lg border p-4 space-y-3 ${isMarketplaceAvailable() ? "bg-blue-50 border-blue-200" : "bg-amber-50 border-amber-200"}`}>
-                      {!isMarketplaceAvailable() ? (
-                        <div className="flex items-start gap-3">
-                          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-slate-900 mb-1">Requirements Not Met</h4>
-                            <p className="text-sm text-slate-600 mb-2">
-                              To post to the marketplace, you must complete:
-                            </p>
-                            <ul className="text-sm text-slate-700 space-y-1.5 ml-4 list-disc">
-                              {(!uploadedDocuments || uploadedDocuments.length === 0) && (
-                                <li>Upload at least one service document</li>
-                              )}
-                              {(() => {
-                                const primaryAddress = formData.addresses?.find(a => a.primary) || formData.addresses?.[0];
-                                const hasValidAddress = primaryAddress &&
-                                  primaryAddress.address1 &&
-                                  primaryAddress.city &&
-                                  primaryAddress.state &&
-                                  primaryAddress.postal_code;
-                                return !hasValidAddress ? <li>Complete the service address (street, city, state, ZIP)</li> : null;
-                              })()}
-                            </ul>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-start gap-3">
-                          <Store className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-slate-900 mb-1">Post to Marketplace</h4>
-                            <p className="text-sm text-slate-600 mb-2">
-                              Your job will be visible to all ServeMax companies. Other companies can place anonymous bids,
-                              and you can select the best offer.
-                            </p>
-                            <div className="text-xs text-slate-500 space-y-1">
-                              <p>• Street address will NOT be shown (only city, state, ZIP)</p>
-                              <p>• You'll see which company places each bid</p>
-                              <p>• You'll be notified when bids are placed</p>
+                          <div className="flex items-center justify-center py-2">
+                            <div className="text-lg font-semibold text-slate-600 bg-slate-100 px-4 py-1 rounded-full">
+                              vs
                             </div>
                           </div>
-                        </div>
+
+                          <div>
+                            <Label htmlFor="defendant">Defendant</Label>
+                            <Textarea
+                              id="defendant"
+                              value={formData.defendant}
+                              onChange={(e) => handleInputChange('defendant', e.target.value)}
+                              rows={2}
+                              placeholder="Enter defendant name(s)"
+                              className="resize-none"
+                              disabled={selectedCase && !isEditingCase}
+                            />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Court Information */}
+                    <div id="court-info" ref={setSectionRef("court-info")} className="scroll-mt-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Landmark className="w-5 h-5" />
+                            Court Information
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {selectedCourtFromAutocomplete ? (
+                            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                              <div className="flex items-start justify-between mb-3">
+                                <div>
+                                  <h4 className="font-semibold text-slate-900">{selectedCourtFromAutocomplete.branch_name}</h4>
+                                  <p className="text-sm text-slate-600">{selectedCourtFromAutocomplete.county}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-2"
+                                    onClick={() => setShowCourtEditWarning(true)}
+                                    disabled={selectedCase && !isEditingCase}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-slate-500 hover:bg-slate-200"
+                                    onClick={handleClearCourtSelection}
+                                    disabled={selectedCase && !isEditingCase}
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                              {selectedCourtFromAutocomplete.address?.address1 && (
+                                <div className="text-sm text-slate-600 space-y-1">
+                                  <p>{selectedCourtFromAutocomplete.address.address1}</p>
+                                  {selectedCourtFromAutocomplete.address.address2 && (
+                                    <p>{selectedCourtFromAutocomplete.address.address2}</p>
+                                  )}
+                                  <p>
+                                    {selectedCourtFromAutocomplete.address.city}, {selectedCourtFromAutocomplete.address.state} {selectedCourtFromAutocomplete.address.postal_code}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <>
+                              <div>
+                                <Label htmlFor="court_name">Court Name</Label>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-grow">
+                                    <CourtAutocomplete
+                                      id="court_name"
+                                      value={formData.court_name}
+                                      onChange={(value) => {
+                                        handleInputChange('court_name', value);
+                                        // Reset flag when user manually types
+                                        setCourtFromExtraction(false);
+                                      }}
+                                      onCourtSelect={handleCourtSelect}
+                                      selectedCourt={selectedCourtFromAutocomplete}
+                                      onClearSelection={handleClearCourtSelection}
+                                      placeholder="e.g., 12th Judicial Circuit Court"
+                                      disabled={(selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew) || (selectedCase && !isEditingCase)}
+                                      fromExtraction={courtFromExtraction}
+                                    />
+                                  </div>
+                                  {isEditingExistingCourt && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-9 w-9 text-slate-500 hover:bg-slate-200 flex-shrink-0"
+                                      onClick={handleClearCourtSelection}
+                                      title="Cancel edit"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </Button>
+                                  )}
+                                  {selectedCourtFromAutocomplete && !selectedCourtFromAutocomplete.isNew && !isEditingExistingCourt && (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="gap-2 flex-shrink-0"
+                                      onClick={async () => {
+                                        // Count cases linked to this court
+                                        try {
+                                          const cases = await CourtCase.filter({ court_id: selectedCourtFromAutocomplete.id });
+                                          setAssociatedJobsCount(cases.length);
+                                          setShowCourtEditWarning(true);
+                                        } catch (error) {
+                                          console.error('Error counting linked cases:', error);
+                                          // Proceed with edit even if count fails
+                                          setAssociatedJobsCount(0);
+                                          setShowCourtEditWarning(true);
+                                        }
+                                      }}
+                                    >
+                                      <Pencil className="w-4 h-4" />
+                                      Edit Court
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {formData.court_name && (
+                                <div className="flex justify-start">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-2 border-dashed border-slate-300 hover:border-slate-400 text-slate-600 hover:text-slate-700"
+                                    onClick={() => setShowCourtDetails(!showCourtDetails)}
+                                    disabled={selectedCase && !isEditingCase}
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                    {showCourtDetails ? 'Hide Additional Court Information' : 'Add Additional Court Information'}
+                                  </Button>
+                                </div>
+                              )}
+
+                              <div className={!showCourtDetails ? "hidden" : "block"}>
+                                <div className="space-y-4 pt-4 border-t border-slate-200">
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="md:col-span-2">
+                                      <Label htmlFor="court_address1">Street Address</Label>
+                                      <AddressAutocomplete
+                                        id="court_address1"
+                                        value={formData.court_address?.address1 || ''}
+                                        onChange={(value) => handleCourtAddressChange('address1', value)}
+                                        onAddressSelect={handleCourtAddressSelect}
+                                        onLoadingChange={setIsCourtAddressLoading}
+                                        placeholder="Start typing court address..."
+                                        disabled={selectedCase && !isEditingCase}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="court_address2">Suite / Courtroom</Label>
+                                      <Input
+                                        id="court_address2"
+                                        value={formData.court_address?.address2 || ''}
+                                        onChange={(e) => handleCourtAddressChange('address2', e.target.value)}
+                                        placeholder="Suite, courtroom, etc."
+                                        disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
+                                        autoComplete="nope"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="relative">
+                                      <Label htmlFor="court_city">City</Label>
+                                      <Input
+                                        id="court_city"
+                                        value={formData.court_address?.city || ''}
+                                        onChange={(e) => handleCourtAddressChange('city', e.target.value)}
+                                        disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
+                                        autoComplete="nope"
+                                      />
+                                      {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
+                                    </div>
+                                    <div className="relative">
+                                      <Label htmlFor="court_state">State</Label>
+                                      <Input
+                                        id="court_state"
+                                        value={formData.court_address?.state || ''}
+                                        onChange={(e) => handleCourtAddressChange('state', e.target.value)}
+                                        disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
+                                        autoComplete="nope"
+                                      />
+                                      {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
+                                    </div>
+                                    <div className="relative">
+                                      <Label htmlFor="court_zip">ZIP Code</Label>
+                                      <Input
+                                        id="court_zip"
+                                        value={formData.court_address?.postal_code || ''}
+                                        onChange={(e) => handleCourtAddressChange('postal_code', e.target.value)}
+                                        disabled={isCourtAddressLoading || (selectedCase && !isEditingCase)}
+                                        autoComplete="nope"
+                                      />
+                                      {isCourtAddressLoading && <Loader2 className="absolute right-3 top-[34px] w-4 h-4 animate-spin text-slate-400" />}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="court_county">County</Label>
+                                    <Input
+                                      id="court_county"
+                                      value={formData.court_county}
+                                      onChange={(e) => handleInputChange('court_county', e.target.value)}
+                                      placeholder="e.g., Cook County"
+                                      autoComplete="nope"
+                                      disabled={selectedCase && !isEditingCase}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Recipient & Service Address */}
+                    <div id="recipient-address" ref={setSectionRef("recipient-address")} className="scroll-mt-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Recipient & Service Address</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="md:col-span-2">
+                              <Label htmlFor="recipient_name">Recipient Name</Label>
+                              <Input
+                                id="recipient_name"
+                                value={formData.recipient_name}
+                                onChange={(e) => handleInputChange('recipient_name', e.target.value)}
+                                placeholder="Name of person/entity to be served"
+                                autoComplete="off"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="recipient_type">Recipient Type</Label>
+                              <select
+                                id="recipient_type"
+                                value={formData.recipient_type}
+                                onChange={(e) => handleInputChange('recipient_type', e.target.value)}
+                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <option value="individual">Individual</option>
+                                <option value="company">Company</option>
+                                <option value="government">Government</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <AddressListManager
+                            addresses={formData.addresses}
+                            onChange={(addresses) => {
+                              console.log('[CreateJob] Updating addresses:', addresses);
+                              setFormData(prev => {
+                                const updated = { ...prev, addresses };
+                                console.log('[CreateJob] Updated formData:', updated);
+                                return updated;
+                              });
+                            }}
+                            isAddressLoading={isAddressLoading}
+                            setIsAddressLoading={setIsAddressLoading}
+                          />
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Service Details */}
+                    <div id="service-details" ref={setSectionRef("service-details")} className="scroll-mt-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Service Details</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                              <Label htmlFor="priority">Priority</Label>
+                              <select
+                                id="priority"
+                                value={formData.priority}
+                                onChange={(e) => handleInputChange('priority', e.target.value)}
+                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {prioritySettings.map(priority => (
+                                  <option key={priority.name} value={priority.name}>
+                                    {priority.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <Label htmlFor="due_date">Due Date</Label>
+                              <Input
+                                id="due_date"
+                                type="date"
+                                value={formData.due_date}
+                                onChange={(e) => handleInputChange('due_date', e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="first_attempt_due_date">First Attempt Due</Label>
+                              <Input
+                                id="first_attempt_due_date"
+                                type="date"
+                                value={formData.first_attempt_due_date}
+                                onChange={(e) => handleInputChange('first_attempt_due_date', e.target.value)}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <Label htmlFor="service_instructions">Service Instructions</Label>
+                            <Textarea
+                              id="service_instructions"
+                              value={formData.service_instructions}
+                              onChange={(e) => handleInputChange('service_instructions', e.target.value)}
+                              rows={4}
+                              placeholder="Special instructions for the process server..."
+                              className="resize-none"
+                            />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Server Assignment */}
+                    <div id="server-assignment" ref={setSectionRef("server-assignment")} className="scroll-mt-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Server</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div>
+                            <Label>Server Type</Label>
+                            <div className="grid grid-cols-3 gap-2 rounded-md bg-slate-100 p-1 mt-1">
+                              <Button
+                                type="button"
+                                onClick={() => {
+                                  handleInputChange('server_type', 'employee');
+                                  setSelectedContractor(null);
+                                  setContractorSearchText("");
+                                  const defaultServer = employees.find(e => e.is_default_server === true);
+                                  if (defaultServer) {
+                                    handleInputChange('assigned_server_id', String(defaultServer.id));
+                                  } else {
+                                    handleInputChange('assigned_server_id', 'unassigned');
+                                  }
+                                }}
+                                className={`gap-2 justify-center transition-colors ${formData.server_type === 'employee'
+                                  ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
+                                  : 'bg-transparent text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                variant="ghost"
+                              >
+                                <UserIcon className="w-4 h-4" />
+                                Employee
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => {
+                                  handleInputChange('server_type', 'contractor');
+                                  handleInputChange('assigned_server_id', 'unassigned');
+                                  setSelectedContractor(null);
+                                  setContractorSearchText("");
+                                }}
+                                className={`gap-2 justify-center transition-colors ${formData.server_type === 'contractor'
+                                  ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
+                                  : 'bg-transparent text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                variant="ghost"
+                              >
+                                <HardHat className="w-4 h-4" />
+                                Contractor
+                              </Button>
+                              <Tooltip delayDuration={0}>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    className="inline-block w-full"
+                                    style={!isMarketplaceAvailable() ? { cursor: 'not-allowed' } : undefined}
+                                  >
+                                    <Button
+                                      type="button"
+                                      onClick={() => {
+                                        handleInputChange('server_type', 'marketplace');
+                                        handleInputChange('assigned_server_id', 'marketplace');
+                                        setSelectedContractor(null);
+                                        setContractorSearchText("");
+                                      }}
+                                      disabled={!isMarketplaceAvailable()}
+                                      className={`w-full gap-2 justify-center transition-colors ${formData.server_type === 'marketplace'
+                                        ? 'bg-white text-slate-900 shadow-sm hover:bg-white'
+                                        : 'bg-transparent text-slate-600 hover:bg-slate-200'
+                                        }`}
+                                      variant="ghost"
+                                    >
+                                      <Store className="w-4 h-4" />
+                                      Marketplace
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                  {!isMarketplaceAvailable() ? (
+                                    <p>{getMarketplaceDisabledReason()}</p>
+                                  ) : (
+                                    <p>Post this job to the marketplace for other companies to bid on</p>
+                                  )}
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </div>
+
+                          {formData.server_type !== 'marketplace' && (
+                            <div>
+                              <Label htmlFor="assigned_server_id">
+                                Assign To {formData.server_type === 'employee' ? 'Employee' : 'Contractor'}
+                              </Label>
+                              {formData.server_type === 'employee' ? (
+                                <select
+                                  id="assigned_server_id"
+                                  value={String(formData.assigned_server_id || 'unassigned')}
+                                  onChange={(e) => handleInputChange('assigned_server_id', e.target.value)}
+                                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  <option value="unassigned">Unassigned</option>
+                                  {employees.map(employee => (
+                                    <option key={employee.id} value={String(employee.id)}>
+                                      {employee.first_name} {employee.last_name} {employee.is_default_server ? '★' : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <ContractorSearchInput
+                                  value={contractorSearchText}
+                                  onValueChange={setContractorSearchText}
+                                  onContractorSelected={handleContractorSelected}
+                                  selectedContractor={selectedContractor}
+                                  currentClientId={formData.client_id}
+                                />
+                              )}
+                            </div>
+                          )}
+
+                          {formData.server_type === 'marketplace' && (
+                            <div className={`transition-all duration-300 ease-in-out rounded-lg border p-4 space-y-3 ${isMarketplaceAvailable() ? "bg-blue-50 border-blue-200" : "bg-amber-50 border-amber-200"}`}>
+                              {!isMarketplaceAvailable() ? (
+                                <div className="flex items-start gap-3">
+                                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                                  <div className="flex-1">
+                                    <h4 className="font-semibold text-slate-900 mb-1">Requirements Not Met</h4>
+                                    <p className="text-sm text-slate-600 mb-2">
+                                      To post to the marketplace, you must complete:
+                                    </p>
+                                    <ul className="text-sm text-slate-700 space-y-1.5 ml-4 list-disc">
+                                      {(!uploadedDocuments || uploadedDocuments.length === 0) && (
+                                        <li>Upload at least one service document</li>
+                                      )}
+                                      {(() => {
+                                        const primaryAddress = formData.addresses?.find(a => a.primary) || formData.addresses?.[0];
+                                        const hasValidAddress = primaryAddress &&
+                                          primaryAddress.address1 &&
+                                          primaryAddress.city &&
+                                          primaryAddress.state &&
+                                          primaryAddress.postal_code;
+                                        return !hasValidAddress ? <li>Complete the service address (street, city, state, ZIP)</li> : null;
+                                      })()}
+                                    </ul>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-start gap-3">
+                                  <Store className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                                  <div className="flex-1">
+                                    <h4 className="font-semibold text-slate-900 mb-1">Post to Marketplace</h4>
+                                    <p className="text-sm text-slate-600 mb-2">
+                                      Your job will be visible to all ServeMax companies. Other companies can place anonymous bids,
+                                      and you can select the best offer.
+                                    </p>
+                                    <div className="text-xs text-slate-500 space-y-1">
+                                      <p>• Street address will NOT be shown (only city, state, ZIP)</p>
+                                      <p>• You'll see which company places each bid</p>
+                                      <p>• You'll be notified when bids are placed</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {formData.server_type !== 'marketplace' && (
+                            <div className="transition-all duration-300 ease-in-out">
+                              <ServerPayItems
+                                items={formData.server_pay_items}
+                                onItemsChange={(newItems) => handleInputChange('server_pay_items', newItems)}
+                                defaultItems={
+                                  formData.server_type === 'employee'
+                                    ? employees.find(e => String(e.id) === formData.assigned_server_id)?.default_pay_items || []
+                                    : selectedContractor && String(selectedContractor.id) === formData.assigned_server_id
+                                      ? selectedContractor.default_pay_items || []
+                                      : []
+                                }
+                              />
+                            </div>
+                          )}
+
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </>
+                )}
+
+                {/* Quick Invoice - Only for Process Serving */}
+                {formData.job_type === JOB_TYPES.PROCESS_SERVING && (
+                  <div id="quick-invoice" ref={setSectionRef("quick-invoice")} className="scroll-mt-6">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Quick Invoice</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <QuickInvoice
+                          documents={uploadedDocuments}
+                          priority={formData.priority}
+                          invoiceSettings={companyData?.invoice_settings}
+                          onChange={setInvoiceData}
+                          recipientName={formData.recipient_name}
+                          serviceAddress={
+                            formData.addresses?.[0]
+                              ? `${formData.addresses[0].address1}${formData.addresses[0].city ? `, ${formData.addresses[0].city}` : ""
+                              }${formData.addresses[0].state ? `, ${formData.addresses[0].state}` : ""}`
+                              : ""
+                          }
+                        />
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div id="create-job-actions" ref={setSectionRef("create-job-actions")} className="scroll-mt-6">
+                  <div className="flex justify-end gap-3 pt-6">
+                    <Link to={createPageUrl("Jobs")}>
+                      <Button type="button" variant="outline">
+                        Cancel
+                      </Button>
+                    </Link>
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting || !isFormValid}
+                      className="bg-slate-900 hover:bg-slate-800"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Creating Job...
+                        </>
+                      ) : (
+                        "Create Job"
                       )}
-                    </div>
-                  )}
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+          <NewContactDialog
+            open={showNewContactDialog}
+            onOpenChange={setShowNewContactDialog}
+            client={selectedClient}
+            onContactCreated={handleNewContactCreated}
+          />
 
-                  {formData.server_type !== 'marketplace' && (
-                    <div className="transition-all duration-300 ease-in-out">
-                      <ServerPayItems
-                        items={formData.server_pay_items}
-                        onItemsChange={(newItems) => handleInputChange('server_pay_items', newItems)}
-                        defaultItems={
-                          formData.server_type === 'employee'
-                            ? employees.find(e => String(e.id) === formData.assigned_server_id)?.default_pay_items || []
-                            : selectedContractor && String(selectedContractor.id) === formData.assigned_server_id
-                              ? selectedContractor.default_pay_items || []
-                              : []
-                        }
-                      />
-                    </div>
-                  )}
-
-                </CardContent>
-              </Card>
-              </>
-              )}
-
-              {/* Quick Invoice - Only for Process Serving */}
-              {formData.job_type === JOB_TYPES.PROCESS_SERVING && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Quick Invoice</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <QuickInvoice
-                    documents={uploadedDocuments}
-                    priority={formData.priority}
-                    invoiceSettings={companyData?.invoice_settings}
-                    onChange={setInvoiceData}
-                    recipientName={formData.recipient_name}
-                    serviceAddress={formData.addresses?.[0] ?
-                      `${formData.addresses[0].address1}${formData.addresses[0].city ? `, ${formData.addresses[0].city}` : ''}${formData.addresses[0].state ? `, ${formData.addresses[0].state}` : ''}` :
-                      ''}
-                  />
-                </CardContent>
-              </Card>
-              )}
-
-              {/* Actions */}
-              <div className="flex justify-end gap-3 pt-6">
-                <Link to={createPageUrl("Jobs")}>
-                  <Button type="button" variant="outline">
+          {/* Case Edit Warning Dialog */}
+          {showCaseEditWarning && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
+                <div className="flex items-start gap-3 mb-4">
+                  <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-slate-900 mb-2">Edit Case Information</h3>
+                    <p className="text-sm text-slate-600 mb-3">
+                      You are about to edit a case that is linked to <strong>{associatedJobsCount} other jobs</strong>.
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      Any changes you make will be reflected on all associated jobs. Are you sure you want to proceed?
+                    </p>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowCaseEditWarning(false)}
+                  >
                     Cancel
                   </Button>
-                </Link>
-                <Button
-                  type="submit"
-                  disabled={isSubmitting || !isFormValid}
-                  className="bg-slate-900 hover:bg-slate-800"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Creating Job...
-                    </>
-                  ) : (
-                    'Create Job'
-                  )}
-                </Button>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setShowCaseEditWarning(false);
+                      setIsEditingCase(true);
+                    }}
+                    className="bg-amber-600 hover:bg-amber-700"
+                  >
+                    Yes, Edit Case
+                  </Button>
+                </div>
               </div>
-            </form>
-          </div>
+            </div>
+          )}
+
+          {/* Court Edit Warning Dialog */}
+          {showCourtEditWarning && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
+                <div className="flex items-start gap-3 mb-4">
+                  <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-slate-900 mb-2">Edit Court Information</h3>
+                    <p className="text-sm text-slate-600 mb-3">
+                      Editing this court will also update <strong>{associatedJobsCount} {associatedJobsCount === 1 ? 'case' : 'cases'}</strong> that {associatedJobsCount === 1 ? 'is' : 'are'} linked to this court.
+                    </p>
+                    <p className="text-sm text-slate-600">
+                      If you need changes only for this case, click <strong>Cancel</strong> and clear the selection
+                      to manually enter court details instead.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowCourtEditWarning(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setShowCourtEditWarning(false);
+                      setShowCourtDetails(true);
+                      setIsEditingExistingCourt(true);
+                      setSelectedCourtFromAutocomplete(null);
+                    }}
+                    className="bg-amber-600 hover:bg-amber-700"
+                  >
+                    Proceed to Edit
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-        <NewContactDialog
-          open={showNewContactDialog}
-          onOpenChange={setShowNewContactDialog}
-          client={selectedClient}
-          onContactCreated={handleNewContactCreated}
+
+        {/* PDF Viewer */}
+        <PDFViewer
+          documents={uploadedDocuments}
+          isOpen={showPDFViewer}
+          onClose={() => setShowPDFViewer(false)}
+          width={pdfViewerWidth}
+          onWidthChange={setPdfViewerWidth}
         />
-
-        {/* Case Edit Warning Dialog */}
-        {showCaseEditWarning && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
-              <div className="flex items-start gap-3 mb-4">
-                <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="font-semibold text-slate-900 mb-2">Edit Case Information</h3>
-                  <p className="text-sm text-slate-600 mb-3">
-                    You are about to edit a case that is linked to <strong>{associatedJobsCount} other jobs</strong>.
-                  </p>
-                  <p className="text-sm text-slate-600">
-                    Any changes you make will be reflected on all associated jobs. Are you sure you want to proceed?
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowCaseEditWarning(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setShowCaseEditWarning(false);
-                    setIsEditingCase(true);
-                  }}
-                  className="bg-amber-600 hover:bg-amber-700"
-                >
-                  Yes, Edit Case
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Court Edit Warning Dialog */}
-        {showCourtEditWarning && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
-              <div className="flex items-start gap-3 mb-4">
-                <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="font-semibold text-slate-900 mb-2">Edit Court Information</h3>
-                  <p className="text-sm text-slate-600 mb-3">
-                    Editing this court will also update <strong>{associatedJobsCount} {associatedJobsCount === 1 ? 'case' : 'cases'}</strong> that {associatedJobsCount === 1 ? 'is' : 'are'} linked to this court.
-                  </p>
-                  <p className="text-sm text-slate-600">
-                    If you need changes only for this case, click <strong>Cancel</strong> and clear the selection
-                    to manually enter court details instead.
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowCourtEditWarning(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setShowCourtEditWarning(false);
-                    setShowCourtDetails(true);
-                    setIsEditingExistingCourt(true);
-                    setSelectedCourtFromAutocomplete(null);
-                  }}
-                  className="bg-amber-600 hover:bg-amber-700"
-                >
-                  Proceed to Edit
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
-
-      {/* PDF Viewer */}
-      <PDFViewer
-        documents={uploadedDocuments}
-        isOpen={showPDFViewer}
-        onClose={() => setShowPDFViewer(false)}
-        width={pdfViewerWidth}
-        onWidthChange={setPdfViewerWidth}
-      />
-    </div>
+    </>
   );
 }
