@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { ChevronRight, ChevronDown, List, MapPin, Briefcase, Route, Columns, Search, Filter, X, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,14 +43,23 @@ export default function JobTypeSection({
   companySettings = null,
   // Search props (for single job type mode)
   searchTerm = "",
-  onSearchChange = null
+  onSearchChange = null,
+  // Initial view mode from URL param
+  initialView = 'list'
 }) {
   // Internal pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const jobsPerPage = 20;
 
   // View mode state (only used for Process Serving)
-  const [currentView, setCurrentView] = useState('list');
+  const [currentView, setCurrentView] = useState(initialView);
+
+  // Sync view with URL param when it changes
+  useEffect(() => {
+    if (initialView && initialView !== currentView) {
+      setCurrentView(initialView);
+    }
+  }, [initialView]);
 
   // Filters expanded state
   const [filtersExpanded, setFiltersExpanded] = useState(false);

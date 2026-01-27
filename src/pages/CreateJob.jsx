@@ -16,8 +16,9 @@ import { Job, Client, Employee, CourtCase, Document, Court, CompanySettings, Use
 import { SecureJobAccess, SecureCourtAccess, SecureCaseAccess } from "@/firebase/multiTenantAccess";
 import { JOB_TYPES, JOB_TYPE_LABELS, createDefaultCourtReportingJob } from "@/firebase/schemas";
 import { StatsManager } from "@/firebase/stats";
-import { db } from "@/firebase/config";
-import { doc, runTransaction, increment } from "firebase/firestore";
+import { db, functions } from "@/firebase/config";
+import { doc, runTransaction, increment, getDoc } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,6 +84,11 @@ export default function CreateJobPage() {
   const { user } = useAuth();
   const { companyData, companySettings, refreshData } = useGlobalData();
   const { toast } = useToast();
+
+  // Refresh data on mount
+  useEffect(() => {
+    refreshData();
+  }, []);
   const [formData, setFormData] = useState({
     job_type: JOB_TYPES.PROCESS_SERVING, // Default to process serving
     client_id: "",
@@ -1161,6 +1167,13 @@ export default function CreateJobPage() {
           selectedContractor.job_sharing_opt_in === true;
       }
 
+      // Check if contractor is an active job sharing partner (for carbon copy flow)
+      // Partner info is now stored directly on the client record
+      let isJobSharingPartner = false;
+      if (formData.server_type === 'contractor' && selectedContractor) {
+        isJobSharingPartner = selectedContractor.is_job_share_partner === true;
+      }
+
       // ============================================================================
       // CRITICAL ORDER: Court → Case → Job (Process Serving Only)
       // ============================================================================
@@ -1349,6 +1362,8 @@ export default function CreateJobPage() {
         court_case_id: courtCaseId,
         case_number: formData.case_number,
         court_name: formData.court_name,
+        court_county: formData.court_county || '',
+        court_address: formData.court_address || {},
         plaintiff: formData.plaintiff,
         defendant: formData.defendant,
         recipient: {
@@ -1496,6 +1511,24 @@ export default function CreateJobPage() {
         newJobData.shared_job_status = null;
       }
 
+      // Add share_chain fields if assigning to a job sharing partner (for carbon copy flow)
+      if (isJobSharingPartner) {
+        newJobData.carbon_copy_pending = true;
+        newJobData.pending_partner_company_id = selectedContractor.job_sharing_partner_id;
+        newJobData.share_chain = {
+          root_job_id: null, // Will be set to this job's ID after creation
+          root_company_id: user.company_id,
+          shared_job_number: jobNumber,
+          level: 0,
+          parent_job_id: null,
+          parent_company_id: null,
+          child_job_id: null,
+          child_company_id: null,
+          all_job_ids: [], // Will include this job's ID after creation
+          sync_enabled: true
+        };
+      }
+
       const newJob = await SecureJobAccess.create(newJobData);
 
       // ⚡ PERFORMANCE OPTIMIZATION: Run all post-job operations in background (fire-and-forget)
@@ -1592,7 +1625,78 @@ export default function CreateJobPage() {
           .then(() => console.log("Field sheet auto-generated for job:", newJob.job_number))
           .catch(error => {
             console.error("Failed to auto-generate field sheet:", error);
-          })
+          }),
+
+        // Create carbon copy share request if assigning to job sharing partner
+        (async () => {
+          if (isJobSharingPartner && selectedContractor) {
+            try {
+              // First update the job with the correct root_job_id and all_job_ids
+              await Job.update(newJob.id, {
+                'share_chain.root_job_id': newJob.id,
+                'share_chain.all_job_ids': [newJob.id]
+              });
+
+              // Get target company's owner/admin user ID
+              // Use job_sharing_partner_id (the actual company ID), NOT selectedContractor.id (the client record ID)
+              const actualPartnerCompanyId = selectedContractor.job_sharing_partner_id;
+              const targetCompanyDoc = await getDoc(doc(db, 'companies', actualPartnerCompanyId));
+              const targetCompany = targetCompanyDoc.data();
+              let targetUserId = targetCompany?.owner_id || targetCompany?.company_owner;
+
+              // Fallback to users array
+              if (!targetUserId && targetCompany?.company_employees && targetCompany.company_employees.length > 0) {
+                targetUserId = targetCompany.company_employees[0];
+              }
+
+              if (!targetUserId) {
+                console.error('Could not find user for target company');
+                return;
+              }
+
+              // Determine the proposed fee (use partner default or job's service fee)
+              const proposedFee = selectedContractor?.auto_assignment_zones?.[0]?.default_fee ||
+                                  formData.service_fee ||
+                                  0;
+
+              // Create the share request with carbon copy flag
+              const createRequest = httpsCallable(functions, 'createJobShareRequest');
+              await createRequest({
+                jobId: newJob.id,
+                targetCompanyId: actualPartnerCompanyId,
+                targetUserId,
+                proposedFee: parseFloat(proposedFee),
+                expiresInHours: 24,
+                createCarbonCopy: true, // Flag to create carbon copy on accept
+                sourceJobSnapshot: {
+                  job_type: newJob.job_type,
+                  addresses: newJob.addresses || [],
+                  recipient: newJob.recipient || {},
+                  plaintiff: newJob.plaintiff || '',
+                  defendant: newJob.defendant || '',
+                  case_number: newJob.case_number || '',
+                  court_name: newJob.court_name || '',
+                  court_county: formData.court_county || '',
+                  court_address: formData.court_address || {},
+                  // Note: court_case_id intentionally omitted - carbon copy creates its own
+                  service_instructions: newJob.service_instructions || '',
+                  first_attempt_instructions: newJob.first_attempt_instructions || '',
+                  first_attempt_due_date: newJob.first_attempt_due_date || '',
+                  priority: newJob.priority || 'standard',
+                  due_date: newJob.due_date || '',
+                  notes: newJob.notes || ''
+                },
+                sharedJobNumber: jobNumber,
+                shareChainRootJobId: newJob.id,
+                shareChainLevel: 1
+              });
+
+              console.log(`Carbon copy share request sent to ${selectedContractor.company_name}`);
+            } catch (error) {
+              console.error('Failed to create carbon copy share request:', error);
+            }
+          }
+        })()
       ]).catch(error => {
         // Catch-all for any Promise.all errors (shouldn't happen due to individual catches)
         console.error('Background operations error:', error);
@@ -1602,7 +1706,9 @@ export default function CreateJobPage() {
       toast({
         variant: "success",
         title: "Job created successfully",
-        description: `Job ${newJob.job_number} has been created`,
+        description: isJobSharingPartner
+          ? `Job ${newJob.job_number} created. Share request sent to ${selectedContractor?.company_name}.`
+          : `Job ${newJob.job_number} has been created`,
       });
 
       // ✅ PERFORMANCE FIX: Navigate immediately instead of waiting for full data refresh

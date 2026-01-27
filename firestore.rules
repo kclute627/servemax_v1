@@ -136,25 +136,45 @@ service cloud.firestore {
       allow create, delete: if false;
     }
 
-    // Jobs - enhanced to support job sharing chain
+    // Jobs - enhanced to support job sharing chain and carbon copy
     match /jobs/{jobId} {
-      // Helper function to check if user is in the job share chain
-      function isInShareChain() {
-        return resource.data.company_id == getUserCompanyId() ||
-               (resource.data.job_share_chain.is_shared == true &&
-                getUserCompanyId() in resource.data.job_share_chain.chain[0].company_id);
+      // Helper function to check if user is in the legacy job share chain
+      function isInLegacyShareChain() {
+        return resource.data.job_share_chain != null &&
+               resource.data.job_share_chain.is_shared == true &&
+               getUserCompanyId() in resource.data.job_share_chain.chain[0].company_id;
+      }
+
+      // Helper function to check if user is in the carbon copy share chain
+      function isInCarbonCopyChain() {
+        return resource.data.share_chain != null && (
+          // User's company is the parent or child in the chain
+          resource.data.share_chain.parent_company_id == getUserCompanyId() ||
+          resource.data.share_chain.child_company_id == getUserCompanyId() ||
+          // Or user's company ID is in the all_job_ids related companies
+          // Note: all_job_ids contains job IDs, not company IDs, so we check parent/child
+          resource.data.share_chain.root_company_id == getUserCompanyId()
+        );
       }
 
       allow read: if isAuthenticated() && (
         resource.data.company_id == getUserCompanyId() ||
-        isInShareChain() ||
+        isInLegacyShareChain() ||
+        isInCarbonCopyChain() ||
         isSuperAdmin()
       );
 
       allow create: if isAuthenticated() &&
                       request.resource.data.company_id == getUserCompanyId();
 
-      allow update, delete: if isAuthenticated() && (
+      // Allow update if user owns the job OR is in the share chain (for status sync)
+      allow update: if isAuthenticated() && (
+        hasCompanyAccess(resource.data.company_id) ||
+        isInCarbonCopyChain() ||
+        isSuperAdmin()
+      );
+
+      allow delete: if isAuthenticated() && (
         hasCompanyAccess(resource.data.company_id) ||
         isSuperAdmin()
       );

@@ -127,9 +127,16 @@ export default function NewAttemptDialog({ open, onOpenChange, job, employees, o
       || (navigator.maxTouchPoints > 0);
 
     try {
+      // Resolve server name for cross-company compatibility
+      const selectedEmployee = employees.find(e => e.id === serverId);
+      const serverNameManual = selectedEmployee
+        ? `${selectedEmployee.first_name || ''} ${selectedEmployee.last_name || ''}`.trim() || 'Unknown Server'
+        : 'Unknown Server';
+
       const attemptData = {
         job_id: job.id,
         server_id: serverId,
+        server_name_manual: serverNameManual,
         attempt_date: finalAttemptDate.toISOString(),
         address_of_attempt: addressOfAttempt,
         status: status,
@@ -150,20 +157,41 @@ export default function NewAttemptDialog({ open, onOpenChange, job, employees, o
       };
 
       // Create the attempt record
-      await Attempt.create(attemptData);
+      const newAttempt = await Attempt.create(attemptData);
 
-      // If service was successful, update the parent job
+      // Update job's attempts array so syncCarbonCopyJobStatus can sync to partner companies
+      const currentJob = await Job.findById(job.id);
+      const attemptsArray = Array.isArray(currentJob.attempts) ? [...currentJob.attempts] : [];
+      attemptsArray.push({
+        id: newAttempt.id,
+        attempt_date: attemptData.attempt_date,
+        status: attemptData.status,
+        server_id: attemptData.server_id,
+        server_name_manual: attemptData.server_name_manual,
+        address_of_attempt: attemptData.address_of_attempt,
+        notes: attemptData.notes,
+        gps_lat: attemptData.gps_lat,
+        gps_lon: attemptData.gps_lon,
+        gps_accuracy: attemptData.gps_accuracy,
+        gps_altitude: attemptData.gps_altitude,
+        gps_timestamp: attemptData.gps_timestamp,
+        mobile_app_attempt: attemptData.mobile_app_attempt,
+        success: attemptData.success,
+        created_at: new Date().toISOString(),
+      });
+
+      // Build job update payload
+      const jobUpdateData = { attempts: attemptsArray };
+
       if (status === 'served') {
-        const jobUpdateData = {
-          status: 'served',
-          service_date: finalAttemptDate.toISOString(),
-          service_method: serviceMethod,
-        };
-        await Job.update(job.id, jobUpdateData);
+        jobUpdateData.status = 'served';
+        jobUpdateData.service_date = finalAttemptDate.toISOString();
+        jobUpdateData.service_method = serviceMethod;
       } else if (job.status === 'pending' || job.status === 'assigned') {
-        // If an attempt is made, move job to "in progress"
-        await Job.update(job.id, { status: 'in_progress' });
+        jobUpdateData.status = 'in_progress';
       }
+
+      await Job.update(job.id, jobUpdateData);
 
       onAttemptCreated(); // This will trigger a reload on the details page
       onOpenChange(false); // Close dialog

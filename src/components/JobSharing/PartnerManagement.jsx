@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { doc, updateDoc, arrayUnion, arrayRemove, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui
 import { Badge } from '../ui/badge';
 import { Switch } from '../ui/switch';
 import { useToast } from '../ui/use-toast';
-import { Loader2, Settings, Users, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, Settings, Users, CheckCircle2, XCircle, Pause, Play } from 'lucide-react';
 
 const PartnerManagement = ({ companyId }) => {
   const { toast } = useToast();
@@ -21,18 +21,24 @@ const PartnerManagement = ({ companyId }) => {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Fetch partners from Firestore
+  // Fetch partners from client records in companies collection
   useEffect(() => {
     if (!companyId) return;
 
     const fetchPartners = async () => {
       try {
-        const companyDoc = await getDoc(doc(db, 'companies', companyId));
-        if (companyDoc.exists()) {
-          const companyData = companyDoc.data();
-          const partnersList = companyData.job_share_partners || [];
-          setPartners(partnersList);
-        }
+        const partnersSnapshot = await getDocs(
+          query(
+            collection(db, 'companies'),
+            where('created_by', '==', companyId),
+            where('is_job_share_partner', '==', true)
+          )
+        );
+        const partnersList = partnersSnapshot.docs.map(d => ({
+          id: d.id, // document ID for updates
+          ...d.data()
+        }));
+        setPartners(partnersList);
       } catch (error) {
         console.error('Error fetching partners:', error);
       } finally {
@@ -43,7 +49,7 @@ const PartnerManagement = ({ companyId }) => {
     fetchPartners();
   }, [companyId]);
 
-  const updatePartnerSettings = async (partnerId) => {
+  const updatePartnerSettings = async (partnerDocId) => {
     if (!zipCodes.trim() && autoAssignEnabled) {
       toast({
         variant: "destructive",
@@ -64,14 +70,9 @@ const PartnerManagement = ({ companyId }) => {
 
     setSaving(true);
     try {
-      const partner = partners.find(p => p.partner_company_id === partnerId);
-
-      if (!partner) {
-        throw new Error('Partner not found');
-      }
-
-      const updatedPartner = {
-        ...partner,
+      // Update the partner client record directly
+      const partnerRef = doc(db, 'companies', partnerDocId);
+      await updateDoc(partnerRef, {
         auto_assignment_enabled: autoAssignEnabled,
         requires_acceptance: requiresAcceptance,
         email_notifications_enabled: emailNotifications,
@@ -84,18 +85,6 @@ const PartnerManagement = ({ companyId }) => {
           state: ''
         }] : [],
         updated_at: new Date()
-      };
-
-      const companyRef = doc(db, 'companies', companyId);
-
-      // Remove old partner entry
-      await updateDoc(companyRef, {
-        job_share_partners: arrayRemove(partner)
-      });
-
-      // Add updated partner entry
-      await updateDoc(companyRef, {
-        job_share_partners: arrayUnion(updatedPartner)
       });
 
       toast({
@@ -115,6 +104,35 @@ const PartnerManagement = ({ companyId }) => {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const togglePartnerSharing = async (partner) => {
+    const newStatus = partner.relationship_status === 'active' ? 'inactive' : 'active';
+    try {
+      const partnerRef = doc(db, 'companies', partner.id);
+      await updateDoc(partnerRef, {
+        relationship_status: newStatus,
+        updated_at: new Date()
+      });
+
+      setPartners(prev => prev.map(p =>
+        p.id === partner.id ? { ...p, relationship_status: newStatus } : p
+      ));
+
+      toast({
+        title: newStatus === 'active' ? "Sharing Reactivated" : "Sharing Stopped",
+        description: newStatus === 'active'
+          ? `Job sharing with ${partner.company_name || partner.name} has been reactivated.`
+          : `Job sharing with ${partner.company_name || partner.name} has been stopped. They will remain in your client list.`,
+      });
+    } catch (error) {
+      console.error('Error toggling partner sharing:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: `Failed to update sharing status: ${error.message}`,
+      });
     }
   };
 
@@ -161,11 +179,11 @@ const PartnerManagement = ({ companyId }) => {
                       <div className="space-y-3 flex-1">
                         <div>
                           <h4 className="font-semibold text-lg">
-                            {partner.partner_company_name}
+                            {partner.company_name || partner.name}
                           </h4>
                           <div className="flex gap-2 mt-2">
                             <Badge variant="outline">
-                              {partner.partner_type}
+                              {partner.company_type || partner.partner_type}
                             </Badge>
                             <Badge
                               variant={partner.relationship_status === 'active' ? 'default' : 'secondary'}
@@ -219,14 +237,34 @@ const PartnerManagement = ({ companyId }) => {
                         )}
                       </div>
 
-                      <Button
-                        onClick={() => handleEditPartner(partner)}
-                        variant="outline"
-                        size="sm"
-                      >
-                        <Settings className="h-4 w-4 mr-2" />
-                        Edit Settings
-                      </Button>
+                      <div className="flex flex-col gap-2">
+                        <Button
+                          onClick={() => handleEditPartner(partner)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          <Settings className="h-4 w-4 mr-2" />
+                          Edit Settings
+                        </Button>
+                        <Button
+                          onClick={() => togglePartnerSharing(partner)}
+                          variant={partner.relationship_status === 'active' ? 'outline' : 'default'}
+                          size="sm"
+                          className={partner.relationship_status === 'active' ? 'text-orange-600 border-orange-300 hover:bg-orange-50' : ''}
+                        >
+                          {partner.relationship_status === 'active' ? (
+                            <>
+                              <Pause className="h-4 w-4 mr-2" />
+                              Stop Sharing
+                            </>
+                          ) : (
+                            <>
+                              <Play className="h-4 w-4 mr-2" />
+                              Reactivate
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -240,7 +278,7 @@ const PartnerManagement = ({ companyId }) => {
       {editingPartner && (
         <Card className="border-2 border-primary">
           <CardHeader>
-            <CardTitle>Edit Partner Settings: {editingPartner.partner_company_name}</CardTitle>
+            <CardTitle>Edit Partner Settings: {editingPartner.company_name || editingPartner.name}</CardTitle>
             <CardDescription>
               Configure auto-assignment rules and notification preferences
             </CardDescription>
@@ -325,7 +363,7 @@ const PartnerManagement = ({ companyId }) => {
             {/* Action Buttons */}
             <div className="flex gap-2 pt-4">
               <Button
-                onClick={() => updatePartnerSettings(editingPartner.partner_company_id)}
+                onClick={() => updatePartnerSettings(editingPartner.id)}
                 disabled={saving}
               >
                 {saving ? (

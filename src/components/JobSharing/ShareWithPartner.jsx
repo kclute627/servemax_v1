@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db, functions } from '../../firebase/config';
 import { httpsCallable } from 'firebase/functions';
 import { Button } from '../ui/button';
@@ -27,13 +27,20 @@ const ShareWithPartner = ({ jobId, onShareRequest }) => {
 
     const fetchPartners = async () => {
       try {
-        const companyDoc = await getDoc(doc(db, 'companies', user.company_id));
-        if (companyDoc.exists()) {
-          const partnersList = companyDoc.data().job_share_partners || [];
-          // Only show active partners
-          const activePartners = partnersList.filter(p => p.relationship_status === 'active');
-          setPartners(activePartners);
-        }
+        // Query partner client records from companies collection
+        const partnersSnapshot = await getDocs(
+          query(
+            collection(db, 'companies'),
+            where('created_by', '==', user.company_id),
+            where('is_job_share_partner', '==', true),
+            where('relationship_status', '==', 'active')
+          )
+        );
+        const partnersList = partnersSnapshot.docs.map(d => ({
+          id: d.id,
+          ...d.data()
+        }));
+        setPartners(partnersList);
       } catch (error) {
         console.error('Error fetching partners:', error);
         toast({
@@ -72,7 +79,7 @@ const ShareWithPartner = ({ jobId, onShareRequest }) => {
     setSending(true);
     try {
       // Fetch partner company to get a user
-      const partnerCompanyDoc = await getDoc(doc(db, 'companies', selectedPartner.partner_company_id));
+      const partnerCompanyDoc = await getDoc(doc(db, 'companies', selectedPartner.job_sharing_partner_id));
       if (!partnerCompanyDoc.exists()) {
         throw new Error('Partner company not found');
       }
@@ -93,7 +100,7 @@ const ShareWithPartner = ({ jobId, onShareRequest }) => {
       const createRequest = httpsCallable(functions, 'createJobShareRequest');
       await createRequest({
         jobId,
-        targetCompanyId: selectedPartner.partner_company_id,
+        targetCompanyId: selectedPartner.job_sharing_partner_id,
         targetUserId,
         proposedFee: parseFloat(proposedFee),
         expiresInHours: expiresIn === 'none' ? null : parseInt(expiresIn)
@@ -101,7 +108,7 @@ const ShareWithPartner = ({ jobId, onShareRequest }) => {
 
       toast({
         title: "Request Sent",
-        description: `Job share request sent to ${selectedPartner.partner_company_name}!`,
+        description: `Job share request sent to ${selectedPartner.company_name || selectedPartner.name}!`,
       });
       setSelectedPartner(null);
       setProposedFee('');
@@ -173,16 +180,16 @@ const ShareWithPartner = ({ jobId, onShareRequest }) => {
               <div className="grid gap-3">
                 {partners.map((partner) => (
                   <Card
-                    key={partner.partner_company_id}
+                    key={partner.id}
                     className="hover:shadow-md transition-shadow cursor-pointer"
                     onClick={() => handleSelectPartner(partner)}
                   >
                     <CardContent className="pt-6">
                       <div className="flex justify-between items-center">
                         <div>
-                          <h4 className="font-semibold">{partner.partner_company_name}</h4>
+                          <h4 className="font-semibold">{partner.company_name || partner.name}</h4>
                           <div className="flex gap-2 mt-2">
-                            <Badge variant="outline">{partner.partner_type}</Badge>
+                            <Badge variant="outline">{partner.company_type}</Badge>
                             {partner.total_jobs_shared > 0 && (
                               <Badge variant="secondary">
                                 {partner.total_jobs_shared} jobs shared
@@ -203,7 +210,7 @@ const ShareWithPartner = ({ jobId, onShareRequest }) => {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-medium">
-                  Sharing with: <span className="text-primary">{selectedPartner.partner_company_name}</span>
+                  Sharing with: <span className="text-primary">{selectedPartner.company_name || selectedPartner.name}</span>
                 </div>
                 <Button
                   variant="ghost"
@@ -242,7 +249,7 @@ const ShareWithPartner = ({ jobId, onShareRequest }) => {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">
-                      Your Fee to {selectedPartner.partner_company_name}
+                      Your Fee to {selectedPartner.company_name || selectedPartner.name}
                     </label>
                     <div className="flex items-center gap-2">
                       <span className="text-2xl">$</span>

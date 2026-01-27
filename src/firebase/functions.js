@@ -436,6 +436,30 @@ export class FirebaseFunctions {
     }
   }
 
+  // Share document with partner (affidavit sharing)
+  static async shareDocumentWithPartner(data) {
+    try {
+      const shareDocumentWithPartner = httpsCallable(functions, 'shareDocumentWithPartner');
+      const result = await shareDocumentWithPartner(data);
+      return result.data;
+    } catch (error) {
+      console.error('Share document with partner error:', error);
+      throw error;
+    }
+  }
+
+  // Backfill partner client records from clients to companies collection
+  static async backfillPartnerClients() {
+    try {
+      const backfillPartnerClients = httpsCallable(functions, 'backfillPartnerClients');
+      const result = await backfillPartnerClients({});
+      return result.data;
+    } catch (error) {
+      console.error('Backfill partner clients error:', error);
+      throw error;
+    }
+  }
+
   // === Job Email Functions ===
 
   // Send job update email with selected content

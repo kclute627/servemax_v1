@@ -14,6 +14,8 @@ import { dummyCompany } from "@/data/dummyData";
 import { entities } from "@/firebase/database";
 import { CompanySettings } from "@/api/entities";
 import { DirectoryManager } from "@/firebase/schemas";
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '@/firebase/config';
 
 const GlobalDataContext = createContext();
 
@@ -240,6 +242,29 @@ export const GlobalDataProvider = ({ children }) => {
       }
     };
   }, [isAuthenticated, user, authLoading]);
+
+  // Real-time listener for outgoing job share requests
+  // When a partner accepts/declines, refresh jobs so carbon_copy_pending updates on Company A's side
+  useEffect(() => {
+    if (authLoading || !isAuthenticated || !user?.company_id) return;
+
+    const q = query(
+      collection(db, 'job_share_requests'),
+      where('requesting_company_id', '==', user.company_id)
+    );
+
+    let isFirstSnapshot = true;
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (isFirstSnapshot) {
+        isFirstSnapshot = false;
+        return; // Skip initial load
+      }
+      // An outgoing share request changed — refresh jobs data
+      loadAllData(true);
+    });
+
+    return () => unsubscribe();
+  }, [isAuthenticated, user?.company_id, authLoading, loadAllData]);
 
   const allAssignableServers = React.useMemo(() => {
     const servers = [...employees];

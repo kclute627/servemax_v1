@@ -69,7 +69,7 @@ function getWorkflowStatus(job, jobInvoice) {
   if (job.status === 'unable_to_serve') return 'unable_to_serve';
 
   // Check if invoice is issued → Completed
-  if (jobInvoice && jobInvoice.status === 'issued') return 'completed';
+  if (jobInvoice && ['issued', 'sent'].includes(jobInvoice.status?.toLowerCase())) return 'completed';
 
   // Check if has signed affidavit but no issued invoice → Needs Invoice
   if (job.has_signed_affidavit) return 'needs_invoice';
@@ -294,6 +294,12 @@ function JobsTableRow({
                {sharedStatusConfig[job.shared_job_status]?.label || "Shared"}
              </Badge>
           )}
+          {job.carbon_copy_pending && (
+             <Badge variant="outline" className="w-fit gap-1.5 mt-2 bg-amber-100 text-amber-800">
+               <Share2 className="w-3 h-3" />
+               Pending Acceptance
+             </Badge>
+          )}
         </div>
       </TableCell>
       <TableCell>
@@ -334,7 +340,12 @@ function JobsTableRow({
         </div>
       </TableCell>
       <TableCell className="text-slate-700">
-        {getClientName(job.client_id)}
+        <span className="flex items-center gap-1.5">
+          {getClientName(job.client_id)}
+          {(job.share_chain || job.carbon_copy_pending) && (
+            <Share2 className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" title="Shared Job" />
+          )}
+        </span>
       </TableCell>
       <TableCell>
         {/* Show appropriate date based on job type */}

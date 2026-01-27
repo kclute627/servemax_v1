@@ -324,6 +324,7 @@ export default function SignExternalAffidavit() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState(null);
+  const [existingDocId, setExistingDocId] = useState(null);
 
   // PDF state
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -352,6 +353,7 @@ export default function SignExternalAffidavit() {
     const params = new URLSearchParams(location.search);
     const jobId = params.get('jobId');
     const fileUrl = params.get('fileUrl');
+    const docId = params.get('docId');
 
     if (fileUrl) {
       setPdfUrl(decodeURIComponent(fileUrl));
@@ -359,6 +361,11 @@ export default function SignExternalAffidavit() {
 
     if (jobId) {
       loadJob(jobId);
+    }
+
+    // Store docId for updating existing shared document
+    if (docId) {
+      setExistingDocId(docId);
     }
 
     loadUser();
@@ -512,27 +519,42 @@ export default function SignExternalAffidavit() {
         signaturePageNum = placedSignature?.page || placedDate?.page;
       }
 
-      // Create Document record
-      const newDocument = await Document.create({
-        company_id: job.company_id,
-        job_id: job.id,
-        title: `${isAlreadySigned && !placedSignature ? 'External' : 'Signed External'} Affidavit - ${format(new Date(), 'MMM d, yyyy')}`,
-        file_url: finalUrl,
-        document_category: 'affidavit',
-        content_type: 'application/pdf',
-        page_count: numPages,
-        is_signed: true,
-        signed_at: new Date().toISOString(),
-        received_at: new Date().toISOString(),
-        metadata: {
-          source: 'external_upload',
-          original_url: pdfUrl,
-          ...(signaturePageNum && { signature_page: signaturePageNum }),
-          already_signed: isAlreadySigned && !placedSignature && !placedDate
-        }
-      });
-
-      console.log('[SignExternal] Document created:', newDocument);
+      // If we have an existing doc ID (shared from partner), update it instead of creating new
+      if (existingDocId) {
+        await Document.update(existingDocId, {
+          file_url: finalUrl,
+          is_signed: true,
+          signed_at: new Date().toISOString(),
+          title: `Signed Affidavit - ${format(new Date(), 'MMM d, yyyy')}`,
+          metadata: {
+            source: 'partner_signed',
+            original_url: pdfUrl,
+            ...(signaturePageNum && { signature_page: signaturePageNum })
+          }
+        });
+        console.log('[SignExternal] Existing shared document updated:', existingDocId);
+      } else {
+        // Create new Document record
+        const newDocument = await Document.create({
+          company_id: job.company_id,
+          job_id: job.id,
+          title: `${isAlreadySigned && !placedSignature ? 'External' : 'Signed External'} Affidavit - ${format(new Date(), 'MMM d, yyyy')}`,
+          file_url: finalUrl,
+          document_category: 'affidavit',
+          content_type: 'application/pdf',
+          page_count: numPages,
+          is_signed: true,
+          signed_at: new Date().toISOString(),
+          received_at: new Date().toISOString(),
+          metadata: {
+            source: 'external_upload',
+            original_url: pdfUrl,
+            ...(signaturePageNum && { signature_page: signaturePageNum }),
+            already_signed: isAlreadySigned && !placedSignature && !placedDate
+          }
+        });
+        console.log('[SignExternal] Document created:', newDocument);
+      }
 
       // Update job flag
       await Job.update(job.id, {

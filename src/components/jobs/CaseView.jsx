@@ -42,13 +42,22 @@ export default function CaseView({ jobs, clients, employees, courtCases = [], is
 
   const groupedJobs = useMemo(() => {
     const groups = new Map();
-    
+
     jobs.forEach(job => {
-      const caseId = job.court_case_id || 'no-case';
-      if (!groups.has(caseId)) {
-        groups.set(caseId, []);
+      // Group by court_case_id if linked, otherwise by case_number from job, or 'no-case'
+      let caseKey;
+      if (job.court_case_id) {
+        caseKey = `courtcase:${job.court_case_id}`;
+      } else if (job.case_number) {
+        caseKey = `jobcase:${job.case_number}`;
+      } else {
+        caseKey = 'no-case';
       }
-      groups.get(caseId).push(job);
+
+      if (!groups.has(caseKey)) {
+        groups.set(caseKey, []);
+      }
+      groups.get(caseKey).push(job);
     });
 
     return groups;
@@ -77,15 +86,38 @@ export default function CaseView({ jobs, clients, employees, courtCases = [], is
     return "Unknown Server";
   };
 
-  const getCaseInfo = (caseId) => {
-    if (caseId === 'no-case') {
+  const getCaseInfo = (caseKey, caseJobs) => {
+    if (caseKey === 'no-case') {
       return {
         case_name: 'Jobs Without Case Information',
         case_number: 'N/A',
         court_name: 'N/A'
       };
     }
-    return courtCases.find(c => c.id === caseId) || {
+
+    // If it's a linked court case
+    if (caseKey.startsWith('courtcase:')) {
+      const courtCaseId = caseKey.replace('courtcase:', '');
+      return courtCases.find(c => c.id === courtCaseId) || {
+        case_name: 'Unknown Case',
+        case_number: 'Unknown',
+        court_name: 'Unknown'
+      };
+    }
+
+    // If it's case info from job document (portal jobs)
+    if (caseKey.startsWith('jobcase:')) {
+      const firstJob = caseJobs[0];
+      return {
+        case_name: firstJob.case_caption || `${firstJob.plaintiff || ''} v. ${firstJob.defendant || ''}`.trim() || 'Case',
+        case_number: firstJob.case_number || 'N/A',
+        court_name: firstJob.court_name || 'N/A',
+        plaintiff: firstJob.plaintiff,
+        defendant: firstJob.defendant
+      };
+    }
+
+    return {
       case_name: 'Unknown Case',
       case_number: 'Unknown',
       court_name: 'Unknown'
@@ -156,17 +188,17 @@ export default function CaseView({ jobs, clients, employees, courtCases = [], is
       </div>
 
       <div className="divide-y divide-slate-200">
-        {Array.from(groupedJobs.entries()).map(([caseId, caseJobs]) => {
-          const caseInfo = getCaseInfo(caseId);
-          const isExpanded = expandedCases.has(caseId);
+        {Array.from(groupedJobs.entries()).map(([caseKey, caseJobs]) => {
+          const caseInfo = getCaseInfo(caseKey, caseJobs);
+          const isExpanded = expandedCases.has(caseKey);
           const hasOverdueJobs = caseJobs.some(job => isOverdue(job));
 
           return (
-            <div key={caseId}>
+            <div key={caseKey}>
               {/* Case Header */}
-              <div 
+              <div
                 className="p-6 hover:bg-slate-50 cursor-pointer transition-colors"
-                onClick={() => toggleCase(caseId)}
+                onClick={() => toggleCase(caseKey)}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">

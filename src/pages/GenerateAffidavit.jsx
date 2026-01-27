@@ -302,14 +302,23 @@ export default function GenerateAffidavitPage() {
         if (latestServedAttempt.server_id) {
             const server = employees.find(e => e.id === latestServedAttempt.server_id);
             if (server) {
-                serverName = `${server.first_name} ${server.last_name}`;
+                serverName = `${server.first_name || ''} ${server.last_name || ''}`.trim() || 'Unknown Server';
                 serverLicense = server.license_number || '';
                 serverObject = server;
             } else {
+                // Cross-company shared job: employee belongs to another company
                 serverName = latestServedAttempt.server_name_manual || 'Unknown Server';
             }
         } else if (latestServedAttempt.server_name_manual) {
             serverName = latestServedAttempt.server_name_manual;
+        }
+
+        // Final guard: never display "undefined" in any form
+        if (!serverName || serverName.toLowerCase().includes('undefined')) {
+            serverName = latestServedAttempt.server_name_manual || 'Unknown Server';
+            if (serverName.toLowerCase().includes('undefined')) {
+                serverName = 'Unknown Server';
+            }
         }
     }
 
@@ -721,7 +730,7 @@ export default function GenerateAffidavitPage() {
       }
       const response = await generateAffidavit(affidavitData);
       console.log('[Step 1] PDF generated successfully');
-      console.log('Response structure:', { hasData: !!response.data, dataLength: response.data ? Object.keys(response.data).length : 0 });
+      console.log('Response structure:', { hasData: !!response.data, dataLength: response.data ? response.data.length : 0 });
 
       // Validate response structure
       if (!response || !response.data) {
@@ -733,16 +742,17 @@ export default function GenerateAffidavitPage() {
         throw new Error(response.message || 'PDF generation failed on the server');
       }
 
-      // Check if pdfData is valid
-      if (typeof response.data !== 'object' || response.data === null) {
+      // Check if pdfData is valid (now Base64 string)
+      if (typeof response.data !== 'string') {
         throw new Error('Invalid PDF data format received from server');
       }
 
-      // Convert response.data object to Uint8Array
+      // Decode Base64 string to Uint8Array
       const pdfData = response.data;
-      const uint8Array = new Uint8Array(Object.keys(pdfData).length);
-      for (let i = 0; i < uint8Array.length; i++) {
-        uint8Array[i] = pdfData[i];
+      const binaryString = atob(pdfData);
+      const uint8Array = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        uint8Array[i] = binaryString.charCodeAt(i);
       }
 
       const blob = new Blob([uint8Array], { type: 'application/pdf' });

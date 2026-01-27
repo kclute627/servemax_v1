@@ -86,7 +86,7 @@ import SendJobEmailDialog from '../components/jobs/SendJobEmailDialog';
 import ContractorSearchInput from '../components/jobs/ContractorSearchInput';
 import DocumentUpload from '../components/jobs/DocumentUpload';
 // FIREBASE TRANSITION: This will become a call to a Firebase Cloud Function.
-import { generateFieldSheet, mergePDFs, sendAttemptNotification } from "@/api/functions";
+import { generateFieldSheet, mergePDFs, sendAttemptNotification, shareDocumentWithPartner } from "@/api/functions";
 // FIREBASE TRANSITION: This will be replaced with Firebase Storage's `uploadBytes` and `getDownloadURL`.
 import { UploadFile } from "@/api/integrations";
 import { motion, AnimatePresence } from 'framer-motion';
@@ -564,6 +564,7 @@ export default function JobDetailsPage() {
   // Line 555 ke baad add karo
   const [isEditingInvoice, setIsEditingInvoice] = useState(false);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const [isCreatingInvoice, setIsCreatingInvoice] = useState(false);
   const [saveInvoiceTrigger, setSaveInvoiceTrigger] = useState(0);
   const [showPDFPreview, setShowPDFPreview] = useState(false);
 
@@ -750,11 +751,11 @@ export default function JobDetailsPage() {
         jobData.client_id ? Client.findById(jobData.client_id) : Promise.resolve(null),
         jobData.court_case_id ? CourtCase.findById(jobData.court_case_id).catch(e => { return null; }) : Promise.resolve(null),
         Document.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { return []; }),
-        Attempt.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { return []; }),
+        Attempt.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { console.error('Error fetching attempts:', e); return []; }),
         // Use direct lookup if job has invoice_id, otherwise fallback to filter
         jobData.job_invoice_id
           ? Invoice.findById(jobData.job_invoice_id).catch(e => { return null; })
-          : Invoice.filter({ job_ids: jobId }).then(invoices => invoices[0] || null).catch(e => { return null; }),
+          : Invoice.filter({ job_ids: jobId, company_id: user?.company_id }).then(invoices => invoices[0] || null).catch(e => { return null; }),
         Employee.list().catch(e => { return []; }),
         Client.list().catch(e => { return []; }),
         CompanySettings.filter({ setting_key: "invoice_settings" }).catch(e => { return []; }),
@@ -900,6 +901,10 @@ export default function JobDetailsPage() {
   useEffect(() => {
     const urlParams = new URLSearchParams(location.search);
     const jobId = urlParams.get('id');
+    // Check if returning from LogAttempt (timestamp or success param indicates fresh attempt)
+    const hasTimestampParam = urlParams.get('t');
+    const hasSuccessParam = urlParams.get('success');
+    const isReturningFromAttempt = hasTimestampParam || hasSuccessParam;
 
     if (jobId && contextJobs && contextJobs.length > 0) {
       // Look for the job in the context
@@ -923,8 +928,10 @@ export default function JobDetailsPage() {
           setAllEmployees(contextEmployees);
         }
 
-        // Pre-populate attempts from job if available
-        if (Array.isArray(jobFromContext.attempts) && jobFromContext.attempts.length > 0) {
+        // Pre-populate attempts from job ONLY if NOT returning from LogAttempt
+        // When returning from LogAttempt, the context cache might be stale
+        // and the forceRefreshAttempts will fetch fresh data from the collection
+        if (!isReturningFromAttempt && Array.isArray(jobFromContext.attempts) && jobFromContext.attempts.length > 0) {
           setAttempts(jobFromContext.attempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date)));
         }
 
@@ -966,26 +973,52 @@ export default function JobDetailsPage() {
     const urlParams = new URLSearchParams(location.search);
     let jobId = urlParams.get('id');
 
-    // Check for success message
+    // Check for success message and force refresh attempts
     const successType = urlParams.get('success');
-    if (successType === 'attempt_saved') {
-      // Show success message temporarily
-      setTimeout(() => {
-        const alertDiv = document.createElement('div');
-        alertDiv.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-right-2';
-        alertDiv.textContent = 'Attempt saved successfully';
-        document.body.appendChild(alertDiv);
+    const timestampParam = urlParams.get('t');
 
-        // Remove after 3 seconds
+    if (successType === 'attempt_saved' || timestampParam) {
+      // Force refresh attempts from the collection (bypass cache)
+      const forceRefreshAttempts = async () => {
+        if (jobId) {
+          try {
+            console.log('[JobDetails] Force refreshing attempts for job:', jobId);
+            // Query by job_id only - company_id filter was causing mismatches
+            const freshAttempts = await Attempt.filter({ job_id: jobId });
+            console.log('[JobDetails] Fresh attempts from collection:', freshAttempts);
+            // Always set attempts from collection query when force refreshing
+            setAttempts(Array.isArray(freshAttempts)
+              ? freshAttempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))
+              : []);
+          } catch (e) {
+            console.error('Error refreshing attempts:', e);
+          }
+        }
+      };
+
+      // Small delay to ensure component is mounted and initial data load started
+      setTimeout(forceRefreshAttempts, 500);
+
+      // Show success message if attempt was saved
+      if (successType === 'attempt_saved') {
         setTimeout(() => {
-          alertDiv.remove();
-        }, 3000);
+          const alertDiv = document.createElement('div');
+          alertDiv.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-right-2';
+          alertDiv.textContent = 'Attempt saved successfully';
+          document.body.appendChild(alertDiv);
 
-        // Clean up URL
-        const newUrl = new URL(window.location.href);
-        newUrl.searchParams.delete('success');
-        window.history.replaceState({}, '', newUrl.toString());
-      }, 100);
+          // Remove after 3 seconds
+          setTimeout(() => {
+            alertDiv.remove();
+          }, 3000);
+
+          // Clean up URL
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('success');
+          newUrl.searchParams.delete('t');
+          window.history.replaceState({}, '', newUrl.toString());
+        }, 100);
+      }
     }
 
     if (jobId) {
@@ -1127,9 +1160,9 @@ export default function JobDetailsPage() {
         break;
       case 'caseInfo':
         setEditFormData({
-          case_number: courtCase?.case_number || '',
-          plaintiff: courtCase?.plaintiff || '',
-          defendant: courtCase?.defendant || ''
+          case_number: courtCase?.case_number || job?.case_number || '',
+          plaintiff: courtCase?.plaintiff || job?.plaintiff || '',
+          defendant: courtCase?.defendant || job?.defendant || ''
         });
         setIsEditingCaseInfo(true);
         break;
@@ -1246,7 +1279,13 @@ export default function JobDetailsPage() {
             }));
             logDescription = 'Case information updated.';
           } else {
-            alert("No court case linked to this job to update.");
+            // No court case linked - update case info directly on job document
+            updateData = {
+              case_number: editFormData.case_number,
+              plaintiff: editFormData.plaintiff,
+              defendant: editFormData.defendant
+            };
+            logDescription = 'Case information updated.';
           }
           break;
         case 'serviceDetails':
@@ -1645,6 +1684,106 @@ export default function JobDetailsPage() {
   };
 
   /**
+   * Creates a new invoice record from the job's line items
+   */
+  const handleCreateInvoice = async () => {
+    if (!job?.id || !Array.isArray(lineItems) || lineItems.length === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Please add at least one line item before creating an invoice.'
+      });
+      return;
+    }
+
+    // Check if line items have valid data
+    const hasValidItems = lineItems.some(item => item.description && item.rate > 0);
+    if (!hasValidItems) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Please add at least one line item with a description and rate.'
+      });
+      return;
+    }
+
+    setIsCreatingInvoice(true);
+    try {
+      const invoiceDate = new Date();
+      const invoiceDueDate = new Date(invoiceDate);
+      invoiceDueDate.setDate(invoiceDate.getDate() + 30);
+
+      // Format line items for invoice
+      const formattedLineItems = lineItems.map(item => ({
+        item_name: item.description || '',
+        description: item.description || '',
+        quantity: item.quantity || 1,
+        unit_price: item.rate || 0,
+        rate: item.rate || 0,
+        total: (item.quantity || 1) * (item.rate || 0),
+        amount: (item.quantity || 1) * (item.rate || 0)
+      }));
+
+      const subtotal = formattedLineItems.reduce((sum, item) => sum + item.total, 0);
+      const taxRate = invoiceSettings?.default_tax_rate || 0;
+      const taxAmount = subtotal * taxRate;
+      const total = subtotal + taxAmount;
+
+      const newInvoice = await Invoice.create({
+        invoice_number: job.job_number,
+        client_id: job.client_id,
+        company_id: user?.company_id || companyData?.id || null,
+        invoice_type: "job",
+        invoice_date: invoiceDate.toISOString().split('T')[0],
+        due_date: invoiceDueDate.toISOString().split('T')[0],
+        job_ids: [job.id],
+        line_items: formattedLineItems,
+        subtotal: subtotal,
+        discount_amount: 0,
+        discount_type: "fixed",
+        tax_rate: taxRate,
+        total_tax_amount: taxAmount,
+        total: total,
+        balance_due: total,
+        total_paid: 0,
+        currency: "USD",
+        status: "Draft",
+        locked: false,
+        taxes_enabled: taxRate > 0,
+        terms: invoiceSettings?.default_terms || "Thanks for your business. Please pay within 30 days."
+      });
+
+      // Update local invoices state
+      setInvoices(prev => [...prev, newInvoice]);
+
+      // Also save line items to job for consistency
+      await Job.update(job.id, {
+        line_items: lineItems,
+        total_fee: totalFee
+      });
+
+      toast({
+        title: 'Invoice Created',
+        description: `Invoice #${job.job_number} has been created as a draft.`,
+        className: 'border-green-200 bg-green-50 text-green-900'
+      });
+
+      // Refresh data to ensure consistency
+      refreshData();
+
+    } catch (error) {
+      console.error('Failed to create invoice:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to create invoice: ' + error.message
+      });
+    } finally {
+      setIsCreatingInvoice(false);
+    }
+  };
+
+  /**
    * Callback for when a new contact is created in the dialog.
    * FIREBASE TRANSITION: The dialog itself will contain the Firebase `updateDoc` call
    * to add the contact to the client. This handler just updates the local UI state.
@@ -1859,6 +1998,22 @@ export default function JobDetailsPage() {
     }
   };
 
+  const handleSendToContractor = async (doc) => {
+    try {
+      if (!job?.share_chain?.child_job_id) {
+        toast({ title: "No contractor assigned", description: "This job hasn't been shared with a contractor.", variant: "destructive" });
+        return;
+      }
+      const result = await shareDocumentWithPartner({ documentId: doc.id, jobId: job.id });
+      if (result.success) {
+        toast({ title: "Sent to Contractor", description: "The affidavit has been sent to your contractor for signing." });
+      }
+    } catch (error) {
+      console.error('Send to contractor error:', error);
+      toast({ title: "Failed to send", description: error.message || "Could not send the affidavit to the contractor.", variant: "destructive" });
+    }
+  };
+
   const handleMergeServiceDocuments = async () => {
     setIsMergingServiceDocs(true);
     try {
@@ -1946,11 +2101,16 @@ export default function JobDetailsPage() {
   };
 
   const handleEmailInvoice = async (invoice) => {
-    // Get client email from contact or job
-    const clientEmail = job?.contact_email;
+    // Get client email from multiple sources
+    const clientEmail = job?.contact_email ||
+      job?.submitted_by?.email ||
+      client?.contact_email ||
+      client?.email ||
+      (Array.isArray(client?.contacts) && client.contacts.find(c => c.primary)?.email) ||
+      (Array.isArray(client?.contacts) && client.contacts[0]?.email);
 
     if (!clientEmail) {
-      toast({ variant: 'destructive', title: 'No Email', description: 'No client email address found for this job.' });
+      toast({ variant: 'destructive', title: 'No Email', description: 'No client email address found. Please add a contact email to the client or job.' });
       return;
     }
 
@@ -2004,8 +2164,14 @@ export default function JobDetailsPage() {
         activity_log: [...(prev.activity_log || []), newLogEntry]
       }));
 
-      // Then send email
-      const clientEmail = job?.contact_email;
+      // Then send email - check multiple sources for client email
+      const clientEmail = job?.contact_email ||
+        job?.submitted_by?.email ||
+        client?.contact_email ||
+        client?.email ||
+        (Array.isArray(client?.contacts) && client.contacts.find(c => c.primary)?.email) ||
+        (Array.isArray(client?.contacts) && client.contacts[0]?.email);
+
       if (clientEmail) {
         await InvoiceManager.sendInvoiceEmail(invoice.id, clientEmail, {
           invoice_number: invoice.invoice_number,
@@ -2015,7 +2181,7 @@ export default function JobDetailsPage() {
         toast({ title: 'Invoice Issued & Email Queued', description: `Invoice issued and email queued for ${clientEmail}` });
         await refreshData();
       } else {
-        toast({ title: 'Invoice Issued', description: 'Invoice issued but no email address found for client.' });
+        toast({ title: 'Invoice Issued', description: 'Invoice issued but no email address found for client. Please add a contact email.' });
       }
     } catch (error) {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to issue and email invoice.' });
@@ -2451,12 +2617,7 @@ export default function JobDetailsPage() {
           </div>
         </div>
 
-        {/* Job Share Chain */}
-        {job?.job_share_chain?.is_shared && currentUser?.company_id && (
-          <div className="mb-6">
-            <JobShareChain job={job} currentCompanyId={currentUser.company_id} />
-          </div>
-        )}
+        {/* Job Share Chain removed - subtle share icon shown next to client name instead */}
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -2618,6 +2779,9 @@ export default function JobDetailsPage() {
                           </Link>
                         ) : (
                           'N/A'
+                        )}
+                        {job?.share_chain && (
+                          <Share2 className="w-3.5 h-3.5 text-blue-500" title="Shared Job" />
                         )}
                       </p>
 
@@ -3068,10 +3232,22 @@ export default function JobDetailsPage() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-medium text-slate-900">{doc.title}</span>
-                                {doc.is_signed && (
+                                {doc.signed_by_partner && (
+                                  <Badge variant="default" className="bg-blue-600 text-white gap-1">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Signed by Partner
+                                  </Badge>
+                                )}
+                                {doc.is_signed && !doc.signed_by_partner && (
                                   <Badge variant="default" className="bg-green-600 text-white gap-1">
                                     <CheckCircle2 className="w-3 h-3" />
                                     Signed
+                                  </Badge>
+                                )}
+                                {doc.needs_signature && !doc.is_signed && (
+                                  <Badge variant="default" className="bg-red-600 text-white gap-1">
+                                    <FileEdit className="w-3 h-3" />
+                                    Signature Required
                                   </Badge>
                                 )}
                               </div>
@@ -3112,9 +3288,32 @@ export default function JobDetailsPage() {
                                   className="flex items-center gap-2 cursor-pointer"
                                 >
                                   <Share2 className="w-4 h-4" />
-                                  Share
+                                  Share Link
                                 </DropdownMenuItem>
-                                {!doc.is_signed && (
+                                {job?.share_chain?.child_job_id && !doc.needs_signature && !doc.signed_by_partner && (
+                                  <DropdownMenuItem
+                                    onClick={() => handleSendToContractor(doc)}
+                                    className="flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <Send className="w-4 h-4" />
+                                    Send to Contractor
+                                  </DropdownMenuItem>
+                                )}
+                                {doc.needs_signature && !doc.is_signed && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem asChild>
+                                      <Link
+                                        to={createPageUrl(`SignExternalAffidavit?fileUrl=${encodeURIComponent(doc.file_url)}&jobId=${job.id}&docId=${doc.id}`)}
+                                        className="flex items-center gap-2 cursor-pointer"
+                                      >
+                                        <FileEdit className="w-4 h-4" />
+                                        Sign Affidavit
+                                      </Link>
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                                {!doc.is_signed && !doc.needs_signature && (
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
@@ -3376,24 +3575,53 @@ export default function JobDetailsPage() {
                       </div>
                     );
                   } else {
-                    // Legacy: If no invoice exists, show save button
+                    // If no invoice exists, show Save and Create Invoice buttons
                     return (
-                      <Button variant="outline" size="sm" onClick={saveInvoiceItems} className="gap-2 relative">
-                        {areInvoiceItemsDirty && !invoiceSaved && (
-                          <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                          </span>
-                        )}
-                        {invoiceSaved ? (
-                          <>
-                            <CheckCircle className="w-4 h-4 text-green-600" />
-                            Saved
-                          </>
-                        ) : (
-                          'Save Invoice'
-                        )}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={saveInvoiceItems}
+                          className="gap-2 relative"
+                          disabled={isCreatingInvoice}
+                        >
+                          {areInvoiceItemsDirty && !invoiceSaved && (
+                            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                            </span>
+                          )}
+                          {invoiceSaved ? (
+                            <>
+                              <CheckCircle className="w-4 h-4 text-green-600" />
+                              Saved
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-4 h-4" />
+                              Save
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleCreateInvoice}
+                          className="gap-2 bg-slate-900 hover:bg-slate-800"
+                          disabled={isCreatingInvoice || lineItems.length === 0}
+                        >
+                          {isCreatingInvoice ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Creating...
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-4 h-4" />
+                              Create Invoice
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     );
                   }
                 })()}
@@ -3547,8 +3775,103 @@ export default function JobDetailsPage() {
                     </>
                   );
                 } else {
-                  // Legacy: Display editable line items from job data for jobs without invoices
-                  // ... existing legacy code ...
+                  // Display editable line items for jobs without invoices
+                  return (
+                    <div className="space-y-4">
+                      <div className="space-y-3">
+                        {Array.isArray(lineItems) && lineItems.map((item, index) => (
+                          <div key={index} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                            <div className="flex-1 space-y-2">
+                              <div className="flex gap-2">
+                                <Input
+                                  placeholder="Description"
+                                  value={item.description || ''}
+                                  onChange={(e) => handleLineItemChange(index, 'description', e.target.value)}
+                                  className="flex-1"
+                                />
+                                {invoicePresets && invoicePresets.length > 0 && (
+                                  <select
+                                    className="px-2 py-1 text-sm border rounded-md bg-white"
+                                    value=""
+                                    onChange={(e) => {
+                                      if (e.target.value) {
+                                        handlePresetSelect(index, e.target.value);
+                                      }
+                                    }}
+                                  >
+                                    <option value="">Presets</option>
+                                    {invoicePresets.map((preset, i) => (
+                                      <option key={i} value={preset.description}>
+                                        {preset.description} (${preset.rate || preset.default_amount || 0})
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                              <div className="flex gap-2 items-center">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs text-slate-500">Qty:</span>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    value={item.quantity || 1}
+                                    onChange={(e) => handleLineItemChange(index, 'quantity', parseInt(e.target.value) || 1)}
+                                    className="w-16 text-center"
+                                  />
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs text-slate-500">Rate:</span>
+                                  <div className="relative">
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={item.rate || 0}
+                                      onChange={(e) => handleLineItemChange(index, 'rate', parseFloat(e.target.value) || 0)}
+                                      className="w-24 pl-5"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 ml-auto">
+                                  <span className="text-sm font-medium">
+                                    ${((item.quantity || 1) * (item.rate || 0)).toFixed(2)}
+                                  </span>
+                                </div>
+                                {lineItems.length > 1 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleRemoveLineItem(index)}
+                                    className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleAddLineItem}
+                        className="gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Line Item
+                      </Button>
+
+                      <div className="border-t pt-4">
+                        <div className="flex justify-between items-center">
+                          <span className="font-semibold text-slate-900">Total:</span>
+                          <span className="text-xl font-bold text-slate-900">${totalFee.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
                 }
               })()}
               </CardContent>
@@ -3707,19 +4030,28 @@ export default function JobDetailsPage() {
                       >
                         <div className="flex justify-between items-start">
                           <span className="text-slate-600 text-sm">Case Number:</span>
-                          <span className="font-medium text-sm text-right">{courtCase?.case_number || 'N/A'}</span>
+                          {(courtCase?.case_number || job?.case_number) ? (
+                            <Link
+                              to={`/jobs?search=${encodeURIComponent(courtCase?.case_number || job?.case_number)}&view=case`}
+                              className="font-medium text-sm text-right text-blue-600 hover:text-blue-800 hover:underline"
+                            >
+                              {courtCase?.case_number || job?.case_number}
+                            </Link>
+                          ) : (
+                            <span className="font-medium text-sm text-right">N/A</span>
+                          )}
                         </div>
                         <div className="flex justify-between items-start">
                           <span className="text-slate-600 text-sm">Court:</span>
-                          <span className="font-medium text-sm text-right">{courtCase?.court_name || 'N/A'}</span>
+                          <span className="font-medium text-sm text-right">{courtCase?.court_name || job?.court_name || 'N/A'}</span>
                         </div>
                         <div className="flex justify-between items-start">
                           <span className="text-slate-600 text-sm">Plaintiff:</span>
-                          <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.plaintiff || 'N/A'}</span>
+                          <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.plaintiff || job?.plaintiff || 'N/A'}</span>
                         </div>
                         <div className="flex justify-between items-start">
                           <span className="text-slate-600 text-sm">Defendant:</span>
-                          <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.defendant || 'N/A'}</span>
+                          <span className="font-medium text-sm text-right max-w-[60%]">{courtCase?.defendant || job?.defendant || 'N/A'}</span>
                         </div>
                       </motion.div>
                     )}
