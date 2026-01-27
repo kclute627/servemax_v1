@@ -29,6 +29,7 @@ import { createPageUrl } from "@/utils";
 import { updateSharedJobStatus } from "@/api/functions";
 
 import JobTypeSection from "../components/jobs/JobTypeSection";
+import { PendingShareRequests } from "../components/JobSharing";
 import { useGlobalData } from "../components/GlobalDataContext"; // Changed from useJobs to useGlobalData
 import { JOB_TYPES, JOB_TYPE_LABELS } from "@/firebase/schemas";
 
@@ -278,6 +279,11 @@ export default function JobsPage() {
               </Link>
             </div>
           </div>
+
+          {/* Pending Job Share Requests */}
+          {companyData?.id && (
+            <PendingShareRequests companyId={companyData.id} />
+          )}
 
           {/* Search - only show as separate section when multiple job types */}
           {hasMultipleJobTypes && (

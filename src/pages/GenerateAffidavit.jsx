@@ -302,14 +302,23 @@ export default function GenerateAffidavitPage() {
         if (latestServedAttempt.server_id) {
             const server = employees.find(e => e.id === latestServedAttempt.server_id);
             if (server) {
-                serverName = `${server.first_name} ${server.last_name}`;
+                serverName = `${server.first_name || ''} ${server.last_name || ''}`.trim() || 'Unknown Server';
                 serverLicense = server.license_number || '';
                 serverObject = server;
             } else {
+                // Cross-company shared job: employee belongs to another company
                 serverName = latestServedAttempt.server_name_manual || 'Unknown Server';
             }
         } else if (latestServedAttempt.server_name_manual) {
             serverName = latestServedAttempt.server_name_manual;
+        }
+
+        // Final guard: never display "undefined" in any form
+        if (!serverName || serverName.toLowerCase().includes('undefined')) {
+            serverName = latestServedAttempt.server_name_manual || 'Unknown Server';
+            if (serverName.toLowerCase().includes('undefined')) {
+                serverName = 'Unknown Server';
+            }
         }
     }
 

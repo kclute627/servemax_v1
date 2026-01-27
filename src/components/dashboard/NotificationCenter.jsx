@@ -26,10 +26,12 @@ import {
   User
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useGlobalData } from '../GlobalDataContext';
 
 const NotificationCenter = ({ companyId }) => {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { refreshData } = useGlobalData();
   const [partnershipRequests, setPartnershipRequests] = useState([]);
   const [jobShareRequests, setJobShareRequests] = useState([]);
   const [clientRegistrations, setClientRegistrations] = useState([]);
@@ -177,6 +179,10 @@ const NotificationCenter = ({ companyId }) => {
     try {
       const respond = httpsCallable(functions, 'respondToShareRequest');
       await respond({ requestId, accept });
+
+      if (accept) {
+        await refreshData();
+      }
 
       toast({
         title: accept ? "Job Accepted" : "Job Declined",
@@ -339,56 +345,88 @@ const NotificationCenter = ({ companyId }) => {
           ))}
 
           {/* Job Share Requests */}
-          {jobShareRequests.map((request) => (
-            <div
-              key={request.id}
-              className="bg-white rounded-lg border border-green-200 p-4 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3 flex-1">
-                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <Briefcase className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                        Job Share Request
-                      </Badge>
-                      {request.auto_assigned && (
-                        <Badge variant="secondary" className="text-xs">Auto-Assigned</Badge>
-                      )}
+          {jobShareRequests.map((request) => {
+            const preview = request.job_preview || {};
+            const formatDue = (d) => { try { return d ? format(new Date(d), 'MMM d, yyyy') : null; } catch { return d; } };
+            const dueFormatted = formatDue(preview.due_date);
+
+            return (
+              <div
+                key={request.id}
+                className="bg-white rounded-xl border border-blue-100 p-5 hover:shadow-md transition-all"
+              >
+                {/* Top: From company + job number */}
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Briefcase className="w-5 h-5 text-blue-600" />
                     </div>
-                    <h4 className="font-semibold text-slate-900 mb-1">
-                      From: {request.requesting_company_name}
-                    </h4>
-                    <div className="space-y-1 mb-2">
-                      <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <MapPin className="w-3 h-3" />
-                        <span>{request.job_preview?.service_address}, {request.job_preview?.city}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                          Job Share Request
+                        </Badge>
+                        {request.shared_job_number && (
+                          <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-300 font-mono text-xs">
+                            #{request.shared_job_number}
+                          </Badge>
+                        )}
+                        {request.auto_assigned && (
+                          <Badge variant="secondary" className="text-xs">Auto-Assigned</Badge>
+                        )}
                       </div>
-                      <div className="text-sm">
-                        <span className="text-slate-600">Fee: </span>
-                        <span className="font-bold text-green-600">${request.proposed_fee}</span>
-                      </div>
+                      <h4 className="font-semibold text-slate-900">
+                        {request.requesting_company_name}
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        {request.created_at?.toDate
+                          ? format(request.created_at.toDate(), 'MMM d, yyyy \'at\' h:mm a')
+                          : 'Recently'}
+                      </p>
                     </div>
-                    <p className="text-xs text-slate-500">
-                      {request.created_at?.toDate &&
-                        format(request.created_at.toDate(), 'MMM d, yyyy h:mm a')
-                      }
-                    </p>
                   </div>
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
+
+                {/* Info grid */}
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div className="col-span-1 bg-slate-50 rounded-lg p-2.5">
+                    <div className="flex items-start gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">Location</p>
+                        <p className="text-xs font-medium text-slate-900 truncate">{preview.service_address || 'N/A'}</p>
+                        <p className="text-xs text-slate-500">{[preview.city, preview.state].filter(Boolean).join(', ')}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-2.5">
+                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">Rate</p>
+                    <p className="text-base font-bold text-green-700">${Number(request.proposed_fee || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg p-2.5">
+                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">Due</p>
+                    <p className="text-xs font-semibold text-slate-900">{dueFormatted || 'Not set'}</p>
+                    {preview.documents_count > 0 && (
+                      <p className="text-[10px] text-slate-500">{preview.documents_count} pages</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2">
                   <Button
                     size="sm"
                     onClick={() => handleJobShareResponse(request.id, true)}
                     disabled={responding === request.id}
-                    className="bg-green-600 hover:bg-green-700"
+                    className="flex-1 bg-green-600 hover:bg-green-700 h-9 text-sm font-semibold"
                   >
                     {responding === request.id ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
-                      <CheckCircle className="w-4 h-4" />
+                      <>
+                        <CheckCircle className="w-4 h-4 mr-1.5" />
+                        Accept
+                      </>
                     )}
                   </Button>
                   <Button
@@ -396,13 +434,21 @@ const NotificationCenter = ({ companyId }) => {
                     variant="outline"
                     onClick={() => handleJobShareResponse(request.id, false)}
                     disabled={responding === request.id}
+                    className="flex-1 border-slate-300 text-slate-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 h-9 text-sm"
                   >
-                    <XCircle className="w-4 h-4" />
+                    {responding === request.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <XCircle className="w-4 h-4 mr-1.5" />
+                        Decline
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {/* Client Registration Notifications */}
           {clientRegistrations.map((registration) => (

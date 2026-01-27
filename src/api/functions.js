@@ -26,3 +26,7 @@ export const findCourtAddressWithAI = FirebaseFunctions.findCourtAddressWithAI;
 export const signExternalPDF = FirebaseFunctions.signExternalPDF;
 
 export const sendAttemptNotification = FirebaseFunctions.sendAttemptNotification;
+
+export const shareDocumentWithPartner = FirebaseFunctions.shareDocumentWithPartner;
+
+export const backfillPartnerClients = FirebaseFunctions.backfillPartnerClients;

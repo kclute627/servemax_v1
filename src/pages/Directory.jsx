@@ -12,7 +12,7 @@ import { Search, Loader2, Server, MapPin, Phone, Mail, Info, Navigation, Users, 
 import { DirectoryManager } from "@/firebase/schemas";
 import { isValidZipCode, formatDistance } from "@/utils/geolocation";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db, functions } from '../firebase/config';
 import { httpsCallable } from 'firebase/functions';
 
@@ -36,12 +36,16 @@ export default function DirectoryPage() {
 
     const fetchPartnersAndRequests = async () => {
       try {
-        // Fetch existing partners
-        const companyDoc = await getDoc(doc(db, 'companies', user.company_id));
-        if (companyDoc.exists()) {
-          const partnersList = companyDoc.data().job_share_partners || [];
-          setPartners(partnersList.map(p => p.partner_company_id));
-        }
+        // Fetch existing partners from client records
+        const partnerClientsSnapshot = await getDocs(
+          query(
+            collection(db, 'companies'),
+            where('created_by', '==', user.company_id),
+            where('is_job_share_partner', '==', true)
+          )
+        );
+        const partnerIds = partnerClientsSnapshot.docs.map(d => d.data().job_sharing_partner_id).filter(Boolean);
+        setPartners(partnerIds);
 
         // Fetch pending partnership requests (both sent and received)
         const requestsRef = collection(db, 'partnership_requests');
@@ -162,11 +166,16 @@ export default function DirectoryPage() {
 
       // Refresh partners and pending requests
       if (user?.company_id) {
-        const companyDoc = await getDoc(doc(db, 'companies', user.company_id));
-        if (companyDoc.exists()) {
-          const partnersList = companyDoc.data().job_share_partners || [];
-          setPartners(partnersList.map(p => p.partner_company_id));
-        }
+        // Refresh existing partners from client records
+        const partnerClientsSnapshot = await getDocs(
+          query(
+            collection(db, 'companies'),
+            where('created_by', '==', user.company_id),
+            where('is_job_share_partner', '==', true)
+          )
+        );
+        const partnerIds = partnerClientsSnapshot.docs.map(d => d.data().job_sharing_partner_id).filter(Boolean);
+        setPartners(partnerIds);
 
         // Refresh pending requests
         const requestsRef = collection(db, 'partnership_requests');

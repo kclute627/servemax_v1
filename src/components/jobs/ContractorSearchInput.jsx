@@ -49,6 +49,11 @@ const getCompanyTypeBadgeColor = (companyType) => {
 };
 
 export default function ContractorSearchInput({ value, onValueChange, onContractorSelected, selectedContractor, currentClientId }) {
+  // Helper to check if a contractor is a job sharing partner
+  // Partners are now stored as client records with is_job_share_partner flag
+  const isJobSharePartner = (contractor) => {
+    return contractor?.is_job_share_partner === true;
+  };
   const [filteredContractors, setFilteredContractors] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -94,17 +99,18 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
 
     setIsLoading(true);
     try {
-      // Query companies - Firestore doesn't support case-insensitive search natively
-      // so we fetch all and filter client-side (but only when user searches, not on mount)
+      // Get all companies (clients + partner records) via secure query
+      // Partner client records are in the same companies collection with is_job_share_partner flag
       const allCompanies = await Company.list();
 
       const filtered = allCompanies.filter(c => {
-        const matchesSearch = c.company_name.toLowerCase().includes(searchTerm.toLowerCase());
+        // Check both company_name and name fields (different companies may use different fields)
+        const companyName = c.company_name || c.name || '';
+        const matchesSearch = companyName.toLowerCase().includes(searchTerm.toLowerCase());
         const notCurrentClient = c.id !== currentClientId;
         return matchesSearch && notCurrentClient;
       });
 
-      console.log("Search term:", searchTerm, "Filtered results:", filtered.length, "companies"); // Debug log
       setFilteredContractors(filtered);
       setShowDropdown(true);
     } catch (error) {
@@ -145,7 +151,7 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
   }, [value, searchContractors]);
 
   const handleSelect = (contractor) => {
-    onValueChange(contractor.company_name);
+    onValueChange(contractor.company_name || contractor.name);
     setShowDropdown(false);
     onContractorSelected(contractor);
   };
@@ -191,9 +197,9 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h4 className="font-semibold text-slate-900">{selectedContractor.company_name}</h4>
-                  {selectedContractor.job_sharing_opt_in && (
-                    <Users className="w-4 h-4 text-blue-600" title="Accepting jobs from ServeMax users" />
+                  <h4 className="font-semibold text-slate-900">{selectedContractor.company_name || selectedContractor.name}</h4>
+                  {isJobSharePartner(selectedContractor) && (
+                    <Users className="w-4 h-4 text-blue-600" title="Job Sharing Partner" />
                   )}
                 </div>
                 <Badge className={`mt-1 ${getCompanyTypeBadgeColor(selectedContractor.company_type)}`}>
@@ -308,12 +314,12 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
                         <HardHat className="w-4 h-4 text-slate-400 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-medium text-slate-900 truncate">{contractor.company_name}</p>
+                            <p className="font-medium text-slate-900 truncate">{contractor.company_name || contractor.name}</p>
                             <Badge className={`text-xs ${getCompanyTypeBadgeColor(contractor.company_type)}`}>
                               {getCompanyTypeLabel(contractor)}
                             </Badge>
-                            {contractor.job_sharing_opt_in && (
-                              <Users className="w-3 h-3 text-blue-600 flex-shrink-0" title="Accepting jobs from ServeMax users" />
+                            {isJobSharePartner(contractor) && (
+                              <Users className="w-3 h-3 text-blue-600 flex-shrink-0" title="Job Sharing Partner" />
                             )}
                           </div>
                           {primaryAddress && (
@@ -336,7 +342,7 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
               </div>
             ) : (
               <div className="p-3 text-center text-slate-500 text-sm">
-                {contractors.length === 0 ? "No contractors found in database." : "No matching contractors found."}
+                No matching contractors found.
               </div>
             )}
           </CardContent>

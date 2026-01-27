@@ -86,7 +86,7 @@ import SendJobEmailDialog from '../components/jobs/SendJobEmailDialog';
 import ContractorSearchInput from '../components/jobs/ContractorSearchInput';
 import DocumentUpload from '../components/jobs/DocumentUpload';
 // FIREBASE TRANSITION: This will become a call to a Firebase Cloud Function.
-import { generateFieldSheet, mergePDFs, sendAttemptNotification } from "@/api/functions";
+import { generateFieldSheet, mergePDFs, sendAttemptNotification, shareDocumentWithPartner } from "@/api/functions";
 // FIREBASE TRANSITION: This will be replaced with Firebase Storage's `uploadBytes` and `getDownloadURL`.
 import { UploadFile } from "@/api/integrations";
 import { motion, AnimatePresence } from 'framer-motion';
@@ -751,11 +751,11 @@ export default function JobDetailsPage() {
         jobData.client_id ? Client.findById(jobData.client_id) : Promise.resolve(null),
         jobData.court_case_id ? CourtCase.findById(jobData.court_case_id).catch(e => { return null; }) : Promise.resolve(null),
         Document.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { return []; }),
-        Attempt.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { return []; }),
+        Attempt.filter({ job_id: jobId, company_id: user?.company_id }).catch(e => { console.error('Error fetching attempts:', e); return []; }),
         // Use direct lookup if job has invoice_id, otherwise fallback to filter
         jobData.job_invoice_id
           ? Invoice.findById(jobData.job_invoice_id).catch(e => { return null; })
-          : Invoice.filter({ job_ids: jobId }).then(invoices => invoices[0] || null).catch(e => { return null; }),
+          : Invoice.filter({ job_ids: jobId, company_id: user?.company_id }).then(invoices => invoices[0] || null).catch(e => { return null; }),
         Employee.list().catch(e => { return []; }),
         Client.list().catch(e => { return []; }),
         CompanySettings.filter({ setting_key: "invoice_settings" }).catch(e => { return []; }),
@@ -901,6 +901,10 @@ export default function JobDetailsPage() {
   useEffect(() => {
     const urlParams = new URLSearchParams(location.search);
     const jobId = urlParams.get('id');
+    // Check if returning from LogAttempt (timestamp or success param indicates fresh attempt)
+    const hasTimestampParam = urlParams.get('t');
+    const hasSuccessParam = urlParams.get('success');
+    const isReturningFromAttempt = hasTimestampParam || hasSuccessParam;
 
     if (jobId && contextJobs && contextJobs.length > 0) {
       // Look for the job in the context
@@ -924,8 +928,10 @@ export default function JobDetailsPage() {
           setAllEmployees(contextEmployees);
         }
 
-        // Pre-populate attempts from job if available
-        if (Array.isArray(jobFromContext.attempts) && jobFromContext.attempts.length > 0) {
+        // Pre-populate attempts from job ONLY if NOT returning from LogAttempt
+        // When returning from LogAttempt, the context cache might be stale
+        // and the forceRefreshAttempts will fetch fresh data from the collection
+        if (!isReturningFromAttempt && Array.isArray(jobFromContext.attempts) && jobFromContext.attempts.length > 0) {
           setAttempts(jobFromContext.attempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date)));
         }
 
@@ -967,26 +973,52 @@ export default function JobDetailsPage() {
     const urlParams = new URLSearchParams(location.search);
     let jobId = urlParams.get('id');
 
-    // Check for success message
+    // Check for success message and force refresh attempts
     const successType = urlParams.get('success');
-    if (successType === 'attempt_saved') {
-      // Show success message temporarily
-      setTimeout(() => {
-        const alertDiv = document.createElement('div');
-        alertDiv.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-right-2';
-        alertDiv.textContent = 'Attempt saved successfully';
-        document.body.appendChild(alertDiv);
+    const timestampParam = urlParams.get('t');
 
-        // Remove after 3 seconds
+    if (successType === 'attempt_saved' || timestampParam) {
+      // Force refresh attempts from the collection (bypass cache)
+      const forceRefreshAttempts = async () => {
+        if (jobId) {
+          try {
+            console.log('[JobDetails] Force refreshing attempts for job:', jobId);
+            // Query by job_id only - company_id filter was causing mismatches
+            const freshAttempts = await Attempt.filter({ job_id: jobId });
+            console.log('[JobDetails] Fresh attempts from collection:', freshAttempts);
+            // Always set attempts from collection query when force refreshing
+            setAttempts(Array.isArray(freshAttempts)
+              ? freshAttempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))
+              : []);
+          } catch (e) {
+            console.error('Error refreshing attempts:', e);
+          }
+        }
+      };
+
+      // Small delay to ensure component is mounted and initial data load started
+      setTimeout(forceRefreshAttempts, 500);
+
+      // Show success message if attempt was saved
+      if (successType === 'attempt_saved') {
         setTimeout(() => {
-          alertDiv.remove();
-        }, 3000);
+          const alertDiv = document.createElement('div');
+          alertDiv.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-right-2';
+          alertDiv.textContent = 'Attempt saved successfully';
+          document.body.appendChild(alertDiv);
 
-        // Clean up URL
-        const newUrl = new URL(window.location.href);
-        newUrl.searchParams.delete('success');
-        window.history.replaceState({}, '', newUrl.toString());
-      }, 100);
+          // Remove after 3 seconds
+          setTimeout(() => {
+            alertDiv.remove();
+          }, 3000);
+
+          // Clean up URL
+          const newUrl = new URL(window.location.href);
+          newUrl.searchParams.delete('success');
+          newUrl.searchParams.delete('t');
+          window.history.replaceState({}, '', newUrl.toString());
+        }, 100);
+      }
     }
 
     if (jobId) {
@@ -1966,6 +1998,22 @@ export default function JobDetailsPage() {
     }
   };
 
+  const handleSendToContractor = async (doc) => {
+    try {
+      if (!job?.share_chain?.child_job_id) {
+        toast({ title: "No contractor assigned", description: "This job hasn't been shared with a contractor.", variant: "destructive" });
+        return;
+      }
+      const result = await shareDocumentWithPartner({ documentId: doc.id, jobId: job.id });
+      if (result.success) {
+        toast({ title: "Sent to Contractor", description: "The affidavit has been sent to your contractor for signing." });
+      }
+    } catch (error) {
+      console.error('Send to contractor error:', error);
+      toast({ title: "Failed to send", description: error.message || "Could not send the affidavit to the contractor.", variant: "destructive" });
+    }
+  };
+
   const handleMergeServiceDocuments = async () => {
     setIsMergingServiceDocs(true);
     try {
@@ -2569,12 +2617,7 @@ export default function JobDetailsPage() {
           </div>
         </div>
 
-        {/* Job Share Chain */}
-        {job?.job_share_chain?.is_shared && currentUser?.company_id && (
-          <div className="mb-6">
-            <JobShareChain job={job} currentCompanyId={currentUser.company_id} />
-          </div>
-        )}
+        {/* Job Share Chain removed - subtle share icon shown next to client name instead */}
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -2736,6 +2779,9 @@ export default function JobDetailsPage() {
                           </Link>
                         ) : (
                           'N/A'
+                        )}
+                        {job?.share_chain && (
+                          <Share2 className="w-3.5 h-3.5 text-blue-500" title="Shared Job" />
                         )}
                       </p>
 
@@ -3186,10 +3232,22 @@ export default function JobDetailsPage() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-medium text-slate-900">{doc.title}</span>
-                                {doc.is_signed && (
+                                {doc.signed_by_partner && (
+                                  <Badge variant="default" className="bg-blue-600 text-white gap-1">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Signed by Partner
+                                  </Badge>
+                                )}
+                                {doc.is_signed && !doc.signed_by_partner && (
                                   <Badge variant="default" className="bg-green-600 text-white gap-1">
                                     <CheckCircle2 className="w-3 h-3" />
                                     Signed
+                                  </Badge>
+                                )}
+                                {doc.needs_signature && !doc.is_signed && (
+                                  <Badge variant="default" className="bg-red-600 text-white gap-1">
+                                    <FileEdit className="w-3 h-3" />
+                                    Signature Required
                                   </Badge>
                                 )}
                               </div>
@@ -3230,9 +3288,32 @@ export default function JobDetailsPage() {
                                   className="flex items-center gap-2 cursor-pointer"
                                 >
                                   <Share2 className="w-4 h-4" />
-                                  Share
+                                  Share Link
                                 </DropdownMenuItem>
-                                {!doc.is_signed && (
+                                {job?.share_chain?.child_job_id && !doc.needs_signature && !doc.signed_by_partner && (
+                                  <DropdownMenuItem
+                                    onClick={() => handleSendToContractor(doc)}
+                                    className="flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <Send className="w-4 h-4" />
+                                    Send to Contractor
+                                  </DropdownMenuItem>
+                                )}
+                                {doc.needs_signature && !doc.is_signed && (
+                                  <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem asChild>
+                                      <Link
+                                        to={createPageUrl(`SignExternalAffidavit?fileUrl=${encodeURIComponent(doc.file_url)}&jobId=${job.id}&docId=${doc.id}`)}
+                                        className="flex items-center gap-2 cursor-pointer"
+                                      >
+                                        <FileEdit className="w-4 h-4" />
+                                        Sign Affidavit
+                                      </Link>
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                                {!doc.is_signed && !doc.needs_signature && (
                                   <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem

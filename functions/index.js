@@ -1,5 +1,5 @@
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {onDocumentCreated, onDocumentUpdated} = require("firebase-functions/v2/firestore");
 const {defineSecret} = require("firebase-functions/params");
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
@@ -2352,17 +2352,25 @@ exports.autoAssignJobOnCreate = onDocumentCreated(
         }
 
         const companyData = companyDoc.data();
-        if (!companyData.job_share_partners || companyData.job_share_partners.length === 0) {
-          console.log(`Job ${jobId}: No job share partners configured`);
+
+        // Query partner client records from companies collection
+        const partnerClientsSnapshot = await admin.firestore()
+            .collection("companies")
+            .where("created_by", "==", job.company_id)
+            .where("is_job_share_partner", "==", true)
+            .where("relationship_status", "==", "active")
+            .where("auto_assignment_enabled", "==", true)
+            .get();
+
+        if (partnerClientsSnapshot.empty) {
+          console.log(`Job ${jobId}: No auto-assignment partners configured`);
           return null;
         }
 
         // Find eligible partners for this zip
-        const eligiblePartners = companyData.job_share_partners
+        const eligiblePartners = partnerClientsSnapshot.docs
+            .map((d) => ({id: d.id, ...d.data()}))
             .filter((partner) => {
-              if (!partner.auto_assignment_enabled || partner.relationship_status !== "active") {
-                return false;
-              }
               return partner.auto_assignment_zones?.some((zone) =>
                 zone.enabled && zone.zip_codes.includes(serviceZip),
               );
@@ -2384,7 +2392,7 @@ exports.autoAssignJobOnCreate = onDocumentCreated(
         const zone = selectedPartner.auto_assignment_zones
             .find((z) => z.zip_codes.includes(serviceZip));
 
-        console.log(`Job ${jobId}: Auto-assigning to ${selectedPartner.partner_company_name}`);
+        console.log(`Job ${jobId}: Auto-assigning to ${selectedPartner.company_name}`);
 
         // Create job share request
         const request = {
@@ -2392,9 +2400,9 @@ exports.autoAssignJobOnCreate = onDocumentCreated(
           requesting_company_id: job.company_id,
           requesting_user_id: job.created_by,
           requesting_company_name: companyData.name || companyData.company_name,
-          target_company_id: selectedPartner.partner_company_id,
-          target_user_id: selectedPartner.partner_user_id,
-          target_company_name: selectedPartner.partner_company_name,
+          target_company_id: selectedPartner.job_sharing_partner_id,
+          target_user_id: null,
+          target_company_name: selectedPartner.company_name || selectedPartner.name,
           status: selectedPartner.requires_acceptance ? "pending" : "accepted",
           proposed_fee: zone.default_fee,
           auto_assigned: true,
@@ -2403,6 +2411,7 @@ exports.autoAssignJobOnCreate = onDocumentCreated(
             new Date(Date.now() + 24 * 60 * 60 * 1000) :
             null,
           job_preview: {
+            recipient_name: job.recipient?.name || "",
             service_address: job.addresses[0].address1,
             city: job.addresses[0].city,
             state: job.addresses[0].state,
@@ -2436,7 +2445,7 @@ exports.autoAssignJobOnCreate = onDocumentCreated(
             // Fetch partner company email
             const partnerCompanyDoc = await admin.firestore()
                 .collection("companies")
-                .doc(selectedPartner.partner_company_id)
+                .doc(selectedPartner.job_sharing_partner_id)
                 .get();
 
             if (partnerCompanyDoc.exists && partnerCompanyDoc.data().email) {
@@ -2450,6 +2459,7 @@ exports.autoAssignJobOnCreate = onDocumentCreated(
                   requires_acceptance: selectedPartner.requires_acceptance,
                   from_company_name: companyData.name || companyData.company_name,
                   job_preview: {
+                    recipient_name: job.recipient?.name || "",
                     service_address: job.addresses?.[0]?.address1 || "",
                     city: job.addresses?.[0]?.city || "",
                     state: job.addresses?.[0]?.state || "",
@@ -2489,8 +2499,8 @@ async function updateJobWithShare(jobId, job, partner, fee, companyData) {
     company_name: companyData.name || companyData.company_name || "Unknown",
     user_id: job.created_by,
     user_name: job.created_by_name || "Unknown",
-    shared_with_company_id: partner.partner_company_id,
-    shared_with_user_id: partner.partner_user_id,
+    shared_with_company_id: partner.job_sharing_partner_id || partner.partner_company_id,
+    shared_with_user_id: null,
     invoice_amount: job.total_fee || job.service_fee || 0,
     shared_at: admin.firestore.FieldValue.serverTimestamp(),
     accepted_at: admin.firestore.FieldValue.serverTimestamp(),
@@ -2500,9 +2510,9 @@ async function updateJobWithShare(jobId, job, partner, fee, companyData) {
 
   const partnerChainEntry = {
     level: 1,
-    company_id: partner.partner_company_id,
-    company_name: partner.partner_company_name,
-    user_id: partner.partner_user_id,
+    company_id: partner.job_sharing_partner_id || partner.partner_company_id,
+    company_name: partner.company_name || partner.partner_company_name,
+    user_id: null,
     shared_with_company_id: null,
     shared_with_user_id: null,
     invoice_amount: fee,
@@ -2513,13 +2523,13 @@ async function updateJobWithShare(jobId, job, partner, fee, companyData) {
   await admin.firestore().collection("jobs").doc(jobId).update({
     "job_share_chain": {
       is_shared: true,
-      currently_assigned_to_user_id: partner.partner_user_id,
-      currently_assigned_to_company_id: partner.partner_company_id,
+      currently_assigned_to_user_id: null,
+      currently_assigned_to_company_id: partner.job_sharing_partner_id || partner.partner_company_id,
       chain: [chainEntry, partnerChainEntry],
       total_levels: 1,
     },
-    "assigned_to": partner.partner_user_id,
-    "assigned_server_id": partner.partner_user_id,
+    "assigned_to": partner.job_sharing_partner_id || partner.partner_company_id,
+    "assigned_server_id": partner.job_sharing_partner_id || partner.partner_company_id,
     "updated_at": admin.firestore.FieldValue.serverTimestamp(),
   });
 }
@@ -2534,10 +2544,22 @@ exports.createJobShareRequest = onCall(async (request) => {
       throw new HttpsError("unauthenticated", "User must be authenticated");
     }
 
-    const {jobId, targetCompanyId, targetUserId, proposedFee, expiresInHours} = request.data;
+    const {
+      jobId,
+      targetCompanyId,
+      targetUserId,
+      proposedFee,
+      expiresInHours,
+      // Carbon copy fields
+      createCarbonCopy,
+      sourceJobSnapshot,
+      sharedJobNumber,
+      shareChainRootJobId,
+      shareChainLevel,
+    } = request.data;
 
-    // Validate required fields
-    if (!jobId || !targetCompanyId || !targetUserId || !proposedFee) {
+    // Validate required fields (use explicit null/undefined check for proposedFee since 0 is valid)
+    if (!jobId || !targetCompanyId || !targetUserId || proposedFee === undefined || proposedFee === null) {
       throw new HttpsError(
           "invalid-argument",
           "Missing required fields: jobId, targetCompanyId, targetUserId, proposedFee",
@@ -2545,6 +2567,28 @@ exports.createJobShareRequest = onCall(async (request) => {
     }
 
     console.log(`Creating job share request for job ${jobId} to company ${targetCompanyId}`);
+
+    // Get the user's company_id - try token claim first, then lookup from Firestore
+    let userCompanyId = request.auth.token.company_id;
+    if (!userCompanyId) {
+      // Look up from user's Firestore document
+      const userDoc = await admin.firestore()
+          .collection("users")
+          .doc(request.auth.uid)
+          .get();
+      if (userDoc.exists) {
+        userCompanyId = userDoc.data().company_id;
+      }
+    }
+
+    if (!userCompanyId) {
+      throw new HttpsError(
+          "failed-precondition",
+          "User does not have a company_id assigned",
+      );
+    }
+
+    console.log(`User ${request.auth.uid} company_id: ${userCompanyId}`);
 
     // Get job and validate ownership/sharing rights
     const jobDoc = await admin.firestore().collection("jobs").doc(jobId).get();
@@ -2557,8 +2601,8 @@ exports.createJobShareRequest = onCall(async (request) => {
     // Check if the requesting user's company can share this job
     const canShare = job.job_share_chain?.chain ?
       job.job_share_chain.chain[job.job_share_chain.chain.length - 1].company_id ===
-        request.auth.token.company_id :
-      job.company_id === request.auth.token.company_id;
+        userCompanyId :
+      job.company_id === userCompanyId;
 
     if (!canShare) {
       throw new HttpsError(
@@ -2570,7 +2614,7 @@ exports.createJobShareRequest = onCall(async (request) => {
     // Get company data for proper naming
     const companyDoc = await admin.firestore()
         .collection("companies")
-        .doc(request.auth.token.company_id)
+        .doc(userCompanyId)
         .get();
 
     const companyData = companyDoc.exists ? companyDoc.data() : {};
@@ -2586,7 +2630,7 @@ exports.createJobShareRequest = onCall(async (request) => {
     // Create the share request
     const shareRequest = {
       job_id: jobId,
-      requesting_company_id: request.auth.token.company_id,
+      requesting_company_id: userCompanyId,
       requesting_user_id: request.auth.uid,
       requesting_company_name: companyData.name || companyData.company_name || "Unknown",
       target_company_id: targetCompanyId,
@@ -2600,6 +2644,7 @@ exports.createJobShareRequest = onCall(async (request) => {
         new Date(Date.now() + expiresInHours * 60 * 60 * 1000) :
         new Date(Date.now() + 24 * 60 * 60 * 1000),
       job_preview: {
+        recipient_name: job.recipient?.name || "",
         service_address: job.addresses?.[0]?.address1 || "",
         city: job.addresses?.[0]?.city || "",
         state: job.addresses?.[0]?.state || "",
@@ -2610,6 +2655,12 @@ exports.createJobShareRequest = onCall(async (request) => {
         special_instructions: job.service_instructions || "",
       },
       created_at: admin.firestore.FieldValue.serverTimestamp(),
+      // Carbon copy fields
+      create_carbon_copy: createCarbonCopy || false,
+      source_job_snapshot: createCarbonCopy ? sourceJobSnapshot : null,
+      shared_job_number: sharedJobNumber || job.job_number,
+      share_chain_root_job_id: shareChainRootJobId || jobId,
+      share_chain_level: shareChainLevel || 1,
     };
 
     const requestRef = await admin.firestore()
@@ -2677,6 +2728,25 @@ exports.respondToShareRequest = onCall(async (request) => {
 
     console.log(`Responding to share request ${requestId}: ${accept ? "accept" : "decline"}`);
 
+    // Get the user's company_id - try token claim first, then lookup from Firestore
+    let userCompanyId = request.auth.token.company_id;
+    if (!userCompanyId) {
+      const userDoc = await admin.firestore()
+          .collection("users")
+          .doc(request.auth.uid)
+          .get();
+      if (userDoc.exists) {
+        userCompanyId = userDoc.data().company_id;
+      }
+    }
+
+    if (!userCompanyId) {
+      throw new HttpsError(
+          "failed-precondition",
+          "User does not have a company_id assigned",
+      );
+    }
+
     // Get and validate request
     const requestDoc = await admin.firestore()
         .collection("job_share_requests")
@@ -2690,7 +2760,7 @@ exports.respondToShareRequest = onCall(async (request) => {
     const shareRequest = requestDoc.data();
 
     // Validate that the user is the target of this request
-    if (shareRequest.target_company_id !== request.auth.token.company_id) {
+    if (shareRequest.target_company_id !== userCompanyId) {
       throw new HttpsError(
           "permission-denied",
           "You are not authorized to respond to this request",
@@ -2722,7 +2792,7 @@ exports.respondToShareRequest = onCall(async (request) => {
         final_fee: finalFee,
       });
 
-      // Update job with share chain
+      // Get the source job
       const jobDoc = await admin.firestore()
           .collection("jobs")
           .doc(shareRequest.job_id)
@@ -2734,59 +2804,215 @@ exports.respondToShareRequest = onCall(async (request) => {
 
       const job = jobDoc.data();
 
-      // Build new chain entry
-      const currentLevel = job.job_share_chain?.total_levels || 0;
-      const newChainEntry = {
-        level: currentLevel + 1,
-        company_id: shareRequest.target_company_id,
-        company_name: shareRequest.target_company_name,
-        user_id: shareRequest.target_user_id,
-        shared_with_company_id: null,
-        shared_with_user_id: null,
-        invoice_amount: finalFee,
-        sees_client_as: shareRequest.requesting_company_name + " - Process Serving",
-        auto_assigned: false,
-      };
+      // ========================================================================
+      // CARBON COPY FLOW: Create a separate job copy for the accepting company
+      // ========================================================================
+      if (shareRequest.create_carbon_copy) {
+        console.log(`Creating carbon copy job for ${shareRequest.target_company_name}`);
 
-      // Get or create initial chain
-      let chain = job.job_share_chain?.chain || [
-        {
-          level: 0,
-          company_id: job.company_id,
-          company_name: job.company_name || "Unknown",
-          user_id: job.created_by,
-          shared_with_company_id: shareRequest.target_company_id,
-          shared_with_user_id: shareRequest.target_user_id,
-          invoice_amount: job.total_fee || job.service_fee || 0,
-          shared_at: admin.firestore.FieldValue.serverTimestamp(),
-          accepted_at: admin.firestore.FieldValue.serverTimestamp(),
-          sees_client_as: job.client_name || "Unknown Client",
-        },
-      ];
+        // 1. Find or create the requesting company as a client in the target company's system
+        // Clients are stored in the "companies" collection with created_by = owner company
+        let clientId = null;
+        const existingClients = await admin.firestore()
+            .collection("companies")
+            .where("created_by", "==", shareRequest.target_company_id)
+            .where("job_sharing_partner_id", "==", shareRequest.requesting_company_id)
+            .get();
 
-      // Update the last entry to show it's been shared
-      chain[chain.length - 1].shared_with_company_id = shareRequest.target_company_id;
-      chain[chain.length - 1].shared_with_user_id = shareRequest.target_user_id;
-      chain[chain.length - 1].accepted_at = admin.firestore.FieldValue.serverTimestamp();
+        if (!existingClients.empty) {
+          clientId = existingClients.docs[0].id;
+          console.log(`Found existing client record: ${clientId}`);
+        } else {
+          // Create new client record in companies collection (matches app's SecureClientAccess pattern)
+          const newClientRef = await admin.firestore().collection("companies").add({
+            company_name: shareRequest.requesting_company_name,
+            name: shareRequest.requesting_company_name,
+            company_type: "client",
+            client_type: "job_sharing_partner",
+            job_sharing_partner_id: shareRequest.requesting_company_id,
+            created_by: shareRequest.target_company_id,
+            created_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          clientId = newClientRef.id;
+          console.log(`Created new client record: ${clientId}`);
+        }
 
-      // Add new entry
-      chain.push(newChainEntry);
+        // 2. Get the source job snapshot data (from request or from job)
+        const sourceSnapshot = shareRequest.source_job_snapshot || {};
 
-      // Update job
-      await jobDoc.ref.update({
-        "job_share_chain": {
-          is_shared: true,
-          currently_assigned_to_user_id: shareRequest.target_user_id,
-          currently_assigned_to_company_id: shareRequest.target_company_id,
-          chain: chain,
-          total_levels: currentLevel + 1,
-        },
-        "assigned_to": shareRequest.target_user_id,
-        "assigned_server_id": shareRequest.target_user_id,
-        "updated_at": admin.firestore.FieldValue.serverTimestamp(),
-      });
+        // 3. Create the carbon copy job
+        const carbonCopyJob = {
+          // Core fields
+          job_type: sourceSnapshot.job_type || job.job_type || "process_serving",
+          job_number: shareRequest.shared_job_number || job.job_number, // SAME job number!
+          company_id: shareRequest.target_company_id,
+          client_id: clientId,
+          client_name: shareRequest.requesting_company_name,
+          created_by: request.auth.uid,
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
 
-      console.log(`Job ${shareRequest.job_id} share chain updated`);
+          // Process serving fields
+          addresses: sourceSnapshot.addresses || job.addresses || [],
+          recipient: sourceSnapshot.recipient || job.recipient || {},
+          plaintiff: sourceSnapshot.plaintiff || job.plaintiff || "",
+          defendant: sourceSnapshot.defendant || job.defendant || "",
+          case_number: sourceSnapshot.case_number || job.case_number || "",
+          court_name: sourceSnapshot.court_name || job.court_name || "",
+          court_county: sourceSnapshot.court_county || job.court_county || "",
+          court_address: sourceSnapshot.court_address || job.court_address || {},
+          court_case_id: null, // Carbon copies don't reference source company's court case
+          service_instructions: sourceSnapshot.service_instructions || job.service_instructions || "",
+          first_attempt_instructions: sourceSnapshot.first_attempt_instructions || job.first_attempt_instructions || "",
+          first_attempt_due_date: sourceSnapshot.first_attempt_due_date || job.first_attempt_due_date || "",
+          priority: sourceSnapshot.priority || job.priority || "standard",
+          due_date: sourceSnapshot.due_date || job.due_date || "",
+          notes: sourceSnapshot.notes || job.notes || "",
+
+          // Assignment
+          server_type: "employee",
+          assigned_server_id: "unassigned",
+          server_name: "Unassigned",
+
+          // Status
+          status: "pending",
+          is_closed: false,
+
+          // Fee (what the accepting company will charge)
+          service_fee: finalFee,
+          total_fee: finalFee,
+
+          // Carbon copy link - connects this job to the source
+          share_chain: {
+            root_job_id: shareRequest.share_chain_root_job_id || shareRequest.job_id,
+            root_company_id: job.share_chain?.root_company_id || job.company_id,
+            shared_job_number: shareRequest.shared_job_number || job.job_number,
+            level: shareRequest.share_chain_level || 1,
+            parent_job_id: shareRequest.job_id,
+            parent_company_id: shareRequest.requesting_company_id,
+            child_job_id: null,
+            child_company_id: null,
+            all_job_ids: [], // Will update after creation
+            sync_enabled: true,
+          },
+
+          // Activity log
+          activity_log: [{
+            timestamp: new Date().toISOString(),
+            user_name: "System",
+            event_type: "job_created",
+            description: `Carbon copy job created from ${shareRequest.requesting_company_name} (Job #${shareRequest.shared_job_number || job.job_number})`,
+          }],
+        };
+
+        const newJobRef = await admin.firestore().collection("jobs").add(carbonCopyJob);
+        const carbonCopyJobId = newJobRef.id;
+        console.log(`Carbon copy job created: ${carbonCopyJobId}`);
+
+        // 4. Update both jobs with the share_chain links
+        // Update the source job
+        const sourceAllJobIds = job.share_chain?.all_job_ids || [shareRequest.job_id];
+        sourceAllJobIds.push(carbonCopyJobId);
+
+        await jobDoc.ref.update({
+          "share_chain.child_job_id": carbonCopyJobId,
+          "share_chain.child_company_id": shareRequest.target_company_id,
+          "share_chain.all_job_ids": sourceAllJobIds,
+          "carbon_copy_pending": false,
+          "updated_at": admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        // Update the carbon copy job with all_job_ids
+        await newJobRef.update({
+          "share_chain.all_job_ids": sourceAllJobIds,
+        });
+
+        // 5. Copy documents from source job to carbon copy
+        const sourceDocs = await admin.firestore()
+            .collection("documents")
+            .where("job_id", "==", shareRequest.job_id)
+            .get();
+
+        if (!sourceDocs.empty) {
+          const batch = admin.firestore().batch();
+          sourceDocs.docs.forEach((doc) => {
+            const docData = doc.data();
+            const newDocRef = admin.firestore().collection("documents").doc();
+            batch.set(newDocRef, {
+              job_id: carbonCopyJobId,
+              company_id: shareRequest.target_company_id,
+              title: docData.title || "",
+              file_url: docData.file_url || "", // Reference same file
+              document_category: docData.document_category || "other",
+              page_count: docData.page_count || 0,
+              source_document_id: doc.id,
+              copied_from_job_id: shareRequest.job_id,
+              created_at: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          });
+          await batch.commit();
+          console.log(`Copied ${sourceDocs.docs.length} documents to carbon copy job`);
+        }
+
+        console.log(`Carbon copy flow completed for job ${carbonCopyJobId}`);
+      } else {
+        // ========================================================================
+        // LEGACY FLOW: Update job share chain (no carbon copy)
+        // ========================================================================
+
+        // Build new chain entry
+        const currentLevel = job.job_share_chain?.total_levels || 0;
+        const newChainEntry = {
+          level: currentLevel + 1,
+          company_id: shareRequest.target_company_id,
+          company_name: shareRequest.target_company_name,
+          user_id: shareRequest.target_user_id,
+          shared_with_company_id: null,
+          shared_with_user_id: null,
+          invoice_amount: finalFee,
+          sees_client_as: shareRequest.requesting_company_name + " - Process Serving",
+          auto_assigned: false,
+        };
+
+        // Get or create initial chain
+        let chain = job.job_share_chain?.chain || [
+          {
+            level: 0,
+            company_id: job.company_id,
+            company_name: job.company_name || "Unknown",
+            user_id: job.created_by,
+            shared_with_company_id: shareRequest.target_company_id,
+            shared_with_user_id: shareRequest.target_user_id,
+            invoice_amount: job.total_fee || job.service_fee || 0,
+            shared_at: admin.firestore.FieldValue.serverTimestamp(),
+            accepted_at: admin.firestore.FieldValue.serverTimestamp(),
+            sees_client_as: job.client_name || "Unknown Client",
+          },
+        ];
+
+        // Update the last entry to show it's been shared
+        chain[chain.length - 1].shared_with_company_id = shareRequest.target_company_id;
+        chain[chain.length - 1].shared_with_user_id = shareRequest.target_user_id;
+        chain[chain.length - 1].accepted_at = admin.firestore.FieldValue.serverTimestamp();
+
+        // Add new entry
+        chain.push(newChainEntry);
+
+        // Update job
+        await jobDoc.ref.update({
+          "job_share_chain": {
+            is_shared: true,
+            currently_assigned_to_user_id: shareRequest.target_user_id,
+            currently_assigned_to_company_id: shareRequest.target_company_id,
+            chain: chain,
+            total_levels: currentLevel + 1,
+          },
+          "assigned_to": shareRequest.target_user_id,
+          "assigned_server_id": shareRequest.target_user_id,
+          "updated_at": admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        console.log(`Job ${shareRequest.job_id} share chain updated (legacy flow)`);
+      }
 
       // Send acceptance email notification to requesting company
       try {
@@ -3096,22 +3322,6 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
       const requestingCompany = requestingCompanyDoc.data();
       const targetCompany = targetCompanyDoc.data();
 
-      // Check for existing client records (before batch operations)
-      const [existingRequestingClient, existingTargetClient] = await Promise.all([
-        admin.firestore()
-            .collection("companies")
-            .where("company_id", "==", partnershipReq.requesting_company_id)
-            .where("created_by", "==", partnershipReq.target_company_id)
-            .limit(1)
-            .get(),
-        admin.firestore()
-            .collection("companies")
-            .where("company_id", "==", partnershipReq.target_company_id)
-            .where("created_by", "==", partnershipReq.requesting_company_id)
-            .limit(1)
-            .get(),
-      ]);
-
       // Create partner entries for both companies
       // Note: Cannot use serverTimestamp() inside arrays, so use new Date()
       const now = new Date();
@@ -3129,57 +3339,8 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
         responded_by: request.auth.uid,
       });
 
-      const partnerForRequesting = {
-        partner_company_id: partnershipReq.target_company_id,
-        partner_company_name: partnershipReq.target_company_name,
-        partner_user_id: null, // Can be set later
-        partner_type: targetCompany.company_type || "process_serving",
-        relationship_status: "active",
-        established_at: now,
-        auto_assignment_enabled: false,
-        auto_assignment_zones: [],
-        quick_assign_enabled: false,
-        requires_acceptance: true,
-        email_notifications_enabled: true,
-        total_jobs_shared: 0,
-        auto_assigned_count: 0,
-        acceptance_rate: 0,
-        last_shared_at: null,
-      };
-
-      const partnerForTarget = {
-        partner_company_id: partnershipReq.requesting_company_id,
-        partner_company_name: partnershipReq.requesting_company_name,
-        partner_user_id: partnershipReq.requesting_user_id,
-        partner_type: requestingCompany.company_type || "process_serving",
-        relationship_status: "active",
-        established_at: now,
-        auto_assignment_enabled: false,
-        auto_assignment_zones: [],
-        quick_assign_enabled: false,
-        requires_acceptance: true,
-        email_notifications_enabled: true,
-        total_jobs_shared: 0,
-        auto_assigned_count: 0,
-        acceptance_rate: 0,
-        last_shared_at: null,
-      };
-
-      // Add partners to both companies
-      const requestingCompanyRef = admin.firestore()
-          .collection("companies")
-          .doc(partnershipReq.requesting_company_id);
-      const targetCompanyRef = admin.firestore()
-          .collection("companies")
-          .doc(partnershipReq.target_company_id);
-
-      batch.update(requestingCompanyRef, {
-        job_share_partners: admin.firestore.FieldValue.arrayUnion(partnerForRequesting),
-      });
-
-      batch.update(targetCompanyRef, {
-        job_share_partners: admin.firestore.FieldValue.arrayUnion(partnerForTarget),
-      });
+      // Partner config is stored directly on client records in the companies collection
+      // (no longer using job_share_partners array on company docs)
 
       // Create client records for both companies so they appear in each other's client lists
       // Pull full addresses array if it exists, otherwise create from legacy fields
@@ -3199,15 +3360,28 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
         }] : [];
 
       const requestingClientData = {
-        company_id: partnershipReq.requesting_company_id,
         company_name: partnershipReq.requesting_company_name,
         name: partnershipReq.requesting_company_name,
         company_type: requestingCompany.company_type || "process_serving",
+        client_type: "job_sharing_partner",
+        job_sharing_partner_id: partnershipReq.requesting_company_id,
         created_by: partnershipReq.target_company_id, // Target company "owns" this client
         is_job_share_partner: true,
         partnership_established_at: now,
         partnership_source: "job_sharing",
+        relationship_status: "active",
         status: "active",
+        // Partner config fields
+        auto_assignment_enabled: false,
+        auto_assignment_zones: [],
+        quick_assign_enabled: false,
+        requires_acceptance: true,
+        email_notifications_enabled: true,
+        total_jobs_shared: 0,
+        auto_assigned_count: 0,
+        acceptance_rate: 0,
+        last_shared_at: null,
+        // Company info
         email: requestingCompany.email || "",
         phone: requestingCompany.phone || "",
         website: requestingCompany.website || "",
@@ -3247,15 +3421,28 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
         }] : [];
 
       const targetClientData = {
-        company_id: partnershipReq.target_company_id,
         company_name: partnershipReq.target_company_name,
         name: partnershipReq.target_company_name,
         company_type: targetCompany.company_type || "process_serving",
+        client_type: "job_sharing_partner",
+        job_sharing_partner_id: partnershipReq.target_company_id,
         created_by: partnershipReq.requesting_company_id, // Requesting company "owns" this client
         is_job_share_partner: true,
         partnership_established_at: now,
         partnership_source: "job_sharing",
+        relationship_status: "active",
         status: "active",
+        // Partner config fields
+        auto_assignment_enabled: false,
+        auto_assignment_zones: [],
+        quick_assign_enabled: false,
+        requires_acceptance: true,
+        email_notifications_enabled: true,
+        total_jobs_shared: 0,
+        auto_assigned_count: 0,
+        acceptance_rate: 0,
+        last_shared_at: null,
+        // Company info
         email: targetCompany.email || "",
         phone: targetCompany.phone || "",
         website: targetCompany.website || "",
@@ -3278,16 +3465,38 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
         updated_at: now,
       };
 
-      // Create or update client records in companies collection
-      if (existingRequestingClient.empty) {
+      // Create or update client records in the COMPANIES collection
+      // This matches the pattern used by SecureClientAccess (queries companies where created_by == company_id)
+
+      // Check for existing client records in companies collection
+      const [existingClientForTarget, existingClientForRequesting] = await Promise.all([
+        admin.firestore()
+            .collection("companies")
+            .where("job_sharing_partner_id", "==", partnershipReq.requesting_company_id)
+            .where("created_by", "==", partnershipReq.target_company_id)
+            .limit(1)
+            .get(),
+        admin.firestore()
+            .collection("companies")
+            .where("job_sharing_partner_id", "==", partnershipReq.target_company_id)
+            .where("created_by", "==", partnershipReq.requesting_company_id)
+            .limit(1)
+            .get(),
+      ]);
+
+      // Create client record in Target's client list (so they see Requesting company as a client)
+      if (existingClientForTarget.empty) {
         const newClientRef = admin.firestore().collection("companies").doc();
-        batch.set(newClientRef, requestingClientData);
-        console.log(`Creating client record for ${partnershipReq.requesting_company_name} in ${partnershipReq.target_company_name}'s client list`);
+        batch.set(newClientRef, {
+          ...requestingClientData,
+        });
+        console.log(`Creating client record for ${partnershipReq.requesting_company_name} in ${partnershipReq.target_company_name}'s client list (companies collection)`);
       } else {
         // Update existing to mark as partner
-        const existingDoc = existingRequestingClient.docs[0];
+        const existingDoc = existingClientForTarget.docs[0];
         batch.update(existingDoc.ref, {
           is_job_share_partner: true,
+          job_sharing_partner_id: partnershipReq.requesting_company_id,
           partnership_established_at: now,
           partnership_source: "job_sharing",
           updated_at: now,
@@ -3295,15 +3504,19 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
         console.log(`Updating existing client record for ${partnershipReq.requesting_company_name} to mark as partner`);
       }
 
-      if (existingTargetClient.empty) {
+      // Create client record in Requesting's client list (so they see Target company as a client)
+      if (existingClientForRequesting.empty) {
         const newClientRef = admin.firestore().collection("companies").doc();
-        batch.set(newClientRef, targetClientData);
-        console.log(`Creating client record for ${partnershipReq.target_company_name} in ${partnershipReq.requesting_company_name}'s client list`);
+        batch.set(newClientRef, {
+          ...targetClientData,
+        });
+        console.log(`Creating client record for ${partnershipReq.target_company_name} in ${partnershipReq.requesting_company_name}'s client list (companies collection)`);
       } else {
         // Update existing to mark as partner
-        const existingDoc = existingTargetClient.docs[0];
+        const existingDoc = existingClientForRequesting.docs[0];
         batch.update(existingDoc.ref, {
           is_job_share_partner: true,
+          job_sharing_partner_id: partnershipReq.target_company_id,
           partnership_established_at: now,
           partnership_source: "job_sharing",
           updated_at: now,
@@ -3385,6 +3598,115 @@ exports.respondToPartnershipRequest = onCall(async (request) => {
         "internal",
         `Failed to respond to partnership request: ${error.message}`,
     );
+  }
+});
+
+/**
+ * One-time backfill: migrate partner client records from "clients" collection
+ * to "companies" collection so they appear in the unified Clients list.
+ */
+exports.backfillPartnerClients = onCall(async (request) => {
+  try {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    // Get user's company_id
+    let userCompanyId = request.auth.token.company_id;
+    if (!userCompanyId) {
+      const userDoc = await admin.firestore()
+          .collection("users")
+          .doc(request.auth.uid)
+          .get();
+      if (userDoc.exists) {
+        userCompanyId = userDoc.data().company_id;
+      }
+    }
+
+    if (!userCompanyId) {
+      throw new HttpsError("failed-precondition", "User does not have a company_id");
+    }
+
+    // Find all partner records in the clients collection for this company
+    const clientsSnapshot = await admin.firestore()
+        .collection("clients")
+        .where("is_job_share_partner", "==", true)
+        .where("company_id", "==", userCompanyId)
+        .get();
+
+    if (clientsSnapshot.empty) {
+      return {success: true, migrated: 0, message: "No partner records to migrate"};
+    }
+
+    let migrated = 0;
+    let skipped = 0;
+    const batch = admin.firestore().batch();
+
+    for (const doc of clientsSnapshot.docs) {
+      const data = doc.data();
+      const partnerId = data.partner_company_id;
+
+      if (!partnerId) {
+        skipped++;
+        continue;
+      }
+
+      // Check if already exists in companies collection
+      const existing = await admin.firestore()
+          .collection("companies")
+          .where("job_sharing_partner_id", "==", partnerId)
+          .where("created_by", "==", userCompanyId)
+          .limit(1)
+          .get();
+
+      if (!existing.empty) {
+        skipped++;
+        continue;
+      }
+
+      // Create in companies collection with correct field mapping
+      const newRef = admin.firestore().collection("companies").doc();
+      const newData = {
+        company_name: data.company_name || data.name || "",
+        name: data.name || data.company_name || "",
+        company_type: "client",
+        client_type: "job_sharing_partner",
+        job_sharing_partner_id: partnerId,
+        created_by: userCompanyId,
+        is_job_share_partner: true,
+        partnership_established_at: data.partnership_established_at || data.created_at || new Date(),
+        partnership_source: data.partnership_source || "job_sharing",
+        status: data.status || "active",
+        email: data.email || "",
+        phone: data.phone || "",
+        website: data.website || "",
+        fax: data.fax || "",
+        address: data.address || "",
+        city: data.city || "",
+        state: data.state || "",
+        zip: data.zip || "",
+        contacts: data.contacts || [],
+        addresses: data.addresses || [],
+        billing_tier: data.billing_tier || "trial",
+        created_at: data.created_at || new Date(),
+        updated_at: new Date(),
+      };
+      batch.set(newRef, newData);
+      migrated++;
+    }
+
+    if (migrated > 0) {
+      await batch.commit();
+    }
+
+    console.log(`Backfill complete: migrated ${migrated}, skipped ${skipped} for company ${userCompanyId}`);
+    return {success: true, migrated, skipped, message: `Migrated ${migrated} partner records to companies collection`};
+  } catch (error) {
+    console.error("Error in backfillPartnerClients:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to backfill partners: ${error.message}`);
   }
 });
 
@@ -6206,5 +6528,314 @@ exports.sendJobEmail = onCall(
         }
         throw new HttpsError("internal", `Failed to send job email: ${error.message}`);
       }
+    },
+);
+
+// ============================================================================
+// Carbon Copy Job Status Sync Trigger
+// ============================================================================
+/**
+ * Syncs status changes between linked carbon copy jobs.
+ * When a job's status changes and it's part of a share chain,
+ * propagate the status to all other jobs in the chain.
+ */
+exports.syncCarbonCopyJobStatus = onDocumentUpdated(
+    "jobs/{jobId}",
+    async (event) => {
+      const before = event.data.before.data();
+      const after = event.data.after.data();
+      const jobId = event.params.jobId;
+
+      // Check if this job is part of a share chain with sync enabled
+      if (!after.share_chain?.sync_enabled) {
+        return null;
+      }
+
+      // Prevent infinite loop - check if this update came from sync
+      if (after._sync_source) {
+        console.log(`[syncStatus] Skipping - update from sync source: ${after._sync_source}`);
+        // Clear the sync source flag
+        await event.data.after.ref.update({_sync_source: admin.firestore.FieldValue.delete()});
+        return null;
+      }
+
+      const statusChanged = before.status !== after.status;
+      const beforeAttempts = Array.isArray(before.attempts) ? before.attempts : [];
+      const afterAttempts = Array.isArray(after.attempts) ? after.attempts : [];
+      const attemptsChanged = afterAttempts.length > beforeAttempts.length;
+
+      // Only sync if status or attempts changed
+      if (!statusChanged && !attemptsChanged) {
+        return null;
+      }
+
+      // Get all job IDs in the chain
+      const allJobIds = after.share_chain?.all_job_ids || [];
+
+      if (allJobIds.length <= 1) {
+        console.log(`[syncStatus] No other jobs in chain to sync`);
+        return null;
+      }
+
+      // Find new attempts (ones that weren't there before)
+      const newAttempts = [];
+      if (attemptsChanged) {
+        for (const attempt of afterAttempts) {
+          // Check if this attempt already existed (by matching attempt_date + server_name_manual)
+          const existed = beforeAttempts.some((ba) =>
+            ba.attempt_date === attempt.attempt_date &&
+            ba.server_name_manual === attempt.server_name_manual &&
+            ba.synced_from,
+          );
+          // Only sync attempts that are genuinely new (not already synced)
+          if (!attempt.synced_from && !existed) {
+            const alreadyInBefore = beforeAttempts.some((ba) =>
+              ba.attempt_date === attempt.attempt_date &&
+              ba.server_name_manual === attempt.server_name_manual,
+            );
+            if (!alreadyInBefore) {
+              newAttempts.push(attempt);
+            }
+          }
+        }
+        console.log(`[syncStatus] Found ${newAttempts.length} new attempts to sync`);
+      }
+
+      if (statusChanged) {
+        console.log(`[syncStatus] Job ${jobId} status changed from ${before.status} to ${after.status}`);
+      }
+
+      // Sync to all other jobs in the chain
+      const batch = admin.firestore().batch();
+      let syncCount = 0;
+
+      for (const linkedJobId of allJobIds) {
+        if (linkedJobId === jobId) continue; // Skip self
+
+        const linkedJobRef = admin.firestore().collection("jobs").doc(linkedJobId);
+        const updateData = {
+          _sync_source: jobId,
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        // Sync status if changed
+        if (statusChanged) {
+          updateData.status = after.status;
+        }
+
+        // Sync new attempts
+        if (newAttempts.length > 0) {
+          // Mark attempts as synced so they don't bounce back
+          const syncedAttempts = newAttempts.map((a) => ({
+            ...a,
+            synced_from: jobId,
+          }));
+          updateData.attempts = admin.firestore.FieldValue.arrayUnion(...syncedAttempts);
+        }
+
+        batch.update(linkedJobRef, updateData);
+        syncCount++;
+      }
+
+      if (syncCount > 0) {
+        await batch.commit();
+        if (statusChanged) {
+          console.log(`[syncStatus] Synced status "${after.status}" to ${syncCount} linked jobs`);
+        }
+        if (newAttempts.length > 0) {
+          console.log(`[syncStatus] Synced ${newAttempts.length} attempts to ${syncCount} linked jobs`);
+        }
+      }
+
+      return null;
+    },
+);
+
+// ============================================================================
+// Share Document with Direct Partner (Parent → Child only)
+// ============================================================================
+exports.shareDocumentWithPartner = onCall(async (request) => {
+  try {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {documentId, jobId} = request.data;
+
+    if (!documentId || !jobId) {
+      throw new HttpsError("invalid-argument", "Missing required fields: documentId, jobId");
+    }
+
+    // Get user's company_id
+    let userCompanyId = request.auth.token.company_id;
+    if (!userCompanyId) {
+      const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+      if (userDoc.exists) {
+        userCompanyId = userDoc.data().company_id;
+      }
+    }
+
+    if (!userCompanyId) {
+      throw new HttpsError("failed-precondition", "User does not have a company_id");
+    }
+
+    // Get the document
+    const docRef = admin.firestore().collection("documents").doc(documentId);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      throw new HttpsError("not-found", "Document not found");
+    }
+
+    const docData = docSnap.data();
+
+    // Verify document belongs to user's company
+    if (docData.company_id !== userCompanyId) {
+      throw new HttpsError("permission-denied", "You do not own this document");
+    }
+
+    // Get the job and find the child (contractor) job
+    const jobDoc = await admin.firestore().collection("jobs").doc(jobId).get();
+
+    if (!jobDoc.exists) {
+      throw new HttpsError("not-found", "Job not found");
+    }
+
+    const job = jobDoc.data();
+    const childJobId = job.share_chain?.child_job_id;
+
+    if (!childJobId) {
+      throw new HttpsError("failed-precondition", "This job has no contractor to share with");
+    }
+
+    // Get the child job to find its company_id
+    const childJobDoc = await admin.firestore().collection("jobs").doc(childJobId).get();
+
+    if (!childJobDoc.exists) {
+      throw new HttpsError("not-found", "Contractor job not found");
+    }
+
+    const childJob = childJobDoc.data();
+
+    // Check if this document was already shared to this job
+    const existingShared = await admin.firestore()
+        .collection("documents")
+        .where("job_id", "==", childJobId)
+        .where("source_document_id", "==", documentId)
+        .get();
+
+    if (!existingShared.empty) {
+      throw new HttpsError("already-exists", "This document has already been shared with the contractor");
+    }
+
+    // Create the document copy in the child job
+    const sharedDocRef = await admin.firestore().collection("documents").add({
+      job_id: childJobId,
+      company_id: childJob.company_id,
+      title: docData.title || "Shared Affidavit",
+      file_url: docData.file_url,
+      document_category: docData.document_category || "affidavit",
+      content_type: docData.content_type || "application/pdf",
+      page_count: docData.page_count || 0,
+      needs_signature: true,
+      is_signed: false,
+      source_document_id: documentId,
+      shared_from_job_id: jobId,
+      shared_from_company_id: userCompanyId,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      metadata: {
+        ...(docData.metadata || {}),
+        shared_by: request.auth.uid,
+        shared_at: new Date().toISOString(),
+      },
+    });
+
+    console.log(`[shareDoc] Document ${documentId} shared to child job ${childJobId} as ${sharedDocRef.id}`);
+
+    return {success: true, sharedDocumentId: sharedDocRef.id};
+  } catch (error) {
+    console.error("Error in shareDocumentWithPartner:", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", `Failed to share document: ${error.message}`);
+  }
+});
+
+// ============================================================================
+// Sync Signed Document back to Parent (Child → Parent)
+// Triggers when a document is updated (e.g., signed)
+// ============================================================================
+exports.syncSignedDocument = onDocumentUpdated(
+    "documents/{docId}",
+    async (event) => {
+      const before = event.data.before.data();
+      const after = event.data.after.data();
+      const docId = event.params.docId;
+
+      // Only trigger when is_signed changes from false to true
+      if (before.is_signed === true || after.is_signed !== true) {
+        return null;
+      }
+
+      // Only sync documents that were shared from another company
+      if (!after.source_document_id || !after.shared_from_job_id) {
+        return null;
+      }
+
+      // Prevent infinite loop
+      if (after._sync_source) {
+        await event.data.after.ref.update({
+          _sync_source: admin.firestore.FieldValue.delete(),
+        });
+        return null;
+      }
+
+      console.log(`[syncSignedDoc] Document ${docId} was signed, syncing back to parent`);
+
+      // Get the parent job
+      const parentJobDoc = await admin.firestore()
+          .collection("jobs")
+          .doc(after.shared_from_job_id)
+          .get();
+
+      if (!parentJobDoc.exists) {
+        console.error(`[syncSignedDoc] Parent job ${after.shared_from_job_id} not found`);
+        return null;
+      }
+
+      const parentJob = parentJobDoc.data();
+
+      // Create a signed copy in the parent job
+      await admin.firestore().collection("documents").add({
+        job_id: after.shared_from_job_id,
+        company_id: parentJob.company_id,
+        title: `${after.title || "Affidavit"} (Signed by Contractor)`,
+        file_url: after.file_url, // The signed PDF URL
+        document_category: after.document_category || "affidavit",
+        content_type: after.content_type || "application/pdf",
+        page_count: after.page_count || 0,
+        is_signed: true,
+        signed_by_partner: true,
+        signed_at: after.signed_at || new Date().toISOString(),
+        source_document_id: docId,
+        synced_from_job_id: after.job_id,
+        synced_from_company_id: after.company_id,
+        _sync_source: docId, // Prevent loops
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        metadata: {
+          ...(after.metadata || {}),
+          signed_by_partner: true,
+          synced_at: new Date().toISOString(),
+        },
+      });
+
+      // Also update the parent job to flag it has a signed affidavit
+      await parentJobDoc.ref.update({
+        has_signed_affidavit: true,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      console.log(`[syncSignedDoc] Signed document synced back to parent job ${after.shared_from_job_id}`);
+
+      return null;
     },
 );

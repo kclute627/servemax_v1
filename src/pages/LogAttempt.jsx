@@ -692,7 +692,15 @@ export default function LogAttemptPage() {
 
       const serverData = formData.server_id === 'manual'
         ? { server_name_manual: formData.server_name_manual.trim(), server_id: null }
-        : { server_id: formData.server_id, server_name_manual: employees.find(emp => emp.id === formData.server_id)?.first_name + ' ' + employees.find(emp => emp.id === formData.server_id)?.last_name };
+        : (() => {
+            const emp = employees.find(e => e.id === formData.server_id);
+            return {
+              server_id: formData.server_id,
+              server_name_manual: emp
+                ? `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || 'Unknown Server'
+                : 'Unknown Server'
+            };
+          })();
 
       const attemptData = { // Renamed from finalData for clarity
         job_id: job.id,
