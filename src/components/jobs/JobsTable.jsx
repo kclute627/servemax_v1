@@ -26,6 +26,7 @@ import {
   CheckCircle,
   AlertTriangle,
   Share2,
+  ArrowLeftRight,
   ThumbsUp,
   ThumbsDown,
   Loader2
@@ -340,12 +341,7 @@ function JobsTableRow({
         </div>
       </TableCell>
       <TableCell className="text-slate-700">
-        <span className="flex items-center gap-1.5">
           {getClientName(job.client_id)}
-          {(job.share_chain || job.carbon_copy_pending) && (
-            <Share2 className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" title="Shared Job" />
-          )}
-        </span>
       </TableCell>
       <TableCell>
         {/* Show appropriate date based on job type */}
@@ -388,7 +384,12 @@ function JobsTableRow({
             "Unassigned"
           )
         ) : (
-          getServerName(job.assigned_server_id)
+          <span className="flex items-center gap-1.5">
+            {getServerName(job.assigned_server_id)}
+            {(job.share_chain || job.carbon_copy_pending) && (
+              <ArrowLeftRight className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" title="Shared Job" />
+            )}
+          </span>
         )}
       </TableCell>
       <TableCell>

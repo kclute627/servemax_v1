@@ -65,6 +65,7 @@ import {
   Camera, // New icon for attached files
   MoreVertical,
   Share2,
+  ArrowLeftRight,
   Eye,
   UserSquare, // New icon for person served details
   Hash, // New icon for age
@@ -2780,9 +2781,6 @@ export default function JobDetailsPage() {
                         ) : (
                           'N/A'
                         )}
-                        {job?.share_chain && (
-                          <Share2 className="w-3.5 h-3.5 text-blue-500" title="Shared Job" />
-                        )}
                       </p>
 
                       <div className="mt-3">
@@ -2840,6 +2838,12 @@ export default function JobDetailsPage() {
                       <div className="flex items-center gap-2 font-semibold">
                         {server?.type === 'Employee' ? <UserIcon className="w-4 h-4" /> : <HardHat className="w-4 h-4" />}
                         <span>{server?.name || 'Unassigned'}</span>
+                        {job?.share_chain && (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+                            <ArrowLeftRight className="w-3 h-3" />
+                            Shared
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-slate-600 mt-1 capitalize">{job.server_type || 'employee'}</p>
                     </div>
