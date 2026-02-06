@@ -11,10 +11,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectItem } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 // FIREBASE TRANSITION: Replace these with your Firebase service imports
 import { Client } from "@/api/entities";
-import { Plus, Loader2, Trash2, Star } from "lucide-react";
+import { Plus, Loader2, Trash2, Star, Mail, AlertCircle } from "lucide-react";
 import AddressAutocomplete from "@/components/jobs/AddressAutocomplete";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { useToast } from "@/components/ui/use-toast";
 
 const getInitialState = () => ({
   company_name: "",
@@ -37,6 +40,8 @@ export default function NewClientDialog({ open, onOpenChange, onClientCreated })
   const [formData, setFormData] = useState(getInitialState());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAddressLoading, setIsAddressLoading] = useState(false);
+  const [icConnectionStatus, setIcConnectionStatus] = useState(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!open) {
@@ -139,10 +144,62 @@ export default function NewClientDialog({ open, onOpenChange, onClientCreated })
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setIcConnectionStatus(null);
 
     try {
+      // Validate email is provided for independent contractors
+      if (formData.company_type === 'independent_contractor') {
+        const primaryContact = formData.contacts?.find(c => c.primary) || formData.contacts?.[0];
+        if (!primaryContact?.email) {
+          toast({
+            variant: "destructive",
+            title: "Email Required",
+            description: "An email address is required for Independent Contractors to receive connection requests."
+          });
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       // FIREBASE TRANSITION: Replace with addDoc(collection(db, "clients"), formData)
-      await Client.create(formData);
+      const newClient = await Client.create(formData);
+
+      // If this is an independent contractor, send connection request
+      if (formData.company_type === 'independent_contractor') {
+        const primaryContact = formData.contacts?.find(c => c.primary) || formData.contacts?.[0];
+
+        try {
+          const functions = getFunctions();
+          const sendICConnectionRequest = httpsCallable(functions, 'sendICConnectionRequest');
+
+          const result = await sendICConnectionRequest({
+            ic_company_id: newClient.id,
+            ic_email: primaryContact.email,
+            ic_name: `${primaryContact.first_name} ${primaryContact.last_name}`.trim() || formData.company_name
+          });
+
+          // Show appropriate message based on whether IC exists
+          if (result.data.ic_exists) {
+            toast({
+              title: "Connection Request Sent",
+              description: `${primaryContact.email} already has a ServeMax IC account. They will receive a connection request to approve.`
+            });
+          } else {
+            toast({
+              title: "Invitation Sent",
+              description: `An invitation has been sent to ${primaryContact.email} to create their Independent Contractor account.`
+            });
+          }
+        } catch (icError) {
+          console.error("Error sending IC connection request:", icError);
+          // Still show success for client creation, but warn about IC connection
+          toast({
+            variant: "warning",
+            title: "Client Created",
+            description: "Client was created but there was an issue sending the IC connection request. Please try inviting them manually."
+          });
+        }
+      }
 
       // Reset form
       setFormData(getInitialState());
@@ -150,8 +207,13 @@ export default function NewClientDialog({ open, onOpenChange, onClientCreated })
       onClientCreated();
     } catch (error) {
       console.error("Error creating client:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to create client. Please try again."
+      });
     }
-    
+
     setIsSubmitting(false);
   };
 
@@ -201,6 +263,13 @@ export default function NewClientDialog({ open, onOpenChange, onClientCreated })
           {/* Independent Contractor Fields */}
           {formData.company_type === 'independent_contractor' && (
             <div className="space-y-4 rounded-lg border p-4">
+              <Alert className="bg-blue-50 border-blue-200">
+                <Mail className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-800">
+                  An email will be sent to the contractor's primary contact to connect with your company.
+                  Make sure to provide a valid email address below.
+                </AlertDescription>
+              </Alert>
               <h3 className="font-semibold text-slate-900">Contractor Details</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>

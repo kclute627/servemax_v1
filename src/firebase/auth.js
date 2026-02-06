@@ -282,6 +282,21 @@ export class FirebaseAuth {
       // Validate invitation
       const invitation = await InvitationManager.acceptInvitation(invitationToken);
 
+      // For employees, check if email is already associated with another company
+      // Employees can only belong to ONE company (unlike ICs who can work with multiple)
+      if (invitation.user_type === USER_TYPES.EMPLOYEE) {
+        const existingEmployeeQuery = query(
+          collection(db, 'users'),
+          where('email', '==', userData.email),
+          where('user_type', '==', USER_TYPES.EMPLOYEE)
+        );
+        const existingEmployees = await getDocs(existingEmployeeQuery);
+
+        if (!existingEmployees.empty) {
+          throw new Error('This email is already associated with another company. Employees can only belong to one company.');
+        }
+      }
+
       // Create Firebase Auth user
       const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.password);
       const user = userCredential.user;

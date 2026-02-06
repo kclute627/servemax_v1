@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { renderHTMLTemplate } from "@/utils/templateEngine";
+import { sanitizeTemplateHTML } from "@/utils/sanitize";
 import { User } from "@/api/entities";
 import { Button } from "@/components/ui/button";
 import { PenTool, X, Check } from "lucide-react";
@@ -329,7 +330,7 @@ export default function StandardAffidavitInteractiveForm({
             padding: "48px 0",
             outline: "2px solid #3B82F6",
           }}
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={{ __html: sanitizeTemplateHTML(html) }}
         />
 
         {/* Pagination Indicators */}
@@ -460,7 +461,7 @@ export default function StandardAffidavitInteractiveForm({
                 `,
               }}
             />
-            <div dangerouslySetInnerHTML={{ __html: pageHTML }} />
+            <div dangerouslySetInnerHTML={{ __html: sanitizeTemplateHTML(pageHTML) }} />
           </div>
         </React.Fragment>
       ))}

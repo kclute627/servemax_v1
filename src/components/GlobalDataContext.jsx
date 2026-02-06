@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from "@/components/auth/AuthProvider";
 import {
   SecureJobAccess,
@@ -32,6 +32,13 @@ export const GlobalDataProvider = ({ children }) => {
   const [jobs, setJobs] = useState([]);
   const [clients, setClients] = useState([]);
   const [employees, setEmployees] = useState([]);
+
+  // Pagination state for jobs
+  const [jobsCursor, setJobsCursor] = useState(null);
+  const [jobsHasMore, setJobsHasMore] = useState(true);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsFilters, setJobsFilters] = useState({ is_closed: false });
+  const [jobsSearchTerm, setJobsSearchTerm] = useState('');
   const [courtCases, setCourtCases] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -42,7 +49,8 @@ export const GlobalDataProvider = ({ children }) => {
     priorities: [],
     jobSharingEnabled: false,
     kanbanBoard: { enabled: true, columns: [] },
-    directoryListing: null
+    directoryListing: null,
+    ratingWeights: {}
   });
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(null);
@@ -100,44 +108,52 @@ export const GlobalDataProvider = ({ children }) => {
       // Set company ID for context
       setMyCompanyClientId(user.company_id);
 
-      // Load data using secure multi-tenant access
-      // Note: Clients are loaded via real-time listener (see separate useEffect below)
+      // PERFORMANCE: Progressive data loading - critical data first
+      // Tier 1: Critical data needed for initial render
       const [
         companyDataFromDb,
         employeesData,
-        courtCasesData,
-        jobsData,
-        invoicesData,
-        paymentsData,
-        serverPayRecordsData,
-        prioritySettings,
-        jobSharingSettings,
-        kanbanSettings,
-        directoryListing
+        jobsData
       ] = await Promise.all([
         entities.Company.findById(user.company_id).catch(() => null),
         SecureEmployeeAccess.list().catch(() => []),
+        SecureJobAccess.list().catch(() => [])
+      ]);
+
+      // Set critical data immediately for faster initial render
+      setCompanyData(companyDataFromDb);
+      setEmployees(employeesData);
+      setJobs(jobsData.sort((a, b) => new Date(b.created_date || b.created_at) - new Date(a.created_date || a.created_at)));
+
+      // Tier 2: Important data (loaded in parallel, non-blocking)
+      const [
+        courtCasesData,
+        invoicesData,
+        paymentsData,
+        serverPayRecordsData,
+        // PERFORMANCE: Single query for all company settings instead of 3 separate queries
+        allCompanySettings,
+        directoryListing
+      ] = await Promise.all([
         MultiTenantAccess.getCourtCases().catch(() => []),
-        SecureJobAccess.list().catch(() => []),
         SecureInvoiceAccess.list().catch(() => []),
         SecurePaymentAccess.list().catch(() => []),
         SecureServerPayRecordAccess.list().catch(() => []),
-        CompanySettings.filter({ setting_key: "job_priorities" }).catch(() => []),
-        CompanySettings.filter({ setting_key: "job_sharing" }).catch(() => []),
-        CompanySettings.filter({ setting_key: "kanban_board" }).catch(() => []),
+        CompanySettings.filter({ setting_key: ["job_priorities", "job_sharing", "kanban_board", "server_rating_weights"] }).catch(() => []),
         DirectoryManager.getDirectoryListing(user.company_id).catch(() => null)
       ]);
 
-      setCompanyData(companyDataFromDb);
-      setEmployees(employeesData);
+      // Extract individual settings from consolidated query
+      const prioritySettings = allCompanySettings.filter(s => s.setting_key === "job_priorities");
+      const jobSharingSettings = allCompanySettings.filter(s => s.setting_key === "job_sharing");
+      const kanbanSettings = allCompanySettings.filter(s => s.setting_key === "kanban_board");
+      const ratingWeightsSettings = allCompanySettings.filter(s => s.setting_key === "server_rating_weights");
+
+      // Set Tier 2 data
       setCourtCases(courtCasesData);
-      setJobs(jobsData.sort((a, b) => new Date(b.created_date || b.created_at) - new Date(a.created_date || a.created_at)));
       setInvoices(invoicesData);
       setPayments(paymentsData);
       setServerPayRecords(serverPayRecordsData);
-
-      console.log('[GlobalDataContext] Jobs loaded:', jobsData.length);
-      console.log('[GlobalDataContext] Sample job:', jobsData[0]);
 
       // Set company settings
       const loadedPriorities = prioritySettings.length > 0
@@ -171,11 +187,17 @@ export const GlobalDataProvider = ({ children }) => {
             ]
           };
 
+      // PERFORMANCE: Load rating weights here so BusinessStatsPanel doesn't need separate query
+      const loadedRatingWeights = ratingWeightsSettings.length > 0
+        ? ratingWeightsSettings[0].setting_value?.weights || {}
+        : {};
+
       setCompanySettings({
         priorities: loadedPriorities,
         jobSharingEnabled: jobSharing,
         kanbanBoard: loadedKanbanBoard,
-        directoryListing: directoryListing
+        directoryListing: directoryListing,
+        ratingWeights: loadedRatingWeights
       });
 
       setLastRefresh(Date.now());
@@ -197,6 +219,72 @@ export const GlobalDataProvider = ({ children }) => {
       setIsLoading(false);
     }
   }, [isAuthenticated, user, authLoading, lastRefresh]);
+
+  // PERFORMANCE: Selective refresh for jobs only (instead of refreshing all data)
+  // Use this when only job data needs to be updated (e.g., after job share status changes)
+  const refreshJobs = useCallback(async () => {
+    if (!isAuthenticated || !user) return;
+
+    try {
+      const jobsData = await SecureJobAccess.list();
+      setJobs(jobsData.sort((a, b) => new Date(b.created_date || b.created_at) - new Date(a.created_date || a.created_at)));
+    } catch (error) {
+      console.error("Error refreshing jobs:", error);
+    }
+  }, [isAuthenticated, user]);
+
+  // PERFORMANCE: Use ref to hold latest refreshJobs to avoid listener recreation
+  const refreshJobsRef = useRef(refreshJobs);
+  useEffect(() => {
+    refreshJobsRef.current = refreshJobs;
+  }, [refreshJobs]);
+
+  // Paginated job loading functions
+  const loadJobsPaginated = useCallback(async (filters = {}, searchTerm = '', reset = true) => {
+    if (!isAuthenticated || !user) return;
+
+    setJobsLoading(true);
+
+    try {
+      const result = await MultiTenantAccess.getJobsPaginated({
+        pageSize: 50,
+        cursor: reset ? null : jobsCursor,
+        filters,
+        searchTerm: searchTerm || null
+      });
+
+      if (reset) {
+        setJobs(result.data);
+      } else {
+        setJobs(prev => [...prev, ...result.data]);
+      }
+
+      setJobsCursor(result.lastDoc);
+      setJobsHasMore(result.hasMore);
+      setJobsFilters(filters);
+      setJobsSearchTerm(searchTerm);
+    } catch (error) {
+      console.error('Error loading paginated jobs:', error);
+    } finally {
+      setJobsLoading(false);
+    }
+  }, [isAuthenticated, user, jobsCursor]);
+
+  // Load more jobs (next page)
+  const loadMoreJobs = useCallback(async () => {
+    if (!jobsHasMore || jobsLoading) return;
+    await loadJobsPaginated(jobsFilters, jobsSearchTerm, false);
+  }, [jobsHasMore, jobsLoading, loadJobsPaginated, jobsFilters, jobsSearchTerm]);
+
+  // Search jobs with term
+  const searchJobs = useCallback(async (term) => {
+    await loadJobsPaginated(jobsFilters, term, true);
+  }, [loadJobsPaginated, jobsFilters]);
+
+  // Update filters and reload
+  const updateJobFilters = useCallback(async (newFilters) => {
+    await loadJobsPaginated(newFilters, jobsSearchTerm, true);
+  }, [loadJobsPaginated, jobsSearchTerm]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -259,12 +347,14 @@ export const GlobalDataProvider = ({ children }) => {
         isFirstSnapshot = false;
         return; // Skip initial load
       }
+      // PERFORMANCE: Only refresh jobs data, not all data
       // An outgoing share request changed — refresh jobs data
-      loadAllData(true);
+      // Use ref to avoid recreating listener when refreshJobs changes
+      refreshJobsRef.current();
     });
 
     return () => unsubscribe();
-  }, [isAuthenticated, user?.company_id, authLoading, loadAllData]);
+  }, [isAuthenticated, user?.company_id, authLoading]);
 
   const allAssignableServers = React.useMemo(() => {
     const servers = [...employees];
@@ -288,9 +378,19 @@ export const GlobalDataProvider = ({ children }) => {
     allAssignableServers,
     isLoading,
     refreshData: () => loadAllData(true),
+    refreshJobs, // PERFORMANCE: Selective refresh for jobs only
     lastRefresh,
-    user, 
-    isAuthenticated 
+    user,
+    isAuthenticated,
+    // Pagination functions for jobs
+    jobsLoading,
+    jobsHasMore,
+    jobsFilters,
+    jobsSearchTerm,
+    loadJobsPaginated,
+    loadMoreJobs,
+    searchJobs,
+    updateJobFilters
   };
 
   return (

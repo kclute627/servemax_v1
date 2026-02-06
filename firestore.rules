@@ -20,13 +20,11 @@ service cloud.firestore {
     }
 
     // Helper function to check if user is a super admin
+    // Uses Firestore user document fields - set is_super_admin: true or role: 'super_admin' in user doc
     function isSuperAdmin() {
       return isAuthenticated() && (
-        // Check Firestore user document fields
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.is_super_admin == true ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin' ||
-        // Check email address directly from auth token
-        request.auth.token.email == 'kyclutter@gmail.comm'
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin'
       );
     }
 
@@ -178,6 +176,82 @@ service cloud.firestore {
         hasCompanyAccess(resource.data.company_id) ||
         isSuperAdmin()
       );
+
+      // Job Notes subcollection - hub-and-spoke messaging
+      match /notes/{noteId} {
+        // Helper: Get the parent job document
+        function getParentJob() {
+          return get(/databases/$(database)/documents/jobs/$(jobId)).data;
+        }
+
+        // Helper: Check if user owns the job (company that created it)
+        function isJobOwner() {
+          return getParentJob().company_id == getUserCompanyId();
+        }
+
+        // Helper: Check if user is the upstream client (parent in share chain)
+        function isUpstreamClient() {
+          let job = getParentJob();
+          return job.share_chain != null &&
+                 job.share_chain.parent_company_id == getUserCompanyId();
+        }
+
+        // Helper: Check if user is the downstream server (child in share chain)
+        function isDownstreamServer() {
+          let job = getParentJob();
+          return job.share_chain != null &&
+                 job.share_chain.child_company_id == getUserCompanyId();
+        }
+
+        // Read: Users can see notes meant for them
+        allow read: if isAuthenticated() && (
+          // Job owner (company) can see all notes
+          isJobOwner() ||
+          // Client can see notes with visibility 'client' or 'both'
+          (isUpstreamClient() && resource.data.visibility in ['client', 'both']) ||
+          // Server can see notes with visibility 'server' or 'both'
+          (isDownstreamServer() && resource.data.visibility in ['server', 'both']) ||
+          // Users can always see their own notes (replies they sent)
+          resource.data.author_id == request.auth.uid ||
+          // Super admin
+          isSuperAdmin()
+        );
+
+        // Create: Based on author type and visibility rules
+        allow create: if isAuthenticated() && (
+          // Job owner can create notes with any visibility
+          (isJobOwner() && request.resource.data.author_type == 'company') ||
+          // Client can only reply to company (internal visibility)
+          (isUpstreamClient() &&
+           request.resource.data.author_type == 'client' &&
+           request.resource.data.visibility == 'internal') ||
+          // Server can only reply to company (internal visibility)
+          (isDownstreamServer() &&
+           request.resource.data.author_type == 'server' &&
+           request.resource.data.visibility == 'internal') ||
+          // Super admin
+          isSuperAdmin()
+        );
+
+        // Update: Mark as read or job owner can edit
+        allow update: if isAuthenticated() && (
+          // Job owner can update any note
+          isJobOwner() ||
+          // Client can mark their notes as read
+          (isUpstreamClient() &&
+           resource.data.visibility in ['client', 'both'] &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read_by_client', 'read_at_client'])) ||
+          // Server can mark their notes as read
+          (isDownstreamServer() &&
+           resource.data.visibility in ['server', 'both'] &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read_by_server', 'read_at_server'])) ||
+          // Super admin
+          isSuperAdmin()
+        );
+
+        // Delete: Only job owner or super admin
+        allow delete: if isAuthenticated() && (isJobOwner() || isSuperAdmin());
+      }
     }
 
     // Attempts - visible to all companies in the chain
@@ -200,9 +274,20 @@ service cloud.firestore {
                               hasCompanyAccess(resource.data.company_id);
     }
 
-    // Company Settings - users can read/write any settings (structure varies)
+    // Company Settings - users can only read/write their own company's settings
     match /company_settings/{settingId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      allow update, delete: if isAuthenticated() && (
+        resource.data.company_id == getUserCompanyId() ||
+        isSuperAdmin()
+      );
     }
 
     // Server Pay Records - users can read/write their company's records only

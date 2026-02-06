@@ -406,7 +406,7 @@ export default function Layout({ children, currentPageName }) {
           </header>
 
           {/* Page Content - Individual pages handle their own loading */}
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1">
             {children}
           </div>
         </main>

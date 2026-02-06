@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { AnimatedNumber } from '@/components/ui/animated-number';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -211,9 +212,16 @@ export default function TopServers({ serversData, isLoading, period, onPeriodCha
                         </span>
                       </TableCell>
                       <TableCell className="py-3">
-                        <span className="text-[#1F1F21] font-medium">
-                          {item.server.first_name} {item.server.last_name}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[#1F1F21] font-medium">
+                            {item.server.first_name} {item.server.last_name}
+                          </span>
+                          {item.server.type === 'contractor' && (
+                            <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200">
+                              IC
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       {viewMode === 'revenue' ? (
                         <>

@@ -27,6 +27,7 @@ import {
   TooltipTrigger,
   TooltipProvider
 } from '@/components/ui/tooltip';
+import { sanitizeTemplateHTML } from '@/utils/sanitize';
 
 // Base sample data shared across all scenarios
 const BASE_SAMPLE_DATA = {
@@ -607,7 +608,7 @@ function TemplateCodeEditor({ value, onChange, className }) {
                   <div key={pageIndex} className="template-preview-page">
                     <div
                       className="template-preview-page-content"
-                      dangerouslySetInnerHTML={{ __html: pageContent }}
+                      dangerouslySetInnerHTML={{ __html: sanitizeTemplateHTML(pageContent) }}
                     />
                     <div className="template-preview-page-number">
                       Page {pageIndex + 1} of {pages.length}

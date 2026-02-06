@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, memo } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,8 @@ import {
   ArrowLeftRight,
   ThumbsUp,
   ThumbsDown,
-  Loader2
+  Loader2,
+  XCircle
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
@@ -131,11 +132,11 @@ export default function JobsTable({
                   }}
                 />
               </TableHead>
-              <TableHead className="font-semibold text-slate-700">Job</TableHead>
-              <TableHead className="font-semibold text-slate-700">Recipient</TableHead>
-              <TableHead className="font-semibold text-slate-700">Client</TableHead>
-              <TableHead className="font-semibold text-slate-700">Due Date</TableHead>
-              <TableHead className="font-semibold text-slate-700">Server</TableHead>
+              <TableHead className="font-semibold text-slate-700 text-[18px]">Job</TableHead>
+              <TableHead className="font-semibold text-slate-700 text-[18px]">Recipient</TableHead>
+              <TableHead className="font-semibold text-slate-700 text-[18px]">Client</TableHead>
+              <TableHead className="font-semibold text-slate-700 text-[18px]">Due Date</TableHead>
+              <TableHead className="font-semibold text-slate-700 text-[18px]">Server</TableHead>
               <TableHead className="w-12"></TableHead>
             </TableRow>
           </TableHeader>
@@ -173,7 +174,8 @@ export default function JobsTable({
   );
 }
 
-function JobsTableRow({
+// PERFORMANCE: Wrap with React.memo to prevent unnecessary re-renders
+const JobsTableRow = memo(function JobsTableRow({
   job,
   clients,
   employees,
@@ -186,8 +188,21 @@ function JobsTableRow({
 }) {
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // PERFORMANCE: Create lookup Maps to avoid O(n) .find() on every render
+  const clientsMap = useMemo(() => {
+    const map = new Map();
+    clients.forEach(c => map.set(c.id, c));
+    return map;
+  }, [clients]);
+
+  const employeesMap = useMemo(() => {
+    const map = new Map();
+    employees.forEach(e => map.set(e.id, e));
+    return map;
+  }, [employees]);
+
   const getClientName = (clientId) => {
-    const client = clients.find(c => c.id === clientId);
+    const client = clientsMap.get(clientId);
     return client?.company_name || "Unknown Client";
   };
 
@@ -195,17 +210,27 @@ function JobsTableRow({
     if (!serverId || serverId === "unassigned") {
       return "Unassigned";
     }
-    
-    const employee = employees.find(e => e.id === serverId);
+
+    const employee = employeesMap.get(serverId);
     if (employee) {
-      return `${employee.first_name} ${employee.last_name}`;
+      // Use full_name if available, otherwise combine first/last name, or fall back to name field
+      if (employee.full_name) {
+        return employee.full_name;
+      }
+      if (employee.first_name || employee.last_name) {
+        return `${employee.first_name || ''} ${employee.last_name || ''}`.trim();
+      }
+      if (employee.name) {
+        return employee.name;
+      }
+      return "Unknown Server";
     }
-    
-    const contractor = clients.find(c => c.id === serverId);
+
+    const contractor = clientsMap.get(serverId);
     if (contractor) {
       return contractor.company_name;
     }
-    
+
     return "Unknown Server";
   };
 
@@ -232,6 +257,7 @@ function JobsTableRow({
   };
 
   const isIncomingSharedJob = job.assigned_server_id === myCompanyClientId && job.shared_from_client_id;
+  const isPendingSharedJob = isIncomingSharedJob && job.shared_job_status === 'pending_acceptance';
   const jobIsOverdue = isOverdue(job);
 
   // Find associated invoice
@@ -246,7 +272,12 @@ function JobsTableRow({
 
   return (
     <TableRow
-      className={`hover:bg-slate-50 transition-colors ${isSelected ? 'bg-blue-50' : ''}`}
+      className={`hover:bg-slate-50 transition-colors ${
+        job.is_closed ? 'opacity-60 bg-slate-100' :
+        isSelected ? 'bg-blue-50' :
+        job.priority === 'emergency' ? 'bg-red-50' :
+        job.priority === 'rush' ? 'bg-orange-50' : ''
+      }`}
     >
       <TableCell>
         <Checkbox
@@ -257,7 +288,7 @@ function JobsTableRow({
       <TableCell>
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`} className="font-medium text-slate-900 hover:text-blue-600 hover:underline">
+            <Link to={`${createPageUrl("JobDetails")}?id=${job.id}`} className="font-medium text-slate-900 text-[18px] hover:text-blue-600 hover:underline">
               {job.job_number}
             </Link>
             {/* Job Type Badge - show for non-process-serving jobs */}
@@ -272,19 +303,20 @@ function JobsTableRow({
           </div>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             {/* Workflow Status Badge (Process Serving only) or Regular Status Badge */}
-            {workflowConfig ? (
+            {/* Hide workflow badge when job is pending acceptance from sharing partner */}
+            {workflowConfig && !isPendingSharedJob ? (
               <Badge variant="outline" className={`w-fit ${workflowConfig.color}`}>
                 {workflowConfig.label}
               </Badge>
-            ) : (
+            ) : !isPendingSharedJob ? (
               <StatusBadge status={job.status} />
-            )}
+            ) : null}
 
             {job.priority !== 'standard' && (
               <PriorityBadge priority={job.priority} />
             )}
           </div>
-          {job.client_job_number && (
+          {job.client_job_number && !isPendingSharedJob && (
             <p className="text-sm text-slate-500 truncate max-w-24 mt-1" title={job.client_job_number}>
               Ref: {job.client_job_number}
             </p>
@@ -301,6 +333,17 @@ function JobsTableRow({
                Pending Acceptance
              </Badge>
           )}
+          {job.carbon_copy_declined && (
+             <Badge variant="outline" className="w-fit gap-1.5 mt-2 bg-red-100 text-red-800 border-red-300">
+               <XCircle className="w-3 h-3" />
+               Server Denied
+             </Badge>
+          )}
+          {job.is_closed && (
+             <Badge variant="outline" className="w-fit mt-2 bg-red-100 text-red-700 border-red-300">
+               Closed
+             </Badge>
+          )}
         </div>
       </TableCell>
       <TableCell>
@@ -308,7 +351,7 @@ function JobsTableRow({
           {/* Process Serving - show recipient & address */}
           {(!job.job_type || job.job_type === JOB_TYPES.PROCESS_SERVING) ? (
             <>
-              <p className="font-medium text-slate-900">{job.recipient?.name}</p>
+              <p className="font-medium text-slate-900 text-[18px]">{job.recipient?.name}</p>
               {job.addresses?.[0] && (
                 <p className="text-sm text-slate-500 max-w-sm whitespace-normal">
                   {job.addresses[0].address1}{job.addresses[0].address2 ? `, ${job.addresses[0].address2}` : ''}, {job.addresses[0].city}, {job.addresses[0].state} {job.addresses[0].postal_code}
@@ -318,7 +361,7 @@ function JobsTableRow({
           ) : job.job_type === JOB_TYPES.COURT_REPORTING ? (
             /* Court Reporting - show case name & deposition date */
             <>
-              <p className="font-medium text-slate-900">{job.case_name || job.case_number || 'No case info'}</p>
+              <p className="font-medium text-slate-900 text-[18px]">{job.case_name || job.case_number || 'No case info'}</p>
               {job.deposition_date && (
                 <p className="text-sm text-slate-500">
                   {format(new Date(job.deposition_date), "MMM d, yyyy")}
@@ -332,7 +375,7 @@ function JobsTableRow({
           ) : (
             /* Other job types - show case info if available */
             <>
-              <p className="font-medium text-slate-900">{job.case_name || job.case_number || '—'}</p>
+              <p className="font-medium text-slate-900 text-[18px]">{job.case_name || job.case_number || '—'}</p>
               {job.court_name && (
                 <p className="text-sm text-slate-500">{job.court_name}</p>
               )}
@@ -340,14 +383,14 @@ function JobsTableRow({
           )}
         </div>
       </TableCell>
-      <TableCell className="text-slate-700">
+      <TableCell className="text-slate-700 text-[18px]">
           {getClientName(job.client_id)}
       </TableCell>
       <TableCell>
         {/* Show appropriate date based on job type */}
         {job.job_type === JOB_TYPES.COURT_REPORTING ? (
           job.deposition_date ? (
-            <div className="text-slate-700">
+            <div className="text-slate-700 text-[18px]">
               <div>{format(new Date(job.deposition_date), "MMM d, yyyy")}</div>
               <span className="text-xs text-slate-500">Deposition</span>
             </div>
@@ -355,7 +398,7 @@ function JobsTableRow({
             <span className="text-slate-400">No date set</span>
           )
         ) : job.due_date ? (
-          <div className={jobIsOverdue ? "text-red-600 font-medium" : "text-slate-700"}>
+          <div className={jobIsOverdue ? "text-red-600 font-medium text-[18px]" : "text-slate-700 text-[18px]"}>
             {format(new Date(job.due_date), "MMM d, yyyy")}
             {jobIsOverdue && (
               <div className="flex items-center gap-1 mt-1">
@@ -368,7 +411,7 @@ function JobsTableRow({
           <span className="text-slate-400">No due date</span>
         )}
       </TableCell>
-      <TableCell className="text-slate-700">
+      <TableCell className="text-slate-700 text-[18px]">
         {/* Show appropriate assignment based on job type */}
         {job.job_type === JOB_TYPES.COURT_REPORTING ? (
           job.assigned_personnel?.length > 0 ? (
@@ -376,7 +419,7 @@ function JobsTableRow({
               {job.assigned_personnel.map((p, i) => (
                 <span key={i} className={i > 0 ? "text-slate-500 text-sm" : ""}>
                   {i > 0 && ", "}
-                  {employees.find(e => e.id === p.employee_id)?.first_name || 'Unassigned'}
+                  {employeesMap.get(p.employee_id)?.first_name || 'Unassigned'}
                 </span>
               ))}
             </div>
@@ -441,7 +484,7 @@ function JobsTableRow({
       </TableCell>
     </TableRow>
   );
-}
+});
 
 function StatusBadge({ status }) {
   const config = statusConfig[status];

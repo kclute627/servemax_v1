@@ -1,0 +1,11 @@
+[
+  {
+    "origin": [
+      "https://www.servemax.pro",
+      "https://servemax.pro"
+    ],
+    "method": ["GET", "HEAD"],
+    "maxAgeSeconds": 3600,
+    "responseHeader": ["Content-Type", "Content-Length", "Content-Disposition"]
+  }
+]

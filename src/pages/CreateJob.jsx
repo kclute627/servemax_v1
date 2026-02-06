@@ -13,7 +13,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useGlobalData } from "@/components/GlobalDataContext";
 // FIREBASE TRANSITION: Replace with Firebase SDK imports.
 import { Job, Client, Employee, CourtCase, Document, Court, CompanySettings, User, ServerPayRecord, Invoice } from "@/api/entities"; // Added User import, Added ServerPayRecord, Added Invoice
-import { SecureJobAccess, SecureCourtAccess, SecureCaseAccess } from "@/firebase/multiTenantAccess";
+import { SecureJobAccess, SecureCourtAccess, SecureCaseAccess, SecureClientAccess } from "@/firebase/multiTenantAccess";
+import { generateClientSearchTerms } from "@/utils/searchTerms";
 import { JOB_TYPES, JOB_TYPE_LABELS, createDefaultCourtReportingJob } from "@/firebase/schemas";
 import { StatsManager } from "@/firebase/stats";
 import { db, functions } from "@/firebase/config";
@@ -143,6 +144,10 @@ export default function CreateJobPage() {
   const [uploadedDocuments, setUploadedDocuments] = useState([]);
   const [invoiceData, setInvoiceData] = useState(null);
   const [clientSearchText, setClientSearchText] = useState("");
+  // New client inline creation state
+  const [isNewClient, setIsNewClient] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [newContactInfo, setNewContactInfo] = useState({ name: "", email: "", phone: "" });
   const [lastAddedContact, setLastAddedContact] = useState(null);
   const [selectedCourtFromAutocomplete, setSelectedCourtFromAutocomplete] = useState(null);
   const [prioritySettings, setPrioritySettings] = useState([
@@ -158,7 +163,7 @@ export default function CreateJobPage() {
   const [associatedJobsCount, setAssociatedJobsCount] = useState(0); // New state for job count
   const [courtFromExtraction, setCourtFromExtraction] = useState(false); // Flag to skip autocomplete when court is from AI extraction
   const [showPDFViewer, setShowPDFViewer] = useState(false); // PDF viewer visibility
-  const [pdfViewerWidth, setPdfViewerWidth] = useState(50); // PDF viewer width as percentage (min 25, max 75)
+  const [pdfViewerWidth, setPdfViewerWidth] = useState(35); // PDF viewer width as percentage (min 25, max 75)
 
   // Section navigation (competitor-style): click any section to jump there (no gating)
   const enabledJobTypes = useMemo(
@@ -210,6 +215,7 @@ export default function CreateJobPage() {
   }, [formData.job_type, showJobTypeSelector]);
 
   const sectionRefs = useRef({});
+  const scrollContainerRef = useRef(null);
   const [activeSectionId, setActiveSectionId] = useState(null);
 
   const setSectionRef = (id) => (el) => {
@@ -219,13 +225,9 @@ export default function CreateJobPage() {
   const scrollToSection = (id) => {
     const el = sectionRefs.current[id] || document.getElementById(id);
     if (!el) return;
-    // Click-only active behavior: stays active until another nav item is clicked.
     setActiveSectionId(id);
 
-    // More reliable than scrollIntoView() in some layouts: compute target scroll position.
-    const topOffset = 120; // keep in sync with observer/header spacing
-    const y = el.getBoundingClientRect().top + window.scrollY - topOffset;
-    window.scrollTo({ top: Math.max(y, 0), behavior: "smooth" });
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   // Ensure we always have a valid active section (e.g., job type changes can change sections list)
@@ -646,6 +648,10 @@ export default function CreateJobPage() {
     setClientContacts(client.contacts || []);
     setShowNewClientForm(false);
     setClientSearchText(client.company_name);
+    // Clear new client state when existing client is selected
+    setIsNewClient(false);
+    setNewClientName("");
+    setNewContactInfo({ name: "", email: "", phone: "" });
   };
 
   const handleNewClientCreated = (newClient) => {
@@ -673,6 +679,10 @@ export default function CreateJobPage() {
       contact_id: "",
       contact_email: ""
     }));
+    // Also reset new client state
+    setIsNewClient(false);
+    setNewClientName("");
+    setNewContactInfo({ name: "", email: "", phone: "" });
   };
 
   // Check if marketplace is available based on requirements
@@ -1117,14 +1127,27 @@ export default function CreateJobPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.client_id) {
-      // ✅ UX FIX: Replace alert() with toast
+
+    // Check if we have either an existing client or a new client to create
+    if (!formData.client_id && !isNewClient) {
       toast({
         variant: "destructive",
         title: "Client required",
-        description: "Please select a client before creating a job.",
+        description: "Please select a client or type a new client name.",
       });
       return;
+    }
+
+    // Validate new client info
+    if (isNewClient && newClientName) {
+      if (!newContactInfo.email) {
+        toast({
+          variant: "destructive",
+          title: "Contact email required",
+          description: "Please enter a contact email for the new client.",
+        });
+        return;
+      }
     }
 
     // Validate marketplace requirements (only for process serving)
@@ -1141,6 +1164,66 @@ export default function CreateJobPage() {
     setIsSubmitting(true);
 
     try {
+      // AUTO-CREATE NEW CLIENT if user typed a new client name
+      let clientIdToUse = formData.client_id;
+      let contactIdToUse = formData.contact_id;
+      let contactEmailToUse = formData.contact_email;
+
+      if (isNewClient && newClientName) {
+        console.log('[CreateJob] Creating new client:', newClientName);
+
+        try {
+          // Parse contact name into first/last
+          const nameParts = newContactInfo.name.trim().split(' ');
+          const firstName = nameParts[0] || '';
+          const lastName = nameParts.slice(1).join(' ') || '';
+
+          // Generate a unique contact ID
+          const newContactId = `contact_${Date.now()}`;
+
+          const newClientData = {
+            company_name: newClientName,
+            company_type: 'law_firm', // Default to Law Firm per user request
+            status: 'active',
+            contacts: [{
+              id: newContactId,
+              first_name: firstName,
+              last_name: lastName,
+              email: newContactInfo.email,
+              phone: newContactInfo.phone || '',
+              primary: true
+            }]
+          };
+
+          // Generate search terms
+          newClientData.search_terms = generateClientSearchTerms(newClientData);
+
+          const createdClient = await SecureClientAccess.create(newClientData);
+          console.log('[CreateJob] ✓ New client created with ID:', createdClient.id);
+
+          // Use the new client's info
+          clientIdToUse = createdClient.id;
+          contactIdToUse = newContactId;
+          contactEmailToUse = newContactInfo.email;
+
+          // Update formData with new client info for the rest of the submission
+          setFormData(prev => ({
+            ...prev,
+            client_id: createdClient.id,
+            contact_id: newContactId,
+            contact_email: newContactInfo.email
+          }));
+        } catch (clientError) {
+          console.error('[CreateJob] Failed to create client:', clientError);
+          toast({
+            variant: "destructive",
+            title: "Failed to create client",
+            description: clientError.message || "Could not create the new client. Please try again.",
+          });
+          setIsSubmitting(false);
+          return; // Stop submission if client creation fails
+        }
+      }
 
       // Parallelize all independent operations for faster job creation
       const [jobNumber, myCompanyClientId] = await Promise.all([
@@ -1347,9 +1430,9 @@ export default function CreateJobPage() {
         job_type: formData.job_type,
         job_number: jobNumber,
         client_job_number: formData.client_job_number,
-        client_id: formData.client_id,
-        contact_id: formData.contact_id,
-        contact_email: formData.contact_email,
+        client_id: clientIdToUse,
+        contact_id: contactIdToUse,
+        contact_email: contactEmailToUse,
         priority: formData.priority,
         notes: formData.notes || '',
         status: getInitialStatusColumn(serverIdForSubmission !== "unassigned"),
@@ -1453,7 +1536,7 @@ export default function CreateJobPage() {
 
           newInvoice = await Invoice.create({
             invoice_number: invoiceNumber,
-            client_id: formData.client_id,
+            client_id: clientIdToUse,
             company_id: user?.company_id || null,
             invoice_type: "job",
             invoice_date: invoiceDate.toISOString().split('T')[0],
@@ -1560,7 +1643,7 @@ export default function CreateJobPage() {
               server_type: formData.server_type,
               server_name: serverName,
               job_number: jobNumber,
-              client_id: formData.client_id,
+              client_id: clientIdToUse,
               company_id: user.company_id,
               pay_items: formData.server_pay_items,
               total_amount: totalServerPay,
@@ -1580,18 +1663,18 @@ export default function CreateJobPage() {
             });
 
             // Send invoice email if "email on create" was toggled
-            if (invoiceData?.emailOnCreate === true && formData.contact_email) {
+            if (invoiceData?.emailOnCreate === true && contactEmailToUse) {
               try {
                 await InvoiceManager.sendInvoiceEmail(
                   newInvoice.id,
-                  formData.contact_email,
+                  contactEmailToUse,
                   {
                     invoice_number: newInvoice.invoice_number,
                     total: newInvoice.total,
                     due_date: newInvoice.due_date
                   }
                 );
-                console.log("Invoice email queued for:", formData.contact_email);
+                console.log("Invoice email queued for:", contactEmailToUse);
               } catch (emailError) {
                 console.error("Failed to send invoice email:", emailError);
               }
@@ -1733,12 +1816,13 @@ export default function CreateJobPage() {
     setIsSubmitting(false);
   };
 
-  const isFormValid = formData.client_id;
+  // Form is valid if either existing client is selected OR new client info is complete
+  const isFormValid = formData.client_id || (isNewClient && newClientName && newContactInfo.email);
 
   return (
-    <>
+    <div className="bg-slate-50">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-4 p-4">
+      <div className="flex items-center gap-4 p-4 bg-slate-50 sticky top-0 z-10">
         {/* <Link to={createPageUrl("Jobs")}>
                 <Button variant="outline" size="icon">
                   <ArrowLeft className="w-4 h-4" />
@@ -1769,78 +1853,84 @@ export default function CreateJobPage() {
           </p>
         </div>
       </div>
-      <div className="min-h-screen bg-slate-50 flex">
+      <div className="flex">
 
+        {/* Left Section Nav (desktop) - Sticky sidebar */}
+        <aside
+          className={`hidden lg:block shrink-0 self-start sticky top-16 transition-all duration-300 ease-in-out ${
+            isSectionNavHidden ? 'w-0 opacity-0' : 'w-72 opacity-100'
+          }`}
+        >
+          <div className={`w-72 px-3 py-1 transition-transform duration-300 ease-in-out ${
+            isSectionNavHidden ? '-translate-x-full' : 'translate-x-0'
+          }`}>
+            <nav className="space-y-1">
+              {sections.map((section) => {
+                const isActive = activeSectionId === section.id;
+                const isDone = !!sectionCompletion[section.id];
+                const Icon = section.icon || ClipboardList;
+                return (
+                  <button
+                    key={section.id}
+                    type="button"
+                    onClick={() => scrollToSection(section.id)}
+                    className={`w-full flex items-center justify-between  px-3 py-6 transition-all ${
+                      isActive
+                        ? "bg-[#F5F7FB] shadow-sm border border-slate-200 border-l-4 border-l-emerald-800"
+                        : "bg-transparent hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Icon className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                      <span className="text-sm text-slate-800 truncate">{section.label}</span>
+                    </div>
+                  </button>
+                );
+              })}
 
-        {/* Left Section Nav (desktop) */}
-        {!isSectionNavHidden ? (
-          <aside className="hidden lg:block w-72 shrink-0 ">
-            <div className="sticky top-0 h-screen px-3 py-1 overflow-y-auto">
-              {/* <div className="flex items-center justify-between mb-4">
-              <div className="text-sm font-semibold text-slate-900">Sections</div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={() => setIsSectionNavHidden(true)}
-                title="Hide sections"
-              >
-                <ChevronsLeft className="w-4 h-4" />
-              </Button>
-            </div> */}
-
-              <nav className="space-y-1">
-                {sections.map((section) => {
-                  const isActive = activeSectionId === section.id;
-                  const isDone = !!sectionCompletion[section.id];
-                  const Icon = section.icon || ClipboardList;
-                  return (
-                    <button
-                      key={section.id}
-                      type="button"
-                      onClick={() => scrollToSection(section.id)}
-                      className={`w-full flex items-center justify-between  px-3 py-6 transition-all ${
-                        isActive
-                          ? "bg-[#F5F7FB] shadow-sm border border-slate-200 border-l-4 border-l-emerald-800"
-                          : "bg-transparent hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <Icon className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                        <span className="text-sm text-slate-800 truncate">{section.label}</span>
-                      </div>
-
-                      <span
-                        className={`ml-3 inline-flex h-5 w-5 items-center justify-center rounded-full border ${
-                          isDone
-                            ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                            : "bg-white border-slate-200 text-slate-400"
-                        }`}
-                        title={isDone ? "Complete" : "Incomplete"}
-                      >
-                        <Check className="w-3.5 h-3.5" />
+              {/* View PDFs Button - Only show when PDFs are uploaded */}
+              {uploadedDocuments.some((doc) => doc.content_type === "application/pdf" && doc.file_url) && (
+                <>
+                  <div className="border-t border-slate-200 my-2" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newShowPDF = !showPDFViewer;
+                      setShowPDFViewer(newShowPDF);
+                      // Hide sidebar when opening PDF viewer
+                      if (newShowPDF) {
+                        setIsSectionNavHidden(true);
+                      }
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-6 transition-all ${
+                      showPDFViewer
+                        ? "bg-[#F5F7FB] shadow-sm border border-slate-200 border-l-4 border-l-emerald-800"
+                        : "bg-transparent hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileText className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                      <span className="text-sm text-slate-800 truncate">
+                        {showPDFViewer ? "Hide PDFs" : "View PDFs"}
                       </span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-          </aside>
-        ) : (
-          null
-        )}
+                    </div>
+                  </button>
+                </>
+              )}
+            </nav>
+          </div>
+        </aside>
 
         {/* Main Content */}
         <div
-          className="flex-1 transition-all duration-300 px-4 pb-2"
+          className="flex-1 transition-all duration-300 px-4 pb-8"
           style={{
             marginRight: showPDFViewer ? `${pdfViewerWidth}%` : undefined,
           }}
         >
 
-          <div className="">
-            <div className="max-w-screen mx-auto">
+          <div>
+            <div className="max-w-full">
 
 
               <form onSubmit={handleSubmit} className="space-y-6">
@@ -1876,21 +1966,7 @@ export default function CreateJobPage() {
                 <div id="service-documents" ref={setSectionRef("service-documents")} className="scroll-mt-6">
                   <Card>
                     <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle>Service Documents</CardTitle>
-                        {uploadedDocuments.some((doc) => doc.content_type === "application/pdf" && doc.file_url) && (
-                          <Button
-                            type="button"
-                            variant={showPDFViewer ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => setShowPDFViewer(!showPDFViewer)}
-                            className="gap-2 hidden lg:flex"
-                          >
-                            <FileText className="w-4 h-4" />
-                            {showPDFViewer ? "Hide PDFs" : "View PDFs"}
-                          </Button>
-                        )}
-                      </div>
+                      <CardTitle>Service Documents</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <DocumentUpload
@@ -1914,33 +1990,71 @@ export default function CreateJobPage() {
                     <CardContent className="space-y-4">
                       <div className="space-y-4">
                         {!showNewClientForm && !selectedClient && (
-                          <div>
-                            <Label>Client</Label>
-
-                            <div className="flex items-center gap-2 mb-2">
-
-                              <div className="w-[80%]"> {/* ✅ 80% width */}
-                                <ClientSearchInput
-                                  value={clientSearchText}
-                                  onValueChange={setClientSearchText}
-                                  onClientSelected={handleClientSelected}
-                                  onShowNewClient={() => setShowNewClientForm(true)}
-                                  selectedClient={selectedClient}
-                                />
-                              </div>
-                              <Button
-                                type="button"
-                                variant="default" // ✅ Changed from "outline" to "default" (blue)
-                                size="sm"
-                                onClick={() => setShowNewClientDialog(true)}
-                                className="gap-2 w-[20%] flex-shrink-0 bg-blue-600 hover:bg-blue-700 text-white" // ✅ Blue background
-                              >
-                                <Plus className="w-4 h-4" />
-                                Add Client
-                              </Button>
-
+                          <div className="space-y-4">
+                            <div>
+                              <Label>Client</Label>
+                              <ClientSearchInput
+                                value={clientSearchText}
+                                onValueChange={setClientSearchText}
+                                onClientSelected={handleClientSelected}
+                                onTextChange={(text, hasResults) => {
+                                  // When user types without selecting, track for new client creation
+                                  if (text.length >= 3 && !hasResults) {
+                                    setIsNewClient(true);
+                                    setNewClientName(text);
+                                  } else {
+                                    // Reset when text is too short OR when results are found
+                                    setIsNewClient(false);
+                                    setNewClientName("");
+                                  }
+                                }}
+                                selectedClient={selectedClient}
+                              />
+                              {isNewClient && newClientName && (
+                                <p className="text-sm text-blue-600 mt-1">
+                                  New client "{newClientName}" will be created when you save
+                                </p>
+                              )}
                             </div>
 
+                            {/* Inline contact fields for new client */}
+                            {isNewClient && newClientName && (
+                              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+                                <h4 className="font-medium text-slate-900">Contact Information</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                  <div>
+                                    <Label htmlFor="new_contact_name">Contact Name</Label>
+                                    <Input
+                                      id="new_contact_name"
+                                      value={newContactInfo.name}
+                                      onChange={(e) => setNewContactInfo(prev => ({ ...prev, name: e.target.value }))}
+                                      placeholder="John Smith"
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="new_contact_email">Email <span className="text-red-500">*</span></Label>
+                                    <Input
+                                      id="new_contact_email"
+                                      type="email"
+                                      value={newContactInfo.email}
+                                      onChange={(e) => setNewContactInfo(prev => ({ ...prev, email: e.target.value }))}
+                                      placeholder="john@example.com"
+                                      required
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="new_contact_phone">Phone</Label>
+                                    <Input
+                                      id="new_contact_phone"
+                                      type="tel"
+                                      value={newContactInfo.phone}
+                                      onChange={(e) => setNewContactInfo(prev => ({ ...prev, phone: e.target.value }))}
+                                      placeholder="(555) 123-4567"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -2762,6 +2876,6 @@ export default function CreateJobPage() {
           onWidthChange={setPdfViewerWidth}
         />
       </div>
-    </>
+    </div>
   );
 }

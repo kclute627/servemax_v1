@@ -78,7 +78,8 @@ import {
   CreditCard, // Icon for payment applied
   Save, // Icon for save
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  X
 } from 'lucide-react';
 import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
@@ -92,12 +93,17 @@ import { generateFieldSheet, mergePDFs, sendAttemptNotification, shareDocumentWi
 import { UploadFile } from "@/api/integrations";
 import { motion, AnimatePresence } from 'framer-motion';
 import AttemptTimeIndicator from '../components/jobs/AttemptTimeIndicator';
+import JobNotesThread from '../components/jobs/JobNotesThread';
 import { JobShareChain } from '@/components/JobSharing';
 import { useToast } from '@/components/ui/use-toast';
 import { InvoiceManager } from '@/firebase/invoiceManager';
 import InvoicePreview from '@/components/invoicing/InvoicePreview';
 import html2pdf from 'html2pdf.js';
-import { JOB_TYPES, JOB_TYPE_LABELS } from '@/firebase/schemas';
+import { JOB_TYPES, JOB_TYPE_LABELS, getViewerRoleInChain } from '@/firebase/schemas';
+import VisibilityToggle, { filterByVisibility } from '@/components/jobs/VisibilityToggle';
+import UpstreamUpdateBanner from '@/components/jobs/UpstreamUpdateBanner';
+import CancelJobModal from '@/components/jobs/CancelJobModal';
+import ReportToClientPanel from '@/components/jobs/ReportToClientPanel';
 import CourtReportingDetails from '../components/jobs/CourtReportingDetails';
 // --- Configuration Objects ---
 // These are UI-specific and will likely remain unchanged during migration.
@@ -169,7 +175,7 @@ const DetailItem = ({ icon, label, value }) => {
  * Component to display a single service attempt with expandable details and map integration.
  * This is a new component for the outline.
  */
-const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees, companyId, hasClientEmail, onEmailSent }) => {
+const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees, companyId, hasClientEmail, onEmailSent, isJobOwner, hasShareChain, onVisibilityChange }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
 
@@ -194,7 +200,10 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees,
   if (attempt.server_id && Array.isArray(employees)) {
     const serverEmployee = employees.find(emp => emp.id === attempt.server_id);
     if (serverEmployee) {
-      serverName = `${serverEmployee.first_name} ${serverEmployee.last_name}`;
+      serverName = serverEmployee.full_name ||
+        (serverEmployee.first_name || serverEmployee.last_name ? `${serverEmployee.first_name || ''} ${serverEmployee.last_name || ''}`.trim() : null) ||
+        serverEmployee.name ||
+        serverName;
     }
   }
   if (!serverName) serverName = 'N/A';
@@ -258,6 +267,19 @@ const AttemptWithMap = ({ attempt, jobId, jobAddress, jobCoordinates, employees,
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Visibility toggle for shared jobs */}
+          {hasShareChain && isJobOwner && (
+            <VisibilityToggle
+              jobId={jobId}
+              itemId={attempt.id}
+              collectionType="attempts"
+              visibility={attempt.visibility}
+              isJobOwner={isJobOwner}
+              hasShareChain={hasShareChain}
+              onVisibilityChange={onVisibilityChange}
+              size="sm"
+            />
+          )}
           {hasClientEmail && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -533,6 +555,7 @@ export default function JobDetailsPage() {
   const [isEditingServiceDocuments, setIsEditingServiceDocuments] = useState(false);
   const [isNewContactDialogOpen, setIsNewContactDialogOpen] = useState(false);
   const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [emailPreSelectedContent, setEmailPreSelectedContent] = useState({});
 
   // Form-specific state
@@ -739,6 +762,11 @@ export default function JobDetailsPage() {
 
       // FIREBASE TRANSITION: This `Promise.all` pattern is good. Replace each Base44 call
       // with its Firebase equivalent (getDoc, getDocs, query, etc.).
+      // PERFORMANCE: Use employees and clients from context instead of re-fetching
+      // Only fetch if context is empty (e.g., direct page load without going through dashboard)
+      const shouldFetchEmployees = !contextEmployees || contextEmployees.length === 0;
+      const shouldFetchClients = !contextClients || contextClients.length === 0;
+
       const [
         clientData,
         courtCaseData,
@@ -757,8 +785,9 @@ export default function JobDetailsPage() {
         jobData.job_invoice_id
           ? Invoice.findById(jobData.job_invoice_id).catch(e => { return null; })
           : Invoice.filter({ job_ids: jobId, company_id: user?.company_id }).then(invoices => invoices[0] || null).catch(e => { return null; }),
-        Employee.list().catch(e => { return []; }),
-        Client.list().catch(e => { return []; }),
+        // PERFORMANCE: Only fetch if not available in context
+        shouldFetchEmployees ? Employee.list().catch(e => { return []; }) : Promise.resolve(contextEmployees),
+        shouldFetchClients ? Client.list().catch(e => { return []; }) : Promise.resolve(contextClients),
         CompanySettings.filter({ setting_key: "invoice_settings" }).catch(e => { return []; }),
       ]);
 
@@ -873,7 +902,11 @@ export default function JobDetailsPage() {
         try {
           const employee = Array.isArray(employeesList) ? employeesList.find(e => e.id === validatedJobData.assigned_server_id) : null;
           if (employee) {
-            setServer({ name: `${employee.first_name} ${employee.last_name}`, type: 'Employee' });
+            const employeeName = employee.full_name ||
+              (employee.first_name || employee.last_name ? `${employee.first_name || ''} ${employee.last_name || ''}`.trim() : null) ||
+              employee.name ||
+              'Unknown Server';
+            setServer({ name: employeeName, type: 'Employee' });
           } else {
             const contractor = clientsList.find(c => c.id === validatedJobData.assigned_server_id);
             if (contractor) {
@@ -936,8 +969,9 @@ export default function JobDetailsPage() {
           setAttempts(jobFromContext.attempts.sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date)));
         }
 
-        // Set loading state for court case if job has one (will be loaded async)
-        if (jobFromContext.court_case_id) {
+        // Only set loading state for court case on INITIAL pre-population
+        // This prevents the skeleton from appearing when refreshData() re-triggers this effect
+        if (jobFromContext.court_case_id && !jobPrePopulatedRef.current) {
           setIsLoadingCourtCase(true);
         }
 
@@ -947,9 +981,6 @@ export default function JobDetailsPage() {
         // Mark that we pre-populated from context
         jobPrePopulatedRef.current = true;
       }
-    } else {
-      // Reset the ref if we don't have context data
-      jobPrePopulatedRef.current = false;
     }
   }, [location.search, contextJobs, contextClients, contextEmployees]);
 
@@ -1033,8 +1064,6 @@ export default function JobDetailsPage() {
       if (user?.company_id) {
         // If job was pre-populated from context, skip showing loading skeleton
         loadJobDetails(jobId, jobPrePopulatedRef.current);
-        // Reset the ref after using it
-        jobPrePopulatedRef.current = false;
       } else {
         // Wait for user to be loaded
         setIsLoading(true);
@@ -1110,6 +1139,51 @@ export default function JobDetailsPage() {
 
     } catch (error) {
       alert("Failed to update job status.");
+    }
+  };
+
+  /**
+   * Handles cancelling the job. If there are downstream jobs, this should be
+   * called from the CancelJobModal which warns about cascading cancellation.
+   */
+  const handleCancelJob = async (cancellationReason) => {
+    if (!job) return;
+    try {
+      const newLogEntry = {
+        timestamp: new Date().toISOString(),
+        user_name: currentUser?.full_name || "System",
+        event_type: "job_cancelled",
+        description: `Job cancelled by ${currentUser?.full_name || 'user'}. ${cancellationReason ? `Reason: ${cancellationReason}` : ''}`
+      };
+
+      const currentActivityLog = Array.isArray(job?.activity_log) ? job.activity_log : [];
+      const updatedActivityLog = [...currentActivityLog, newLogEntry];
+
+      await Job.update(job.id, {
+        status: 'cancelled',
+        cancellation_reason: cancellationReason || null,
+        cancelled_at: new Date().toISOString(),
+        activity_log: updatedActivityLog
+      });
+
+      setJob(prevJob => ({
+        ...prevJob,
+        status: 'cancelled',
+        cancellation_reason: cancellationReason || null,
+        activity_log: updatedActivityLog
+      }));
+
+      await refreshData();
+
+      toast({
+        title: 'Job Cancelled',
+        description: job?.share_chain?.child_job_id
+          ? 'Job cancelled. Downstream jobs will also be cancelled.'
+          : 'Job has been cancelled.',
+      });
+
+    } catch (error) {
+      alert("Failed to cancel job: " + error.message);
     }
   };
 
@@ -2615,10 +2689,37 @@ export default function JobDetailsPage() {
                 </>
               )}
             </Button>
+            {/* Report to Client - for shared jobs with upstream parent */}
+            <ReportToClientPanel job={job} isOwner={true} />
+            {job.status !== 'cancelled' && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (job?.share_chain?.child_job_id) {
+                    // Has downstream jobs - show warning modal
+                    setIsCancelModalOpen(true);
+                  } else {
+                    // No downstream jobs - direct cancel with confirmation
+                    if (window.confirm('Are you sure you want to cancel this job?')) {
+                      handleCancelJob('');
+                    }
+                  }
+                }}
+                className="gap-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+              >
+                <X className="w-4 h-4" />
+                Cancel Job
+              </Button>
+            )}
           </div>
         </div>
 
         {/* Job Share Chain removed - subtle share icon shown next to client name instead */}
+
+        {/* Upstream Update Banner - shows when job was synced from upstream */}
+        {job?.share_chain?.parent_job_id && (
+          <UpstreamUpdateBanner job={job} />
+        )}
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -2732,7 +2833,9 @@ export default function JobDetailsPage() {
                         >
                           <option value="unassigned">Unassigned</option>
                           {Array.isArray(allEmployees) && allEmployees.map(e => (
-                            <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
+                            <option key={e.id} value={e.id}>
+                              {e.full_name || (e.first_name || e.last_name ? `${e.first_name || ''} ${e.last_name || ''}`.trim() : null) || e.name || 'Unknown'}
+                            </option>
                           ))}
                         </select>
                       </div>
@@ -3050,7 +3153,7 @@ export default function JobDetailsPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {attempts
+                    {filterByVisibility(attempts, getViewerRoleInChain(job, user?.company_id))
                       .sort((a, b) => new Date(b.attempt_date) - new Date(a.attempt_date))
                       .map(attempt => {
                         return (
@@ -3063,6 +3166,14 @@ export default function JobDetailsPage() {
                             employees={allEmployees}
                             companyId={user?.company_id}
                             hasClientEmail={Boolean(job?.contact_email || client?.contact_email || client?.email)}
+                            isJobOwner={job.company_id === user?.company_id}
+                            hasShareChain={Boolean(job?.share_chain?.parent_company_id || job?.share_chain?.child_company_id)}
+                            onVisibilityChange={(itemId, newVisibility) => {
+                              // Update the local attempts state with new visibility
+                              setAttempts(prev => prev.map(a =>
+                                a.id === itemId ? { ...a, visibility: newVisibility } : a
+                              ));
+                            }}
                             onEmailSent={(result) => {
                               if (result.success) {
                                 toast({
@@ -3138,9 +3249,9 @@ export default function JobDetailsPage() {
                   </div>
                 ) : (
                   <>
-                    {serviceDocuments.length > 0 ? (
+                    {filterByVisibility(serviceDocuments, getViewerRoleInChain(job, user?.company_id)).length > 0 ? (
                       <div className="space-y-2">
-                        {serviceDocuments.map((doc, index) => (
+                        {filterByVisibility(serviceDocuments, getViewerRoleInChain(job, user?.company_id)).map((doc, index) => (
                           <div
                             key={doc.id}
                             className={`flex items-center justify-between p-3 rounded-md ${index === 0
@@ -3159,9 +3270,29 @@ export default function JobDetailsPage() {
                                 </div>
                               </div>
                             </div>
-                            <Button variant="outline" size="sm" asChild>
-                              <a href={doc.file_url} target="_blank" rel="noopener noreferrer">View</a>
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              {/* Visibility toggle for shared jobs */}
+                              {(job?.share_chain?.parent_company_id || job?.share_chain?.child_company_id) && job.company_id === user?.company_id && (
+                                <VisibilityToggle
+                                  jobId={job.id}
+                                  itemId={doc.id}
+                                  collectionType="documents"
+                                  visibility={doc.visibility}
+                                  isJobOwner={job.company_id === user?.company_id}
+                                  hasShareChain={Boolean(job?.share_chain?.parent_company_id || job?.share_chain?.child_company_id)}
+                                  onVisibilityChange={(itemId, newVisibility) => {
+                                    // Update the local documents state with new visibility
+                                    setDocuments(prev => prev.map(d =>
+                                      d.id === itemId ? { ...d, visibility: newVisibility } : d
+                                    ));
+                                  }}
+                                  size="sm"
+                                />
+                              )}
+                              <Button variant="outline" size="sm" asChild>
+                                <a href={doc.file_url} target="_blank" rel="noopener noreferrer">View</a>
+                              </Button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -3226,9 +3357,9 @@ export default function JobDetailsPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                {affidavitDocuments.length > 0 ? (
+                {filterByVisibility(affidavitDocuments, getViewerRoleInChain(job, user?.company_id)).length > 0 ? (
                   <div className="space-y-3">
-                    {affidavitDocuments.map(doc => (
+                    {filterByVisibility(affidavitDocuments, getViewerRoleInChain(job, user?.company_id)).map(doc => (
                       <div key={doc.id} className="p-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors">
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex items-start gap-3 flex-1">
@@ -3269,6 +3400,24 @@ export default function JobDetailsPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
+                            {/* Visibility toggle for shared jobs */}
+                            {(job?.share_chain?.parent_company_id || job?.share_chain?.child_company_id) && job.company_id === user?.company_id && (
+                              <VisibilityToggle
+                                jobId={job.id}
+                                itemId={doc.id}
+                                collectionType="documents"
+                                visibility={doc.visibility}
+                                isJobOwner={job.company_id === user?.company_id}
+                                hasShareChain={Boolean(job?.share_chain?.parent_company_id || job?.share_chain?.child_company_id)}
+                                onVisibilityChange={(itemId, newVisibility) => {
+                                  // Update the local documents state with new visibility
+                                  setDocuments(prev => prev.map(d =>
+                                    d.id === itemId ? { ...d, visibility: newVisibility } : d
+                                  ));
+                                }}
+                                size="sm"
+                              />
+                            )}
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
@@ -3882,52 +4031,18 @@ export default function JobDetailsPage() {
             </Card>
 
 
-            {/* Notes Card */}
+            {/* Messages Card */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <StickyNote className="w-5 h-5" />
-                  Notes
-                </CardTitle>
-                {!isEditingNotes && (
-                  <Button variant="outline" size="sm" onClick={() => setIsEditingNotes(true)}>
-                    Edit
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent>
-                {isEditingNotes ? (
-                  <div className="space-y-3">
-                    <Textarea
-                      value={jobNotes}
-                      onChange={(e) => setJobNotes(e.target.value)}
-                      rows={4}
-                      placeholder="Add notes about this job..."
-                    />
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={handleSaveNotes} className="relative">
-                        {areNotesDirty && (
-                          <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                          </span>
-                        )}
-                        Save
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setIsEditingNotes(false)}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    {jobNotes ? (
-                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{jobNotes}</p>
-                    ) : (
-                      <p className="text-slate-500 text-sm">No notes added yet.</p>
-                    )}
-                  </div>
-                )}
+              <CardContent className="pt-4">
+                <JobNotesThread
+                  jobId={job?.id}
+                  job={job}
+                  userType="company"
+                  currentUserId={user?.uid}
+                  companyId={user?.company_id}
+                  hasClient={Boolean(job?.contact_email || job?.client_id)}
+                  hasServer={Boolean(job?.share_chain?.child_company_id)}
+                />
               </CardContent>
             </Card>
             </>
@@ -4307,6 +4422,14 @@ export default function JobDetailsPage() {
         assignedServer={allEmployees?.find(e => e.id === job?.assigned_server_id)}
         companyId={user?.company_id}
         preSelectedContent={emailPreSelectedContent}
+      />
+
+      {/* Cancel Job Modal - warns about downstream jobs */}
+      <CancelJobModal
+        open={isCancelModalOpen}
+        onOpenChange={setIsCancelModalOpen}
+        job={job}
+        onConfirm={handleCancelJob}
       />
 
     </div>

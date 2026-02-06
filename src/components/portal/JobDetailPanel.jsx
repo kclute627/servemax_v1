@@ -12,12 +12,14 @@ import {
   XCircle,
   AlertCircle,
   User,
-  ExternalLink
+  ExternalLink,
+  MessageSquare
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
+import JobNotesThread from "@/components/jobs/JobNotesThread";
 
 export default function JobDetailPanel({
   job,
@@ -25,7 +27,9 @@ export default function JobDetailPanel({
   onClose,
   primaryColor = "#1e40af",
   onViewInvoice,
-  onPrintInvoice
+  onPrintInvoice,
+  clientUser = null,
+  companyId = null
 }) {
   if (!job) return null;
 
@@ -351,6 +355,26 @@ export default function JobDetailPanel({
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Messages Section */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <MessageSquare className="w-5 h-5" />
+              Messages
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <JobNotesThread
+              jobId={job?.id}
+              job={job}
+              userType="client"
+              currentUserId={clientUser?.uid}
+              companyId={companyId}
+              readOnly={!clientUser}
+            />
           </CardContent>
         </Card>
       </div>

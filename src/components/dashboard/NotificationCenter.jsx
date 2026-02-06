@@ -12,8 +12,8 @@ import {
   ChevronUp,
   Users,
   Briefcase,
-  CheckCircle,
-  XCircle,
+  Check,
+  X,
   Loader2,
   Building,
   MapPin,
@@ -23,7 +23,10 @@ import {
   FileText,
   Zap,
   AlertTriangle,
-  User
+  User,
+  DollarSign,
+  Calendar,
+  XCircle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useGlobalData } from '../GlobalDataContext';
@@ -36,6 +39,8 @@ const NotificationCenter = ({ companyId }) => {
   const [jobShareRequests, setJobShareRequests] = useState([]);
   const [clientRegistrations, setClientRegistrations] = useState([]);
   const [portalOrders, setPortalOrders] = useState([]);
+  const [declinedShares, setDeclinedShares] = useState([]);
+  const [jobNotes, setJobNotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(true);
   const [responding, setResponding] = useState(null);
@@ -43,7 +48,7 @@ const NotificationCenter = ({ companyId }) => {
   // Track which notifications we've already shown toasts for
   const shownToastsRef = useRef(new Set());
 
-  const totalNotifications = partnershipRequests.length + jobShareRequests.length + clientRegistrations.length + portalOrders.length;
+  const totalNotifications = partnershipRequests.length + jobShareRequests.length + clientRegistrations.length + portalOrders.length + declinedShares.length + jobNotes.length;
 
   useEffect(() => {
     if (!companyId) {
@@ -122,6 +127,11 @@ const NotificationCenter = ({ companyId }) => {
       // Show persistent toast for new portal orders
       orders.forEach(order => {
         if (!shownToastsRef.current.has(order.id)) {
+          // PERFORMANCE: Limit Set size to prevent memory leak in long sessions
+          if (shownToastsRef.current.size > 100) {
+            const firstItem = shownToastsRef.current.values().next().value;
+            shownToastsRef.current.delete(firstItem);
+          }
           shownToastsRef.current.add(order.id);
           toast({
             title: "New Order Received",
@@ -141,11 +151,75 @@ const NotificationCenter = ({ companyId }) => {
       });
     });
 
+    // Listen to declined job share notifications
+    const declinedShareQuery = query(
+      collection(db, 'notifications'),
+      where('company_id', '==', companyId),
+      where('type', '==', 'job_share_declined'),
+      where('read', '==', false)
+    );
+
+    const unsubDeclinedShares = onSnapshot(declinedShareQuery, (snapshot) => {
+      const declined = snapshot.docs.map(doc => ({
+        id: doc.id,
+        type: 'declined_share',
+        ...doc.data()
+      }));
+      setDeclinedShares(declined);
+      setLoading(false);
+    });
+
+    // Listen to job note notifications
+    const jobNoteQuery = query(
+      collection(db, 'notifications'),
+      where('company_id', '==', companyId),
+      where('type', '==', 'new_job_note'),
+      where('read', '==', false)
+    );
+
+    const unsubJobNotes = onSnapshot(jobNoteQuery, (snapshot) => {
+      const notes = snapshot.docs.map(doc => ({
+        id: doc.id,
+        type: 'job_note',
+        ...doc.data()
+      }));
+      setJobNotes(notes);
+      setLoading(false);
+
+      // Show toast for new job notes
+      notes.forEach(note => {
+        if (!shownToastsRef.current.has(note.id)) {
+          if (shownToastsRef.current.size > 100) {
+            const firstItem = shownToastsRef.current.values().next().value;
+            shownToastsRef.current.delete(firstItem);
+          }
+          shownToastsRef.current.add(note.id);
+          toast({
+            title: "New Message",
+            description: `${note.note_author} sent a message on Job #${note.job_number}`,
+            action: (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate(`/jobs/${note.job_id}`)}
+              >
+                View
+              </Button>
+            ),
+          });
+        }
+      });
+    });
+
     return () => {
       unsubPartnership();
       unsubJobShare();
       unsubClientReg();
       unsubPortalOrders();
+      unsubDeclinedShares();
+      unsubJobNotes();
+      // PERFORMANCE: Clear toast tracking to prevent memory leak
+      shownToastsRef.current.clear();
     };
   }, [companyId, toast, navigate]);
 
@@ -245,206 +319,153 @@ const NotificationCenter = ({ companyId }) => {
     }
   };
 
+  const handleDismissDeclinedShare = async (notificationId) => {
+    setResponding(notificationId);
+    try {
+      await updateDoc(doc(db, 'notifications', notificationId), {
+        read: true
+      });
+    } catch (error) {
+      console.error('Error dismissing notification:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: `Failed to dismiss: ${error.message}`,
+      });
+    } finally {
+      setResponding(null);
+    }
+  };
+
   // Don't show notification center if no notifications
   if (totalNotifications === 0) {
     return null;
   }
 
   return (
-    <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl shadow-sm">
-      {/* Header */}
+    <div className="bg-white border border-emerald-200 rounded-xl shadow-sm overflow-hidden">
+      {/* Slim Header */}
       <div
-        className="flex items-center justify-between p-4 cursor-pointer hover:bg-green-100/50 transition-colors rounded-t-xl"
+        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-emerald-50/50 transition-colors border-b border-emerald-100"
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
-            <Bell className="w-5 h-5 text-white" />
+          <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
+            <Bell className="w-4 h-4 text-white" />
           </div>
-          <div>
-            <h3 className="font-semibold text-green-900 flex items-center gap-2">
-              Notification Center
-              <Badge className="bg-green-600 text-white">
-                {totalNotifications}
-              </Badge>
-            </h3>
-            <p className="text-sm text-green-700">
-              You have {totalNotifications} pending {totalNotifications === 1 ? 'notification' : 'notifications'}
-            </p>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-800 text-sm">Notifications</span>
+            <span className="bg-emerald-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
+              {totalNotifications}
+            </span>
           </div>
         </div>
-        <Button variant="ghost" size="sm" className="text-green-700 hover:bg-green-100">
-          {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-        </Button>
+        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
       </div>
 
       {/* Notifications List */}
       {isExpanded && (
-        <div className="p-4 pt-0 space-y-3">
+        <div className="divide-y divide-slate-100">
           {/* Partnership Requests */}
           {partnershipRequests.map((request) => (
-            <div
-              key={request.id}
-              className="bg-white rounded-lg border border-green-200 p-4 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3 flex-1">
-                  <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <Users className="w-5 h-5 text-purple-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
-                        Partnership Request
-                      </Badge>
-                    </div>
-                    <h4 className="font-semibold text-slate-900 mb-1">
-                      {request.requesting_company_name}
-                    </h4>
-                    <p className="text-sm text-slate-600 mb-2">
-                      wants to partner with you for job sharing
-                    </p>
-                    {request.message && (
-                      <div className="bg-slate-50 p-2 rounded text-sm italic text-slate-700 mb-2">
-                        "{request.message}"
-                      </div>
-                    )}
-                    <p className="text-xs text-slate-500">
-                      Requested by {request.requesting_user_name} •{' '}
-                      {request.created_at?.toDate ?
-                        format(request.created_at.toDate(), 'MMM d, yyyy') :
-                        'Recently'
-                      }
-                    </p>
-                  </div>
+            <div key={request.id} className="px-4 py-3 hover:bg-slate-50/50 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-violet-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Users className="w-4 h-4 text-violet-600" />
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <Button
-                    size="sm"
-                    onClick={() => handlePartnershipResponse(request.id, true)}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs font-medium text-violet-600 uppercase tracking-wide">Partnership</span>
+                  </div>
+                  <p className="text-sm text-slate-900">
+                    <span className="font-semibold">{request.requesting_company_name}</span>
+                    <span className="text-slate-500"> wants to partner</span>
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handlePartnershipResponse(request.id, true); }}
                     disabled={responding === request.id}
-                    className="bg-green-600 hover:bg-green-700"
+                    className="w-8 h-8 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-colors disabled:opacity-50"
                   >
-                    {responding === request.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <CheckCircle className="w-4 h-4" />
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handlePartnershipResponse(request.id, false)}
+                    {responding === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handlePartnershipResponse(request.id, false); }}
                     disabled={responding === request.id}
+                    className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-600 flex items-center justify-center transition-colors disabled:opacity-50"
                   >
-                    <XCircle className="w-4 h-4" />
-                  </Button>
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             </div>
           ))}
 
-          {/* Job Share Requests */}
+          {/* Job Share Requests - Slim Modern Design */}
           {jobShareRequests.map((request) => {
             const preview = request.job_preview || {};
-            const formatDue = (d) => { try { return d ? format(new Date(d), 'MMM d, yyyy') : null; } catch { return d; } };
+            const formatDue = (d) => { try { return d ? format(new Date(d), 'MMM d') : null; } catch { return d; } };
             const dueFormatted = formatDue(preview.due_date);
+            const fullAddress = [preview.service_address, preview.city, preview.state].filter(Boolean).join(', ');
 
             return (
-              <div
-                key={request.id}
-                className="bg-white rounded-xl border border-blue-100 p-5 hover:shadow-md transition-all"
-              >
-                {/* Top: From company + job number */}
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Briefcase className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                          Job Share Request
-                        </Badge>
-                        {request.shared_job_number && (
-                          <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-300 font-mono text-xs">
-                            #{request.shared_job_number}
-                          </Badge>
-                        )}
-                        {request.auto_assigned && (
-                          <Badge variant="secondary" className="text-xs">Auto-Assigned</Badge>
-                        )}
-                      </div>
-                      <h4 className="font-semibold text-slate-900">
-                        {request.requesting_company_name}
-                      </h4>
-                      <p className="text-xs text-slate-500">
-                        {request.created_at?.toDate
-                          ? format(request.created_at.toDate(), 'MMM d, yyyy \'at\' h:mm a')
-                          : 'Recently'}
-                      </p>
-                    </div>
+              <div key={request.id} className="px-4 py-3 hover:bg-slate-50/50 transition-colors">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Briefcase className="w-4 h-4 text-blue-600" />
                   </div>
-                </div>
+                  <div className="flex-1 min-w-0">
+                    {/* Type + Job Number */}
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-medium text-blue-600 uppercase tracking-wide">Job Share</span>
+                      {request.shared_job_number && (
+                        <span className="text-xs text-slate-400 font-mono">#{request.shared_job_number}</span>
+                      )}
+                    </div>
 
-                {/* Info grid */}
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  <div className="col-span-1 bg-slate-50 rounded-lg p-2.5">
-                    <div className="flex items-start gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">Location</p>
-                        <p className="text-xs font-medium text-slate-900 truncate">{preview.service_address || 'N/A'}</p>
-                        <p className="text-xs text-slate-500">{[preview.city, preview.state].filter(Boolean).join(', ')}</p>
+                    {/* Recipient Name - BOLD */}
+                    <p className="font-bold text-slate-900 text-sm mb-1">
+                      {preview.recipient_name || 'Unknown Recipient'}
+                    </p>
+
+                    {/* Address */}
+                    {fullAddress && (
+                      <div className="flex items-start gap-1.5 mb-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                        <span className="text-xs text-slate-600 leading-tight">{fullAddress}</span>
                       </div>
+                    )}
+
+                    {/* Meta row: Client + Rate + Due */}
+                    <div className="flex items-center gap-3 text-xs">
+                      <span className="text-slate-500">
+                        from <span className="font-medium text-slate-700">{request.requesting_company_name}</span>
+                      </span>
+                      <span className="text-emerald-600 font-semibold">${Number(request.proposed_fee || 0).toFixed(0)}</span>
+                      {dueFormatted && (
+                        <span className="text-slate-400">Due {dueFormatted}</span>
+                      )}
                     </div>
                   </div>
-                  <div className="bg-green-50 rounded-lg p-2.5">
-                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">Rate</p>
-                    <p className="text-base font-bold text-green-700">${Number(request.proposed_fee || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg p-2.5">
-                    <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wide">Due</p>
-                    <p className="text-xs font-semibold text-slate-900">{dueFormatted || 'Not set'}</p>
-                    {preview.documents_count > 0 && (
-                      <p className="text-[10px] text-slate-500">{preview.documents_count} pages</p>
-                    )}
-                  </div>
-                </div>
 
-                {/* Actions */}
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => handleJobShareResponse(request.id, true)}
-                    disabled={responding === request.id}
-                    className="flex-1 bg-green-600 hover:bg-green-700 h-9 text-sm font-semibold"
-                  >
-                    {responding === request.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <>
-                        <CheckCircle className="w-4 h-4 mr-1.5" />
-                        Accept
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleJobShareResponse(request.id, false)}
-                    disabled={responding === request.id}
-                    className="flex-1 border-slate-300 text-slate-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 h-9 text-sm"
-                  >
-                    {responding === request.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <>
-                        <XCircle className="w-4 h-4 mr-1.5" />
-                        Decline
-                      </>
-                    )}
-                  </Button>
+                  {/* Accept / Deny */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleJobShareResponse(request.id, true); }}
+                      disabled={responding === request.id}
+                      className="w-8 h-8 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-colors disabled:opacity-50"
+                    >
+                      {responding === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleJobShareResponse(request.id, false); }}
+                      disabled={responding === request.id}
+                      className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-600 flex items-center justify-center transition-colors disabled:opacity-50"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -452,62 +473,34 @@ const NotificationCenter = ({ companyId }) => {
 
           {/* Client Registration Notifications */}
           {clientRegistrations.map((registration) => (
-            <div
-              key={registration.id}
-              className="bg-white rounded-lg border border-green-200 p-4 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3 flex-1">
-                  <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <UserPlus className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                        New Client Signup
-                      </Badge>
-                    </div>
-                    <h4 className="font-semibold text-slate-900 mb-1">
-                      {registration.company_name}
-                    </h4>
-                    <div className="space-y-1 mb-2">
-                      <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <Users className="w-3 h-3" />
-                        <span>{registration.contact_name}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <span className="text-slate-500">{registration.contact_email}</span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      {registration.created_at?.toDate &&
-                        format(registration.created_at.toDate(), 'MMM d, yyyy h:mm a')
-                      }
-                    </p>
-                  </div>
+            <div key={registration.id} className="px-4 py-3 hover:bg-slate-50/50 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <UserPlus className="w-4 h-4 text-emerald-600" />
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => window.location.href = `/clients/${registration.client_company_id}`}
-                    className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs font-medium text-emerald-600 uppercase tracking-wide">New Client</span>
+                  </div>
+                  <p className="text-sm">
+                    <span className="font-semibold text-slate-900">{registration.company_name}</span>
+                  </p>
+                  <p className="text-xs text-slate-500">{registration.contact_name} • {registration.contact_email}</p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); window.location.href = `/clients/${registration.client_company_id}`; }}
+                    className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-500 hover:text-blue-600 flex items-center justify-center transition-colors"
                   >
-                    <Eye className="w-4 h-4 mr-1" />
-                    View
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => handleAcknowledgeRegistration(registration.id)}
+                    <Eye className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleAcknowledgeRegistration(registration.id); }}
                     disabled={responding === registration.id}
-                    className="bg-green-600 hover:bg-green-700"
+                    className="w-8 h-8 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-colors disabled:opacity-50"
                   >
-                    {responding === registration.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <CheckCircle className="w-4 h-4" />
-                    )}
-                  </Button>
+                    {responding === registration.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
             </div>
@@ -515,89 +508,118 @@ const NotificationCenter = ({ companyId }) => {
 
           {/* Portal Order Notifications */}
           {portalOrders.map((order) => {
-            // Priority configuration
             const priorityConfig = {
-              same_day: { label: 'Same Day', icon: AlertTriangle, className: 'bg-red-100 text-red-700 border-red-200' },
-              rush: { label: 'Rush', icon: Zap, className: 'bg-orange-100 text-orange-700 border-orange-200' },
-              standard: { label: 'Standard', icon: Clock, className: 'bg-slate-100 text-slate-600 border-slate-200' }
+              same_day: { label: 'Same Day', className: 'bg-red-100 text-red-700' },
+              rush: { label: 'Rush', className: 'bg-orange-100 text-orange-700' },
+              standard: { label: 'Standard', className: 'bg-slate-100 text-slate-600' }
             };
             const priority = priorityConfig[order.priority] || priorityConfig.standard;
-            const PriorityIcon = priority.icon;
 
             return (
-              <div
-                key={order.id}
-                className="bg-white rounded-lg border border-green-200 p-4 hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-3 flex-1">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <FileText className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                          New Portal Order
-                        </Badge>
-                      </div>
-                      <h4 className="font-semibold text-slate-900 mb-1">
-                        Order #{order.job_number}
-                      </h4>
-                      <div className="space-y-1.5 mb-2">
-                        {order.recipient_name && (
-                          <div className="flex items-center gap-2 text-sm text-slate-700">
-                            <User className="w-3.5 h-3.5 text-slate-400" />
-                            <span className="font-medium">{order.recipient_name}</span>
-                          </div>
-                        )}
-                        {order.address && (
-                          <div className="flex items-start gap-2 text-sm text-slate-600">
-                            <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
-                            <span className="line-clamp-1">{order.address}</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${priority.className}`}>
-                            <PriorityIcon className="w-3 h-3" />
-                            {priority.label}
-                          </span>
-                          <span className="text-xs text-slate-500">from {order.client_name}</span>
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-500">
-                        {order.created_at?.toDate &&
-                          format(order.created_at.toDate(), 'MMM d, yyyy h:mm a')
-                        }
-                      </p>
-                    </div>
+              <div key={order.id} className="px-4 py-3 hover:bg-slate-50/50 transition-colors">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 bg-sky-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <FileText className="w-4 h-4 text-sky-600" />
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => navigate(`/jobs/${order.job_id}`)}
-                      className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-medium text-sky-600 uppercase tracking-wide">Portal Order</span>
+                      <span className="text-xs text-slate-400 font-mono">#{order.job_number}</span>
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${priority.className}`}>
+                        {priority.label}
+                      </span>
+                    </div>
+
+                    {/* Recipient Name - BOLD */}
+                    {order.recipient_name && (
+                      <p className="font-bold text-slate-900 text-sm mb-1">{order.recipient_name}</p>
+                    )}
+
+                    {/* Address */}
+                    {order.address && (
+                      <div className="flex items-start gap-1.5 mb-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                        <span className="text-xs text-slate-600 leading-tight line-clamp-1">{order.address}</span>
+                      </div>
+                    )}
+
+                    {/* Client */}
+                    <p className="text-xs text-slate-500">
+                      from <span className="font-medium text-slate-700">{order.client_name}</span>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigate(`/jobs/${order.job_id}`); }}
+                      className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-500 hover:text-blue-600 flex items-center justify-center transition-colors"
                     >
-                      <Eye className="w-4 h-4 mr-1" />
-                      View
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleDismissPortalOrder(order.id)}
+                      <Eye className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDismissPortalOrder(order.id); }}
                       disabled={responding === order.id}
-                      className="bg-green-600 hover:bg-green-700"
+                      className="w-8 h-8 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-colors disabled:opacity-50"
                     >
-                      {responding === order.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <CheckCircle className="w-4 h-4" />
-                      )}
-                    </Button>
+                      {responding === order.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    </button>
                   </div>
                 </div>
               </div>
             );
           })}
+
+          {/* Declined Job Share Notifications */}
+          {declinedShares.map((notification) => (
+            <div key={notification.id} className="px-4 py-3 hover:bg-red-50/50 transition-colors bg-red-50/30">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <XCircle className="w-4 h-4 text-red-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-medium text-red-600 uppercase tracking-wide">Job Declined</span>
+                    {notification.job_number && (
+                      <span className="text-xs text-slate-400 font-mono">#{notification.job_number}</span>
+                    )}
+                  </div>
+
+                  {/* Recipient Name - BOLD */}
+                  <p className="font-bold text-slate-900 text-sm mb-1">
+                    {notification.recipient_name || 'Unknown Recipient'}
+                  </p>
+
+                  {/* Declining Company */}
+                  <p className="text-xs text-slate-500 mb-1">
+                    <span className="font-medium text-red-600">{notification.declining_company_name}</span> declined this job
+                  </p>
+
+                  {/* Decline Reason */}
+                  {notification.decline_reason && (
+                    <div className="mt-1.5 text-xs text-red-700 bg-red-100 rounded px-2 py-1.5 border border-red-200">
+                      <span className="font-medium">Reason:</span> {notification.decline_reason}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); navigate(`/jobs/${notification.job_id}`); }}
+                    className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-500 hover:text-blue-600 flex items-center justify-center transition-colors"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDismissDeclinedShare(notification.id); }}
+                    disabled={responding === notification.id}
+                    className="w-8 h-8 rounded-lg bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-colors disabled:opacity-50"
+                  >
+                    {responding === notification.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

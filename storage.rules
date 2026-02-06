@@ -8,11 +8,70 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Allow authenticated users to upload and read their own files
-    match /{allPaths=**} {
-      allow read: if true;  // Public read - tokens in download URLs provide security
+    // Company-specific files - require authentication
+    // Files are organized by company_id for proper isolation
+    match /companies/{companyId}/{allPaths=**} {
+      allow read: if isAuthenticated();
       allow write: if isAuthenticated() &&
                      request.resource.size < 50 * 1024 * 1024 && // Max 50MB
+                     request.resource.contentType.matches('image/.*|application/pdf|video/.*');
+    }
+
+    // Job-related files - require authentication
+    match /jobs/{jobId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+                     request.resource.size < 50 * 1024 * 1024 &&
+                     request.resource.contentType.matches('image/.*|application/pdf|video/.*');
+    }
+
+    // Affidavit files - require authentication
+    match /affidavits/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+                     request.resource.size < 50 * 1024 * 1024 &&
+                     request.resource.contentType.matches('application/pdf');
+    }
+
+    // Document uploads - require authentication
+    match /documents/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+                     request.resource.size < 50 * 1024 * 1024 &&
+                     request.resource.contentType.matches('image/.*|application/pdf|video/.*');
+    }
+
+    // Template files - require authentication
+    match /templates/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+                     request.resource.size < 10 * 1024 * 1024 && // Max 10MB for templates
+                     request.resource.contentType.matches('image/.*|application/pdf');
+    }
+
+    // User profile images - require authentication
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+                     request.auth.uid == userId &&
+                     request.resource.size < 5 * 1024 * 1024 && // Max 5MB for profile images
+                     request.resource.contentType.matches('image/.*');
+    }
+
+    // Public assets (logos, branding) - can be read by anyone
+    // These are intentionally public for email templates, invoices, etc.
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated() &&
+                     request.resource.size < 5 * 1024 * 1024 &&
+                     request.resource.contentType.matches('image/.*');
+    }
+
+    // Catch-all for any other paths - require authentication
+    match /{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+                     request.resource.size < 50 * 1024 * 1024 &&
                      request.resource.contentType.matches('image/.*|application/pdf|video/.*');
     }
   }

@@ -14,9 +14,9 @@
   "main": "index.js",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
-    "@sendgrid/mail": "^8.1.0",
     "@google-cloud/documentai": "^9.5.0",
     "@googlemaps/google-maps-services-js": "^3.3.42",
+    "@sendgrid/mail": "^8.1.0",
     "@sparticuz/chromium": "^141.0.0",
     "axios": "^1.6.0",
     "date-fns": "^4.1.0",
@@ -26,7 +26,8 @@
     "pdf-lib": "^1.17.1",
     "puppeteer": "^23.5.0",
     "puppeteer-core": "^24.26.0",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "stripe": "^20.3.0"
   },
   "devDependencies": {
     "firebase-functions-test": "^3.1.0"

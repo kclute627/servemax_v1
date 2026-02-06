@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AnimatedNumber, AnimatedPercentage } from '@/components/ui/animated-number';
@@ -23,7 +23,6 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { StatsManager } from '@/firebase/stats';
 import { InvoiceManager } from '@/firebase/invoiceManager';
 import { useGlobalData } from '@/components/GlobalDataContext';
-import { CompanySettings } from '@/api/entities';
 import { createPageUrl } from '@/utils';
 import TopClients from './TopClients';
 import TopServers from './TopServers';
@@ -41,10 +40,8 @@ import cellularbars from '@/images/Dashboard/cellularbars.png';
 
 export default function BusinessStatsPanel() {
   const { user } = useAuth();
-  const { jobs, clients, invoices, employees, serverPayRecords, isLoading: isLoadingJobs } = useGlobalData();
+  const { jobs, clients, invoices, employees, serverPayRecords, companySettings, isLoading: isLoadingJobs } = useGlobalData();
 
-  // Debug: Check if image is imported correctly
-  console.log('Cellular bars image:', cellularbars);
   const [stats, setStats] = useState(null);
   const [topClients, setTopClients] = useState([]);
   const [topServers, setTopServers] = useState([]);
@@ -54,13 +51,8 @@ export default function BusinessStatsPanel() {
   const [jobActivity, setJobActivity] = useState(null);
   const [previousPeriodData, setPreviousPeriodData] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState('today');
-  // State for integrated TopClients and TopServers
-  const [topClientsData, setTopClientsData] = useState([]);
-  const [isTopClientsLoading, setIsTopClientsLoading] = useState(true);
+  // State for TopClients and TopServers period selection
   const [topClientsPeriod, setTopClientsPeriod] = useState('this_month');
-
-  const [topServersData, setTopServersData] = useState([]);
-  const [isTopServersLoading, setIsTopServersLoading] = useState(true);
   const [topServersPeriod, setTopServersPeriod] = useState('this_month');
   const [ratingWeights, setRatingWeights] = useState({
     completion_time: 3,
@@ -91,20 +83,12 @@ export default function BusinessStatsPanel() {
     { value: 'all_time', label: 'All Time' },
   ];
 
-  // Load rating weights from company settings
+  // PERFORMANCE: Get rating weights from context instead of separate query
   useEffect(() => {
-    const loadRatingWeights = async () => {
-      try {
-        const result = await CompanySettings.filter({ setting_key: 'server_rating_weights' });
-        if (result && result.length > 0) {
-          setRatingWeights(prev => ({ ...prev, ...result[0].setting_value.weights }));
-        }
-      } catch (error) {
-        console.error('Error loading rating weights:', error);
-      }
-    };
-    loadRatingWeights();
-  }, []);
+    if (companySettings?.ratingWeights && Object.keys(companySettings.ratingWeights).length > 0) {
+      setRatingWeights(prev => ({ ...prev, ...companySettings.ratingWeights }));
+    }
+  }, [companySettings?.ratingWeights]);
 
   // Calculate real-time job counts whenever jobs data changes
   useEffect(() => {
@@ -572,13 +556,11 @@ export default function BusinessStatsPanel() {
     }
   };
 
-  // Calculate TopClients data
-  const calculateTopClientsData = useCallback(() => {
+  // PERFORMANCE: Memoize TopClients calculation - only recalculates when inputs change
+  const memoizedTopClientsData = useMemo(() => {
     if (isLoadingJobs || !jobs || !invoices || !clients) {
-      setTopClientsData([]);
-      return;
+      return { data: [], isLoading: true };
     }
-    setIsTopClientsLoading(true);
 
     const dateRange = getDateRangeForTopData(topClientsPeriod);
 
@@ -617,21 +599,51 @@ export default function BusinessStatsPanel() {
       .filter(item => item.jobs > 0 || item.revenue > 0)
       .sort((a, b) => b.revenue - a.revenue || b.jobs - a.jobs);
 
-    setTopClientsData(statsArray);
-    setIsTopClientsLoading(false);
+    return { data: statsArray, isLoading: false };
   }, [jobs, invoices, clients, topClientsPeriod, isLoadingJobs]);
 
-  // Calculate TopServers data
-  const calculateTopServersData = useCallback(() => {
+  // PERFORMANCE: Memoize TopServers calculation - only recalculates when inputs change
+  const memoizedTopServersData = useMemo(() => {
     if (isLoadingJobs || !jobs || !employees) {
-      setTopServersData([]);
-      return;
+      return { data: [], isLoading: true };
     }
-    setIsTopServersLoading(true);
 
     const dateRange = getDateRangeForTopData(topServersPeriod);
-    // Show all employees (removed role filter since employees may not have role field)
-    const processServers = employees;
+
+    // Step 1: Get all employee IDs for quick lookup
+    const employeeIds = new Set(employees.map(e => e.id));
+
+    // Step 2: Find all contractor IDs from jobs that aren't employees
+    const contractorIds = new Set();
+    jobs.forEach(job => {
+      if (job.assigned_server_id &&
+          job.assigned_server_id !== 'unassigned' &&
+          job.assigned_server_id !== 'marketplace' &&
+          !employeeIds.has(job.assigned_server_id)) {
+        contractorIds.add(job.assigned_server_id);
+      }
+    });
+
+    // Step 3: Get contractor data from clients (which includes companies created by this company)
+    const contractorCompanies = (clients || []).filter(c => contractorIds.has(c.id));
+
+    // Step 4: Build unified list of servers (employees + contractors)
+    const processServers = [
+      // Employees
+      ...employees.map(e => ({
+        id: e.id,
+        first_name: e.first_name || '',
+        last_name: e.last_name || '',
+        type: 'employee'
+      })),
+      // Contractors (use company name as display name)
+      ...contractorCompanies.map(c => ({
+        id: c.id,
+        first_name: c.company_name || c.name || 'Unknown Contractor',
+        last_name: '',
+        type: 'contractor'
+      }))
+    ];
 
     const serverStats = processServers.reduce((acc, server) => {
       acc[server.id] = {
@@ -741,19 +753,8 @@ export default function BusinessStatsPanel() {
       };
     }).sort((a, b) => b.rating - a.rating || b.completedJobs - a.completedJobs);
 
-    setTopServersData(statsArray);
-    setIsTopServersLoading(false);
-  }, [jobs, employees, serverPayRecords, topServersPeriod, isLoadingJobs, ratingWeights, invoices]);
-
-  // Calculate TopClients data when dependencies change
-  useEffect(() => {
-    calculateTopClientsData();
-  }, [calculateTopClientsData]);
-
-  // Calculate TopServers data when dependencies change
-  useEffect(() => {
-    calculateTopServersData();
-  }, [calculateTopServersData]);
+    return { data: statsArray, isLoading: false };
+  }, [jobs, employees, clients, serverPayRecords, topServersPeriod, isLoadingJobs, ratingWeights, invoices]);
 
   const loadBusinessStats = async () => {
     try {
@@ -1757,8 +1758,8 @@ export default function BusinessStatsPanel() {
         <div className="col-span-1">
           {/* Top Clients */}
           <TopClients
-            clientsData={topClientsData}
-            isLoading={isTopClientsLoading || isLoadingJobs}
+            clientsData={memoizedTopClientsData.data}
+            isLoading={memoizedTopClientsData.isLoading || isLoadingJobs}
             period={topClientsPeriod}
             onPeriodChange={setTopClientsPeriod}
             timePeriods={topDataTimePeriods}
@@ -2123,8 +2124,8 @@ export default function BusinessStatsPanel() {
         <div className="col-span-1 lg:col-span-3">
           {/* Top Servers */}
           <TopServers
-            serversData={topServersData}
-            isLoading={isTopServersLoading || isLoadingJobs}
+            serversData={memoizedTopServersData.data}
+            isLoading={memoizedTopServersData.isLoading || isLoadingJobs}
             period={topServersPeriod}
             onPeriodChange={setTopServersPeriod}
             timePeriods={topDataTimePeriods}

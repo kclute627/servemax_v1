@@ -205,17 +205,19 @@ export default function LogAttemptPage() {
       setIsLoading(true);
     }
     try {
-      const [jobData, employeesData] = await Promise.all([
-        Job.findById(jobId),
-        Employee.list()
-      ]);
+      // PERFORMANCE: Load job first, then parallelize client + employees
+      const jobData = await Job.findById(jobId);
 
       if (!jobData) {
         throw new Error("Job not found");
       }
 
-      const clientData = jobData.client_id ? await Client.findById(jobData.client_id) : null;
-      
+      // Parallelize client and employees fetch
+      const [clientData, employeesData] = await Promise.all([
+        jobData.client_id ? Client.findById(jobData.client_id) : Promise.resolve(null),
+        Employee.list()
+      ]);
+
       setJob(jobData);
       setClient(clientData);
       setEmployees(employeesData || []);
@@ -303,25 +305,16 @@ export default function LogAttemptPage() {
         let initialServerId = "";
         let initialServerNameManual = "";
 
-        console.log("Job data:", {
-          server_type: jobData.server_type,
-          assigned_server_id: jobData.assigned_server_id,
-          server_name: jobData.server_name
-        });
-        console.log("Employees:", employeesData);
-
         if (jobData.server_type === "employee") {
           // Employee server type: Pre-select the assigned employee
           if (jobData.assigned_server_id && jobData.assigned_server_id !== "unassigned") {
             initialServerId = String(jobData.assigned_server_id);
-            console.log("Setting initial employee server ID:", initialServerId);
           }
           // else: leave initialServerId as "", dropdown will show first employee or empty
         } else {
           // Contractor or marketplace: Pre-select "manual" and fill in server name
           initialServerId = "manual";
           initialServerNameManual = jobData.server_name || "";
-          console.log("Setting manual mode with server name:", initialServerNameManual);
         }
 
         const newFormData = {
@@ -332,7 +325,6 @@ export default function LogAttemptPage() {
           attempt_time: now.toTimeString().slice(0, 5),
           address_of_attempt: defaultAddress,
         };
-        console.log("Setting form data with server_id:", newFormData.server_id);
 
         setFormData(prev => ({
           ...prev,
@@ -498,16 +490,11 @@ export default function LogAttemptPage() {
     } else {
       // Existing address selected
       const selectedAddress = job.addresses?.find(addr => addr.address1 === value);
-      console.log('[LogAttempt] Selected address from job:', selectedAddress);
       if (selectedAddress) {
         const fullAddress = `${selectedAddress.address1}, ${selectedAddress.city}, ${selectedAddress.state} ${selectedAddress.postal_code}`.trim();
         setFormData(prev => ({ ...prev, address_of_attempt: fullAddress }));
 
         // Populate newAddressData with coordinates from selected address
-        console.log('[LogAttempt] Setting coordinates:', {
-          latitude: selectedAddress.latitude,
-          longitude: selectedAddress.longitude
-        });
         setNewAddressData(prev => ({
           ...prev,
           latitude: selectedAddress.latitude || null,
@@ -738,15 +725,6 @@ export default function LogAttemptPage() {
         uploaded_files: uploadedFiles // Use the separate uploadedFiles state
       };
 
-      // Debug logging to diagnose distance calculation issue
-      console.log('Attempt data being saved:', {
-        address_of_attempt: attemptData.address_of_attempt,
-        address_lat: attemptData.address_lat,
-        address_lon: attemptData.address_lon,
-        newAddressData: newAddressData,
-        selectedAddressType: selectedAddressType
-      });
-
       let newAttempt;
       if (isEditMode && editingAttemptId) {
         newAttempt = await Attempt.update(editingAttemptId, attemptData);
@@ -820,9 +798,6 @@ export default function LogAttemptPage() {
 
         if (!addressAlreadyExists) {
           addressesToUpdateForJob.push(newAddressData);
-          console.log("Added new address to job for update payload:", newAddressData);
-        } else {
-          console.log("New address is a duplicate, not adding to job update payload.");
         }
       }
 

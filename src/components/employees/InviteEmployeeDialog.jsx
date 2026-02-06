@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,9 +12,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Mail, AlertCircle, UserPlus, Copy, Check } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Mail, AlertCircle, UserPlus, Copy, Check, ChevronDown, Shield } from 'lucide-react';
 import { User } from '@/api/entities';
 import { USER_TYPES, EMPLOYEE_ROLES } from '@/firebase/schemas';
+import { getBaseRolePermissions, PERMISSION_CATEGORIES } from '@/utils/permissions';
 
 export default function InviteEmployeeDialog({ open, onOpenChange, onInviteSent }) {
   const [email, setEmail] = useState('');
@@ -24,6 +27,17 @@ export default function InviteEmployeeDialog({ open, onOpenChange, onInviteSent 
   const [invitation, setInvitation] = useState(null);
   const [inviteLink, setInviteLink] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
+  const [showPermissions, setShowPermissions] = useState(false);
+
+  // Calculate permissions for the selected role
+  const rolePermissions = useMemo(() => {
+    if (!role) return [];
+    const mockUser = {
+      user_type: USER_TYPES.EMPLOYEE,
+      employee_role: role
+    };
+    return getBaseRolePermissions(mockUser);
+  }, [role]);
 
   const handleClose = () => {
     setEmail('');
@@ -32,6 +46,7 @@ export default function InviteEmployeeDialog({ open, onOpenChange, onInviteSent 
     setInvitation(null);
     setInviteLink('');
     setLinkCopied(false);
+    setShowPermissions(false);
     onOpenChange(false);
   };
 
@@ -134,7 +149,7 @@ export default function InviteEmployeeDialog({ open, onOpenChange, onInviteSent 
 
             <div className="space-y-2">
               <Label htmlFor="role">Role</Label>
-              <Select value={role} onValueChange={setRole} disabled={isLoading}>
+              <Select value={role} onValueChange={(val) => { setRole(val); setShowPermissions(false); }} disabled={isLoading}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
@@ -150,6 +165,52 @@ export default function InviteEmployeeDialog({ open, onOpenChange, onInviteSent 
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Role Permissions Preview */}
+            {role && (
+              <Collapsible open={showPermissions} onOpenChange={setShowPermissions}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-between h-auto py-2 px-3 bg-slate-50 hover:bg-slate-100">
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-slate-500" />
+                      <span className="text-sm font-medium">
+                        {roleOptions.find(r => r.value === role)?.label} Permissions
+                      </span>
+                      <Badge variant="outline" className="text-xs">
+                        {rolePermissions.length} active
+                      </Badge>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${showPermissions ? 'rotate-180' : ''}`} />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-2">
+                  <div className="border rounded-lg p-3 bg-white space-y-3 max-h-48 overflow-y-auto">
+                    {Object.entries(PERMISSION_CATEGORIES).map(([categoryKey, category]) => {
+                      const categoryPermissions = category.permissions.filter(p =>
+                        rolePermissions.includes(p.key)
+                      );
+                      if (categoryPermissions.length === 0) return null;
+
+                      return (
+                        <div key={categoryKey}>
+                          <p className="text-xs font-medium text-slate-500 mb-1">{category.label}</p>
+                          <div className="flex flex-wrap gap-1">
+                            {categoryPermissions.map(p => (
+                              <Badge key={p.key} variant="secondary" className="text-xs font-normal">
+                                {p.label}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Permissions can be customized after the employee joins.
+                  </p>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h4 className="font-medium text-blue-900 mb-2">What happens next?</h4>

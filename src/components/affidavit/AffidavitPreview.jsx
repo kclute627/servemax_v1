@@ -5,6 +5,7 @@ import { User } from '@/api/entities';
 import { Button } from '@/components/ui/button';
 import { Pencil } from 'lucide-react';
 import { replacePlaceholders, renderHTMLTemplate } from '@/utils/templateEngine';
+import { sanitizeTemplateHTML } from '@/utils/sanitize';
 import AO440EditableFields from './AO440EditableFields';
 import AO440InteractiveForm from './AO440InteractiveForm';
 import StandardAffidavitInteractiveForm from './StandardAffidavitInteractiveForm';
@@ -539,7 +540,7 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                                 minHeight: '792pt',
                                 backgroundColor: '#FFFFFF'
                             }}
-                            dangerouslySetInnerHTML={{ __html: affidavitData.html_content_edited }}
+                            dangerouslySetInnerHTML={{ __html: sanitizeTemplateHTML(affidavitData.html_content_edited) }}
                         />
 
                         {renderPhotoExhibits()}
@@ -562,7 +563,7 @@ export default function AffidavitPreview({ affidavitData, template, isEditing, o
                                     height: '792pt',
                                     backgroundColor: '#FFFFFF'
                                 }}
-                                dangerouslySetInnerHTML={{ __html: pageHTML }}
+                                dangerouslySetInnerHTML={{ __html: sanitizeTemplateHTML(pageHTML) }}
                             />
                             {index < paginatedPages.length - 1 && (
                                 <div style={{ height: '20px', backgroundColor: '#E5E7EB' }} />

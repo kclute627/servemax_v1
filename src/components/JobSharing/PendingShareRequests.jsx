@@ -2,34 +2,40 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../../firebase/config';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
 import { useToast } from '../ui/use-toast';
 import {
   Loader2,
   Clock,
   MapPin,
-  FileText,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  Building2,
-  DollarSign,
-  Calendar,
+  Check,
+  X,
   Briefcase,
-  ChevronDown,
-  ChevronUp
+  ChevronDown
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useGlobalData } from '../GlobalDataContext';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
+import { Textarea } from '../ui/textarea';
 
 const PendingShareRequests = ({ companyId, compact = false }) => {
   const { toast } = useToast();
   const { refreshData } = useGlobalData();
   const [pendingRequests, setPendingRequests] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [responding, setResponding] = useState({});
+  const [responding, setResponding] = useState(null);
   const [isExpanded, setIsExpanded] = useState(true);
+  const [showDeclineDialog, setShowDeclineDialog] = useState(false);
+  const [declineReason, setDeclineReason] = useState('');
+  const [decliningRequestId, setDecliningRequestId] = useState(null);
 
   useEffect(() => {
     if (!companyId) {
@@ -58,12 +64,12 @@ const PendingShareRequests = ({ companyId, compact = false }) => {
     return () => unsubscribe();
   }, [companyId]);
 
-  const respondToRequest = async (requestId, accept) => {
-    setResponding(prev => ({ ...prev, [requestId]: true }));
+  const respondToRequest = async (requestId, accept, reason = null) => {
+    setResponding(requestId);
 
     try {
       const respond = httpsCallable(functions, 'respondToShareRequest');
-      await respond({ requestId, accept });
+      await respond({ requestId, accept, declineReason: reason });
 
       if (accept) {
         await refreshData();
@@ -88,8 +94,21 @@ const PendingShareRequests = ({ companyId, compact = false }) => {
         description: `Failed to respond: ${error.message}`,
       });
     } finally {
-      setResponding(prev => ({ ...prev, [requestId]: false }));
+      setResponding(null);
     }
+  };
+
+  const handleDeclineClick = (requestId) => {
+    setDecliningRequestId(requestId);
+    setDeclineReason('');
+    setShowDeclineDialog(true);
+  };
+
+  const confirmDecline = async () => {
+    setShowDeclineDialog(false);
+    await respondToRequest(decliningRequestId, false, declineReason);
+    setDecliningRequestId(null);
+    setDeclineReason('');
   };
 
   const isExpiringSoon = (expiresAt) => {
@@ -108,7 +127,7 @@ const PendingShareRequests = ({ companyId, compact = false }) => {
   const formatDueDate = (dateStr) => {
     if (!dateStr) return null;
     try {
-      return format(new Date(dateStr), 'MMM d, yyyy');
+      return format(new Date(dateStr), 'MMM d');
     } catch {
       return dateStr;
     }
@@ -116,8 +135,8 @@ const PendingShareRequests = ({ companyId, compact = false }) => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-6">
-        <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+      <div className="flex items-center justify-center py-4">
+        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
       </div>
     );
   }
@@ -125,212 +144,114 @@ const PendingShareRequests = ({ companyId, compact = false }) => {
   if (pendingRequests.length === 0) return null;
 
   return (
-    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl shadow-sm mb-6">
-      {/* Header */}
+    <div className="bg-white border border-blue-200 rounded-xl shadow-sm overflow-hidden mb-6">
+      {/* Slim Header */}
       <div
-        className="flex items-center justify-between p-4 cursor-pointer hover:bg-blue-100/50 transition-colors rounded-t-xl"
+        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-blue-50/50 transition-colors border-b border-blue-100"
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
-            <Briefcase className="w-5 h-5 text-white" />
+          <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+            <Briefcase className="w-4 h-4 text-white" />
           </div>
-          <div>
-            <h3 className="font-semibold text-blue-900 flex items-center gap-2">
-              Incoming Job Requests
-              <Badge className="bg-blue-600 text-white">
-                {pendingRequests.length}
-              </Badge>
-            </h3>
-            <p className="text-sm text-blue-700">
-              {pendingRequests.length === 1
-                ? 'A partner company has sent you a job'
-                : `${pendingRequests.length} job requests waiting for your response`}
-            </p>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-800 text-sm">Incoming Job Requests</span>
+            <span className="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
+              {pendingRequests.length}
+            </span>
           </div>
         </div>
-        <Button variant="ghost" size="sm" className="text-blue-700 hover:bg-blue-100">
-          {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-        </Button>
+        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
       </div>
 
-      {/* Request Cards */}
+      {/* Notifications List */}
       {isExpanded && (
-        <div className="p-4 pt-0 space-y-3">
+        <div className="divide-y divide-slate-100">
           {pendingRequests.map((request) => {
             const expired = isExpired(request.expires_at);
             const expiringSoon = isExpiringSoon(request.expires_at);
             const preview = request.job_preview || {};
             const dueFormatted = formatDueDate(preview.due_date);
+            const fullAddress = [preview.service_address, preview.city, preview.state].filter(Boolean).join(', ');
 
             return (
               <div
                 key={request.id}
-                className={`bg-white rounded-xl border ${expired ? 'opacity-50 border-slate-200' : expiringSoon ? 'border-orange-300 shadow-orange-100' : 'border-blue-100'} shadow-sm hover:shadow-md transition-all`}
+                className={`px-4 py-3 hover:bg-slate-50/50 transition-colors ${expired ? 'opacity-50' : ''}`}
               >
-                <div className="p-5">
-                  {/* Top row: From company + badges */}
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                      <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <Building2 className="w-5 h-5 text-slate-600" />
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="font-semibold text-slate-900 truncate">
-                          {request.requesting_company_name}
-                        </h4>
-                        <p className="text-xs text-slate-500">
-                          Shared {request.created_at?.toDate
-                            ? format(request.created_at.toDate(), 'MMM d, yyyy \'at\' h:mm a')
-                            : 'recently'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Briefcase className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    {/* Type + Job Number + Status */}
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-medium text-blue-600 uppercase tracking-wide">Job Share</span>
                       {request.shared_job_number && (
-                        <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-300 font-mono">
-                          #{request.shared_job_number}
-                        </Badge>
+                        <span className="text-xs text-slate-400 font-mono">#{request.shared_job_number}</span>
                       )}
                       {expired && (
-                        <Badge variant="destructive" className="gap-1">
-                          <AlertCircle className="h-3 w-3" />
-                          Expired
-                        </Badge>
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-700">Expired</span>
                       )}
                       {expiringSoon && !expired && (
-                        <Badge className="bg-orange-100 text-orange-700 border-orange-300 gap-1">
-                          <Clock className="h-3 w-3" />
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 flex items-center gap-1">
+                          <Clock className="w-2.5 h-2.5" />
                           Expiring Soon
-                        </Badge>
+                        </span>
                       )}
                     </div>
-                  </div>
 
-                  {/* Info grid */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    {/* Recipient Name - BOLD */}
+                    <p className="font-bold text-slate-900 text-sm mb-1">
+                      {preview.recipient_name || 'Unknown Recipient'}
+                    </p>
+
                     {/* Address */}
-                    <div className="col-span-2 bg-slate-50 rounded-lg p-3">
-                      <div className="flex items-start gap-2">
-                        <MapPin className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-0.5">Serve Location</p>
-                          <p className="text-sm font-medium text-slate-900 truncate">
-                            {preview.service_address || 'Address not provided'}
-                          </p>
-                          <p className="text-sm text-slate-600">
-                            {[preview.city, preview.state, preview.zip].filter(Boolean).join(', ') || ''}
-                          </p>
-                          {preview.recipient_name && (
-                            <p className="text-sm font-semibold text-slate-800 mt-1">
-                              {preview.recipient_name}
-                            </p>
-                          )}
-                        </div>
+                    {fullAddress && (
+                      <div className="flex items-start gap-1.5 mb-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 flex-shrink-0" />
+                        <span className="text-xs text-slate-600 leading-tight">{fullAddress}</span>
                       </div>
-                    </div>
-
-                    {/* Fee */}
-                    <div className="bg-green-50 rounded-lg p-3">
-                      <div className="flex items-start gap-2">
-                        <DollarSign className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-0.5">Rate</p>
-                          <p className="text-lg font-bold text-green-700">
-                            ${Number(request.proposed_fee || 0).toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Due Date */}
-                    <div className="bg-slate-50 rounded-lg p-3">
-                      <div className="flex items-start gap-2">
-                        <Calendar className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-0.5">Due Date</p>
-                          <p className="text-sm font-semibold text-slate-900">
-                            {dueFormatted || 'Not set'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Extra details row */}
-                  <div className="flex items-center gap-3 mb-4 flex-wrap">
-                    {preview.service_type && (
-                      <Badge variant="outline" className="bg-slate-50 text-slate-600 capitalize">
-                        <FileText className="w-3 h-3 mr-1" />
-                        {preview.service_type}
-                      </Badge>
                     )}
-                    {preview.documents_count > 0 && (
-                      <Badge variant="outline" className="bg-slate-50 text-slate-600">
-                        <FileText className="w-3 h-3 mr-1" />
-                        {preview.documents_count} page{preview.documents_count !== 1 ? 's' : ''}
-                      </Badge>
-                    )}
-                    {request.auto_assigned && (
-                      <Badge className="bg-purple-100 text-purple-700 border-purple-200">
-                        Auto-Assigned
-                      </Badge>
-                    )}
-                    {request.expires_at && !expired && !expiringSoon && (
-                      <span className="text-xs text-slate-500 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        Expires {request.expires_at.toDate
-                          ? format(request.expires_at.toDate(), 'MMM d \'at\' h:mm a')
-                          : ''}
+
+                    {/* Meta row: Client + Rate + Due */}
+                    <div className="flex items-center gap-3 text-xs flex-wrap">
+                      <span className="text-slate-500">
+                        from <span className="font-medium text-slate-700">{request.requesting_company_name}</span>
                       </span>
+                      <span className="text-emerald-600 font-semibold">${Number(request.proposed_fee || 0).toFixed(0)}</span>
+                      {dueFormatted && (
+                        <span className="text-slate-400">Due {dueFormatted}</span>
+                      )}
+                      {request.auto_assigned && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">Auto-Assigned</span>
+                      )}
+                    </div>
+
+                    {/* Special Instructions */}
+                    {preview.special_instructions && (
+                      <div className="mt-2 text-xs text-amber-700 bg-amber-50 rounded px-2 py-1.5 border border-amber-200">
+                        <span className="font-medium">Note:</span> {preview.special_instructions}
+                      </div>
                     )}
                   </div>
 
-                  {/* Special Instructions */}
-                  {preview.special_instructions && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-                      <p className="text-xs font-medium text-amber-700 uppercase tracking-wide mb-1">Special Instructions</p>
-                      <p className="text-sm text-amber-900">{preview.special_instructions}</p>
-                    </div>
-                  )}
-
-                  {/* Action Buttons */}
-                  <div className="flex gap-3">
-                    <Button
-                      onClick={() => respondToRequest(request.id, true)}
-                      disabled={responding[request.id] || expired}
-                      className="flex-1 bg-green-600 hover:bg-green-700 h-11 text-sm font-semibold"
+                  {/* Accept / Deny */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); respondToRequest(request.id, true); }}
+                      disabled={responding === request.id || expired}
+                      className="w-8 h-8 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {responding[request.id] ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Processing...
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                          Accept Job
-                        </>
-                      )}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => respondToRequest(request.id, false)}
-                      disabled={responding[request.id] || expired}
-                      className="flex-1 border-slate-300 text-slate-700 hover:bg-red-50 hover:text-red-700 hover:border-red-300 h-11 text-sm font-semibold"
+                      {responding === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeclineClick(request.id); }}
+                      disabled={responding === request.id || expired}
+                      className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-600 flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {responding[request.id] ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Processing...
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="mr-2 h-4 w-4" />
-                          Decline
-                        </>
-                      )}
-                    </Button>
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -338,6 +259,34 @@ const PendingShareRequests = ({ companyId, compact = false }) => {
           })}
         </div>
       )}
+
+      {/* Decline Reason Dialog */}
+      <AlertDialog open={showDeclineDialog} onOpenChange={setShowDeclineDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Decline Job Share</AlertDialogTitle>
+            <AlertDialogDescription>
+              Please provide a reason for declining this job (optional). This will be sent to the requesting company.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Textarea
+              placeholder="e.g., Outside service area, schedule conflict, etc."
+              value={declineReason}
+              onChange={(e) => setDeclineReason(e.target.value)}
+              className="min-h-[80px]"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setDecliningRequestId(null); setDeclineReason(''); }}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDecline} className="bg-red-600 hover:bg-red-700">
+              Decline Job
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

@@ -14,6 +14,7 @@ import PricingConfigPanel from "../components/settings/PricingConfigPanel";
 import ServerRatingSettingsPanel from "../components/settings/ServerRatingSettingsPanel";
 import EmailTemplatesPanel from "../components/settings/EmailTemplatesPanel";
 import PortalSettingsPanel from "../components/settings/PortalSettingsPanel";
+import StripeConnectPanel from "../components/settings/StripeConnectPanel";
 import { PartnerManagement, PartnershipDirectory, PartnershipRequests } from "@/components/JobSharing";
 
 export default function SettingsPage() {
@@ -90,6 +91,7 @@ export default function SettingsPage() {
                     <TabButton tabName="server-rating" label="Server Rating" icon={Star} />
                     <TabButton tabName="agents" label="Agents" icon={Bot} />
                     <TabButton tabName="billing" label="Billing" icon={CreditCard} />
+                    <TabButton tabName="payments" label="Payments" icon={DollarSign} />
                   </>
                 )}
                 {isSuperAdminUser && (
@@ -135,6 +137,7 @@ export default function SettingsPage() {
             {activeTab === 'server-rating' && isAdmin && !isSuperAdminUser && <ServerRatingSettingsPanel />}
             {activeTab === 'agents' && isAdmin && !isSuperAdminUser && <AgentsSettingsPanel />}
             {activeTab === 'billing' && isAdmin && !isSuperAdminUser && <BillingPanel />}
+            {activeTab === 'payments' && isAdmin && !isSuperAdminUser && <StripeConnectPanel />}
             {activeTab === 'pricing' && isSuperAdminUser && <PricingConfigPanel />}
             {activeTab === 'email-templates' && isSuperAdminUser && <EmailTemplatesPanel />}
           </div>

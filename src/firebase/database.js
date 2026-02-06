@@ -65,14 +65,76 @@ export class FirebaseEntity {
     }
   }
 
+  // Find documents with pagination support - returns data plus cursor info
+  async findPaginated(queryOptions = {}) {
+    try {
+      const {
+        where: whereConditions = [],
+        orderBy: orderByOption = ['created_at', 'desc'],
+        limit: pageSize = 50,
+        startAfterDoc = null
+      } = queryOptions;
+
+      let q = this.collectionRef;
+
+      // Add where clauses
+      for (const [field, operator, value] of whereConditions) {
+        q = query(q, where(field, operator, value));
+      }
+
+      // Add ordering
+      const [orderField, orderDirection = 'desc'] = orderByOption;
+      q = query(q, orderBy(orderField, orderDirection));
+
+      // Add limit (+1 to check if there are more results)
+      q = query(q, limit(pageSize + 1));
+
+      // Add cursor for pagination
+      if (startAfterDoc) {
+        q = query(q, startAfter(startAfterDoc));
+      }
+
+      const querySnapshot = await getDocs(q);
+      const docs = querySnapshot.docs;
+      const hasMore = docs.length > pageSize;
+
+      // Take only pageSize results (excluding the extra one used for hasMore check)
+      const resultDocs = docs.slice(0, pageSize);
+
+      const results = resultDocs.map(docSnap => ({
+        id: docSnap.id,
+        ...docSnap.data(),
+        created_at: docSnap.data().created_at?.toDate?.() || docSnap.data().created_at,
+        updated_at: docSnap.data().updated_at?.toDate?.() || docSnap.data().updated_at,
+        _doc: docSnap // Keep document reference for cursor
+      }));
+
+      return {
+        data: results,
+        lastDoc: resultDocs.length > 0 ? resultDocs[resultDocs.length - 1] : null,
+        hasMore
+      };
+    } catch (error) {
+      console.error(`Error finding paginated ${this.collectionName}:`, error);
+      throw new Error(`Failed to find paginated ${this.collectionName}: ${error.message}`);
+    }
+  }
+
   // Simple filter method (mimics Base44's filter method)
+  // Supports arrays for 'in' queries: { setting_key: ['key1', 'key2'] }
   async filter(filterObj) {
     // Filter out undefined, null, and empty string values to avoid Firestore query errors
     const validEntries = Object.entries(filterObj).filter(([key, value]) => {
       return value !== undefined && value !== null && value !== '';
     });
 
-    const whereConditions = validEntries.map(([key, value]) => [key, '==', value]);
+    const whereConditions = validEntries.map(([key, value]) => {
+      // If value is an array, use 'in' operator for better query performance
+      if (Array.isArray(value)) {
+        return [key, 'in', value];
+      }
+      return [key, '==', value];
+    });
     return this.find({ where: whereConditions });
   }
 
@@ -353,5 +415,7 @@ export const entities = {
   // Pricing & Plans (for super admin)
   PricingPlan: new FirebaseEntity('pricing_plans'),
   // Client Portal
-  ClientUser: new FirebaseEntity('client_users')
+  ClientUser: new FirebaseEntity('client_users'),
+  // Independent Contractor connections
+  ICConnectionRequest: new FirebaseEntity('ic_connection_requests')
 };

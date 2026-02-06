@@ -4,7 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { HardHat, Check, Loader2, X, Star, Briefcase, Mail, Phone, MapPin, Users } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { HardHat, Check, Loader2, X, Star, Briefcase, Mail, Phone, MapPin, Users, Clock, CheckCircle, AlertCircle } from "lucide-react";
 
 // Helper to get a consistent rating
 const getConsistentRating = (contractor) => {
@@ -27,6 +28,7 @@ const getCompanyTypeLabel = (company) => {
     'government': 'Government',
     'process_serving': 'Process Serving Company',
     'independent_process_server': 'Independent Process Server',
+    'independent_contractor': 'Independent Contractor',
     'client': 'Client'
   };
 
@@ -42,10 +44,41 @@ const getCompanyTypeBadgeColor = (companyType) => {
     'government': 'bg-amber-100 text-amber-700',
     'process_serving': 'bg-orange-100 text-orange-700',
     'independent_process_server': 'bg-indigo-100 text-indigo-700',
+    'independent_contractor': 'bg-emerald-100 text-emerald-700',
     'client': 'bg-slate-100 text-slate-700'
   };
 
   return colorMap[companyType] || 'bg-slate-100 text-slate-700';
+};
+
+// Helper to get IC connection status display
+const getICConnectionStatus = (contractor) => {
+  if (contractor.company_type !== 'independent_contractor') return null;
+
+  const status = contractor.ic_connection_status;
+  if (status === 'accepted') {
+    return {
+      icon: CheckCircle,
+      color: 'text-green-600',
+      label: 'Connected',
+      description: 'This contractor is connected and can receive job assignments'
+    };
+  } else if (status === 'pending') {
+    return {
+      icon: Clock,
+      color: 'text-yellow-600',
+      label: 'Pending',
+      description: 'Awaiting contractor approval - they cannot receive jobs until they accept'
+    };
+  } else if (status === 'declined') {
+    return {
+      icon: AlertCircle,
+      color: 'text-red-600',
+      label: 'Declined',
+      description: 'This contractor declined the connection request'
+    };
+  }
+  return null;
 };
 
 export default function ContractorSearchInput({ value, onValueChange, onContractorSelected, selectedContractor, currentClientId }) {
@@ -186,14 +219,31 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
   if (selectedContractor) {
     const primaryContact = getPrimaryContact(selectedContractor);
     const primaryAddress = getPrimaryAddress(selectedContractor);
+    const icStatus = getICConnectionStatus(selectedContractor);
+
+    // Determine border color based on IC status
+    const getBorderColorClass = () => {
+      if (icStatus) {
+        if (icStatus.label === 'Connected') return 'border-green-200 bg-green-50';
+        if (icStatus.label === 'Pending') return 'border-yellow-200 bg-yellow-50';
+        if (icStatus.label === 'Declined') return 'border-red-200 bg-red-50';
+      }
+      return 'border-green-200 bg-green-50';
+    };
 
     return (
-      <Card className="border-2 border-green-200 bg-green-50">
+      <Card className={`border-2 ${getBorderColorClass()}`}>
         <CardContent className="p-4">
           <div className="flex items-start justify-between mb-3">
             <div className="flex items-start gap-3">
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <HardHat className="w-6 h-6 text-green-600" />
+              <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                icStatus?.label === 'Pending' ? 'bg-yellow-100' :
+                icStatus?.label === 'Declined' ? 'bg-red-100' : 'bg-green-100'
+              }`}>
+                <HardHat className={`w-6 h-6 ${
+                  icStatus?.label === 'Pending' ? 'text-yellow-600' :
+                  icStatus?.label === 'Declined' ? 'text-red-600' : 'text-green-600'
+                }`} />
               </div>
               <div>
                 <div className="flex items-center gap-2">
@@ -201,22 +251,53 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
                   {isJobSharePartner(selectedContractor) && (
                     <Users className="w-4 h-4 text-blue-600" title="Job Sharing Partner" />
                   )}
+                  {/* IC Status Icon */}
+                  {icStatus && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex">
+                            <icStatus.icon className={`w-5 h-5 ${icStatus.color}`} />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="font-medium">{icStatus.label}</p>
+                          <p className="text-xs">{icStatus.description}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                 </div>
                 <Badge className={`mt-1 ${getCompanyTypeBadgeColor(selectedContractor.company_type)}`}>
                   {getCompanyTypeLabel(selectedContractor)}
                 </Badge>
               </div>
             </div>
-            <Button 
-              type="button" 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
               onClick={handleClear}
               className="h-8 w-8 text-slate-500 hover:text-red-600"
             >
               <X className="w-4 h-4" />
             </Button>
           </div>
+
+          {/* IC Status Warning */}
+          {icStatus && icStatus.label !== 'Connected' && (
+            <div className={`mb-3 p-2 rounded-lg text-sm ${
+              icStatus.label === 'Pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+            }`}>
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>
+                  {icStatus.label === 'Pending' && 'Connection pending - contractor must accept before they can see this job'}
+                  {icStatus.label === 'Declined' && 'This contractor declined the connection request'}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Contact Info */}
           {primaryContact && (
@@ -303,11 +384,14 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
                 {filteredContractors.map((contractor) => {
                   const primaryAddress = getPrimaryAddress(contractor);
                   const rating = getConsistentRating(contractor);
-                  
+                  const icStatus = getICConnectionStatus(contractor);
+
                   return (
                     <div
                       key={contractor.id}
-                      className="flex items-center justify-between gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors"
+                      className={`flex items-center justify-between gap-3 p-3 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors ${
+                        icStatus?.label === 'Pending' ? 'opacity-75' : ''
+                      } ${icStatus?.label === 'Declined' ? 'opacity-50' : ''}`}
                       onClick={() => handleSelect(contractor)}
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -321,12 +405,35 @@ export default function ContractorSearchInput({ value, onValueChange, onContract
                             {isJobSharePartner(contractor) && (
                               <Users className="w-3 h-3 text-blue-600 flex-shrink-0" title="Job Sharing Partner" />
                             )}
+                            {/* IC Connection Status Icon */}
+                            {icStatus && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex">
+                                      <icStatus.icon className={`w-4 h-4 ${icStatus.color} flex-shrink-0`} />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs">
+                                    <p className="font-medium">{icStatus.label}</p>
+                                    <p className="text-xs text-slate-500">{icStatus.description}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
                           </div>
                           {primaryAddress && (
                             <div className="flex items-center gap-1.5 mt-1 text-xs text-slate-500">
                               <MapPin className="w-3 h-3" />
                               <span>{primaryAddress.city}, {primaryAddress.state}</span>
                             </div>
+                          )}
+                          {/* Warning for pending/declined IC */}
+                          {icStatus && icStatus.label !== 'Connected' && (
+                            <p className="text-xs text-yellow-600 mt-1">
+                              {icStatus.label === 'Pending' && 'Connection pending - awaiting approval'}
+                              {icStatus.label === 'Declined' && 'Connection was declined'}
+                            </p>
                           )}
                         </div>
                       </div>

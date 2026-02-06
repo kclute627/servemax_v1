@@ -448,6 +448,50 @@ export class FirebaseFunctions {
     }
   }
 
+  // Toggle visibility of an attempt or document in a shared job chain
+  // Only the job owner can change visibility settings
+  // @param {string} jobId - The job ID
+  // @param {string} collectionType - "attempts" or "documents"
+  // @param {string} itemId - The document ID of the item to update
+  // @param {string[]} visibility - Array of targets: ["client"], ["server"], ["client", "server"], or []
+  static async toggleVisibility(jobId, collectionType, itemId, visibility) {
+    try {
+      const toggleVisibility = httpsCallable(functions, 'toggleVisibility');
+      const result = await toggleVisibility({ jobId, collectionType, itemId, visibility });
+      return result.data;
+    } catch (error) {
+      console.error('Toggle visibility error:', error);
+      throw error;
+    }
+  }
+
+  // Report job status to the upstream client who shared the job
+  // Sends an email update and optionally syncs status to the parent job
+  // @param {string} jobId - The job ID
+  // @param {Object} options - Options for the report
+  // @param {boolean} options.includeAttempts - Include service attempts in report (default: true)
+  // @param {boolean} options.includeAffidavit - Include affidavit link if available (default: true)
+  // @param {boolean} options.includeInvoice - Include invoice info if available (default: false)
+  // @param {boolean} options.syncToParent - Also update parent job status (default: true)
+  // @param {string} options.customMessage - Optional custom message to include
+  static async reportStatusToUpstream(jobId, options = {}) {
+    try {
+      const reportStatusToUpstream = httpsCallable(functions, 'reportStatusToUpstream');
+      const result = await reportStatusToUpstream({
+        jobId,
+        includeAttempts: options.includeAttempts ?? true,
+        includeAffidavit: options.includeAffidavit ?? true,
+        includeInvoice: options.includeInvoice ?? false,
+        syncToParent: options.syncToParent ?? true,
+        customMessage: options.customMessage || '',
+      });
+      return result.data;
+    } catch (error) {
+      console.error('Report status to upstream error:', error);
+      throw error;
+    }
+  }
+
   // Backfill partner client records from clients to companies collection
   static async backfillPartnerClients() {
     try {
@@ -470,6 +514,114 @@ export class FirebaseFunctions {
       return result.data;
     } catch (error) {
       console.error('Send job email error:', error);
+      throw error;
+    }
+  }
+
+  // === Stripe Subscription Functions ===
+
+  // Create subscription checkout session
+  static async createSubscriptionCheckout(data) {
+    try {
+      const fn = httpsCallable(functions, 'createSubscriptionCheckout');
+      const result = await fn(data);
+      return result.data;
+    } catch (error) {
+      console.error('Create subscription checkout error:', error);
+      throw error;
+    }
+  }
+
+  // Create billing portal session
+  static async createBillingPortalSession(data) {
+    try {
+      const fn = httpsCallable(functions, 'createBillingPortalSession');
+      const result = await fn(data);
+      return result.data;
+    } catch (error) {
+      console.error('Create billing portal session error:', error);
+      throw error;
+    }
+  }
+
+  // Sync pricing plans with Stripe (super admin only)
+  static async syncPricingPlansWithStripe() {
+    try {
+      const fn = httpsCallable(functions, 'syncPricingPlansWithStripe');
+      const result = await fn({});
+      return result.data;
+    } catch (error) {
+      console.error('Sync pricing plans error:', error);
+      throw error;
+    }
+  }
+
+  // === Stripe Connect Functions ===
+
+  // Create Connect onboarding link
+  static async createConnectOnboarding(data) {
+    try {
+      const fn = httpsCallable(functions, 'createConnectOnboarding');
+      const result = await fn(data);
+      return result.data;
+    } catch (error) {
+      console.error('Create Connect onboarding error:', error);
+      throw error;
+    }
+  }
+
+  // Get Connect account status
+  static async getConnectAccountStatus(data) {
+    try {
+      const fn = httpsCallable(functions, 'getConnectAccountStatus');
+      const result = await fn(data);
+      return result.data;
+    } catch (error) {
+      console.error('Get Connect account status error:', error);
+      throw error;
+    }
+  }
+
+  // Create Connect dashboard link
+  static async createConnectDashboardLink(data) {
+    try {
+      const fn = httpsCallable(functions, 'createConnectDashboardLink');
+      const result = await fn(data);
+      return result.data;
+    } catch (error) {
+      console.error('Create Connect dashboard link error:', error);
+      throw error;
+    }
+  }
+
+  // === Stripe Invoice Payment Functions ===
+
+  // Create invoice payment checkout session
+  static async createInvoicePaymentCheckout(data) {
+    try {
+      const fn = httpsCallable(functions, 'createInvoicePaymentCheckout');
+      const result = await fn(data);
+      return result.data;
+    } catch (error) {
+      console.error('Create invoice payment checkout error:', error);
+      throw error;
+    }
+  }
+
+  // === Job Notes Functions ===
+
+  // Create a job note with optional email notification
+  // @param {string} jobId - The job ID
+  // @param {string} content - The note content (max 5000 chars)
+  // @param {string} visibility - 'client' | 'server' | 'both' | 'internal'
+  // @param {boolean} sendEmail - Whether to send email notification
+  static async createJobNote(jobId, content, visibility, sendEmail = false) {
+    try {
+      const fn = httpsCallable(functions, 'createJobNote');
+      const result = await fn({ jobId, content, visibility, sendEmail });
+      return result.data;
+    } catch (error) {
+      console.error('Create job note error:', error);
       throw error;
     }
   }

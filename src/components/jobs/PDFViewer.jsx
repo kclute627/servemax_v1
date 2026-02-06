@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { Button } from "@/components/ui/button";
 import { Select, SelectItem } from "@/components/ui/select";
@@ -18,8 +18,12 @@ export default function PDFViewer({ documents, onClose, isOpen, width = 50, onWi
   const [selectedDocIndex, setSelectedDocIndex] = useState(0);
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
-  const [scale, setScale] = useState(1.0);
+  const [displayScale, setDisplayScale] = useState(100); // Just for UI display
   const [isDragging, setIsDragging] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+
+  const scaleRef = useRef(1.0);
+  const pdfWrapperRef = useRef(null);
 
   const handleMouseDown = (e) => {
     e.preventDefault();
@@ -41,8 +45,27 @@ export default function PDFViewer({ documents, onClose, isOpen, width = 50, onWi
     setIsDragging(false);
   };
 
+  // Zoom handlers using refs to avoid re-renders
+  const handleZoomIn = useCallback(() => {
+    const newScale = Math.min(scaleRef.current + 0.25, 2.0);
+    scaleRef.current = newScale;
+    setDisplayScale(Math.round(newScale * 100));
+    if (pdfWrapperRef.current) {
+      pdfWrapperRef.current.style.transform = `scale(${newScale})`;
+    }
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    const newScale = Math.max(scaleRef.current - 0.25, 0.5);
+    scaleRef.current = newScale;
+    setDisplayScale(Math.round(newScale * 100));
+    if (pdfWrapperRef.current) {
+      pdfWrapperRef.current.style.transform = `scale(${newScale})`;
+    }
+  }, []);
+
   // Add/remove global mouse event listeners when dragging
-  // IMPORTANT: This useEffect must be called before any conditional returns to follow React's Rules of Hooks
+  // IMPORTANT: All hooks must be called before any conditional returns
   React.useEffect(() => {
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
@@ -59,23 +82,22 @@ export default function PDFViewer({ documents, onClose, isOpen, width = 50, onWi
     }
   }, [isDragging]);
 
+  // Early return AFTER all hooks
   if (!isOpen || pdfDocuments.length === 0) {
     return null;
   }
 
   const currentDoc = pdfDocuments[selectedDocIndex];
 
-  const onDocumentLoadSuccess = ({ numPages }) => {
-    setNumPages(numPages);
-    setPageNumber(1); // Reset to first page when document loads
+  const onDocumentLoadSuccess = ({ numPages: pages }) => {
+    setNumPages(pages);
+    setPageNumber(1);
+    setLoadError(null);
   };
 
-  const handleZoomIn = () => {
-    setScale(prev => Math.min(prev + 0.25, 2.0));
-  };
-
-  const handleZoomOut = () => {
-    setScale(prev => Math.max(prev - 0.25, 0.5));
+  const onDocumentLoadError = (error) => {
+    console.error('PDF load error:', error);
+    setLoadError(error?.message || 'Failed to load PDF');
   };
 
   const goToPrevPage = () => {
@@ -109,6 +131,7 @@ export default function PDFViewer({ documents, onClose, isOpen, width = 50, onWi
               onChange={(e) => {
                 setSelectedDocIndex(Number(e.target.value));
                 setPageNumber(1);
+                setLoadError(null);
               }}
               className="flex h-9 items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
             >
@@ -128,20 +151,20 @@ export default function PDFViewer({ documents, onClose, isOpen, width = 50, onWi
             size="sm"
             variant="outline"
             onClick={handleZoomOut}
-            disabled={scale <= 0.5}
+            disabled={displayScale <= 50}
             title="Zoom out"
           >
             <ZoomOut className="w-4 h-4" />
           </Button>
           <span className="text-sm text-slate-600 min-w-[60px] text-center">
-            {Math.round(scale * 100)}%
+            {displayScale}%
           </span>
           <Button
             type="button"
             size="sm"
             variant="outline"
             onClick={handleZoomIn}
-            disabled={scale >= 2.0}
+            disabled={displayScale >= 200}
             title="Zoom in"
           >
             <ZoomIn className="w-4 h-4" />
@@ -163,28 +186,45 @@ export default function PDFViewer({ documents, onClose, isOpen, width = 50, onWi
       {/* PDF Content */}
       <div className="flex-1 overflow-auto bg-slate-100 p-4">
         <div className="flex justify-center">
-          <Document
-            file={currentDoc.file_url}
-            onLoadSuccess={onDocumentLoadSuccess}
-            loading={
-              <div className="flex items-center justify-center p-8">
-                <div className="text-slate-600">Loading PDF...</div>
-              </div>
-            }
-            error={
-              <div className="flex items-center justify-center p-8">
-                <div className="text-red-600">Failed to load PDF</div>
-              </div>
-            }
+          <div
+            ref={pdfWrapperRef}
+            style={{
+              transform: 'scale(1)',
+              transformOrigin: 'top center',
+              transition: 'transform 0.15s ease-out'
+            }}
           >
-            <Page
-              pageNumber={pageNumber}
-              scale={scale}
-              renderTextLayer={true}
-              renderAnnotationLayer={true}
-              className="shadow-lg"
-            />
-          </Document>
+            <Document
+              file={{ url: currentDoc.file_url }}
+              onLoadSuccess={onDocumentLoadSuccess}
+              onLoadError={onDocumentLoadError}
+              loading={null}
+              error={
+                <div className="flex flex-col items-center justify-center p-8 gap-4">
+                  <div className="text-red-600">Failed to load PDF</div>
+                  {loadError && (
+                    <div className="text-sm text-slate-500 max-w-md text-center">{loadError}</div>
+                  )}
+                  <a
+                    href={currentDoc.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline text-sm"
+                  >
+                    Open PDF in new tab
+                  </a>
+                </div>
+              }
+            >
+              <Page
+                pageNumber={pageNumber}
+                renderTextLayer={true}
+                renderAnnotationLayer={true}
+                className="shadow-lg"
+                loading={null}
+              />
+            </Document>
+          </div>
         </div>
       </div>
 

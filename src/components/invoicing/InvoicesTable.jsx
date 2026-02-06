@@ -357,27 +357,28 @@ export default function InvoicesTable({ invoices, clients, isLoading, onPaymentA
 
   return (
     <>
-    {/* Bulk Selection Action Bar */}
+    {/* Bulk Selection Action Bar - Fixed at bottom */}
     {selectedIds.size > 0 && (
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3 flex items-center justify-between">
-        <span className="text-sm font-medium text-blue-800">
-          {selectedIds.size} invoice{selectedIds.size !== 1 ? 's' : ''} selected — ${selectedTotal.toFixed(2)} total balance
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white rounded-lg shadow-xl px-4 py-3 flex items-center gap-4 animate-in slide-in-from-bottom-4 duration-200">
+        <span className="text-sm font-medium">
+          {selectedIds.size} invoice{selectedIds.size !== 1 ? 's' : ''} selected — ${selectedTotal.toFixed(2)} total
         </span>
         <div className="flex items-center gap-2">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={() => setSelectedIds(new Set())}
+            className="text-white hover:bg-white/10"
           >
             Clear
           </Button>
           <Button
             size="sm"
-            className="bg-green-600 hover:bg-green-700 gap-1.5"
+            className="bg-green-500 hover:bg-green-600 text-white gap-1.5"
             onClick={handleOpenBulkPayment}
           >
             <CreditCard className="w-4 h-4" />
-            Apply Payment to Selected
+            Apply Payment
           </Button>
         </div>
       </div>

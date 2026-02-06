@@ -23,6 +23,51 @@ export const EMPLOYEE_ROLES = {
   PROCESS_SERVER: 'process_server'
 };
 
+// IC Connection Status
+export const IC_CONNECTION_STATUS = {
+  PENDING: 'pending',
+  ACCEPTED: 'accepted',
+  DECLINED: 'declined'
+};
+
+// ============================================================================
+// Visibility Settings for Job Sharing
+// ============================================================================
+// These constants define who can see specific items (attempts, documents)
+// when a job is shared between companies in a chain.
+
+export const VISIBILITY_TARGETS = {
+  CLIENT: 'client',     // Upstream company that shared the job to us
+  SERVER: 'server'      // Downstream company that we shared the job to
+};
+
+// Default visibility - both client and server can see
+export const DEFAULT_VISIBILITY = [VISIBILITY_TARGETS.CLIENT, VISIBILITY_TARGETS.SERVER];
+
+// Helper to check if an item is visible to a specific target
+export const isVisibleTo = (visibility, target) => {
+  // If no visibility array defined, default to visible to all
+  if (!visibility || !Array.isArray(visibility)) return true;
+  return visibility.includes(target);
+};
+
+// Helper to determine viewer's role in a job chain
+// Returns 'owner' | 'client' | 'server' | null
+export const getViewerRoleInChain = (job, viewerCompanyId) => {
+  if (!job || !viewerCompanyId) return null;
+
+  // Owner is the company that owns the job
+  if (job.company_id === viewerCompanyId) return 'owner';
+
+  // Client is the upstream company (parent in chain)
+  if (job.share_chain?.parent_company_id === viewerCompanyId) return 'client';
+
+  // Server is the downstream company (child in chain)
+  if (job.share_chain?.child_company_id === viewerCompanyId) return 'server';
+
+  return null;
+};
+
 // Subscription Status
 export const SUBSCRIPTION_STATUS = {
   TRIAL: 'trial',
@@ -334,6 +379,15 @@ export const createCompanySchema = (data) => ({
   stripe_subscription_id: null,
   plan_name: 'trial',
   monthly_job_limit: TRIAL_LIMITS.JOBS,
+  subscription_current_period_end: null,
+  subscription_cancel_at_period_end: false,
+
+  // Stripe Connect (for receiving invoice payments from clients)
+  stripe_connect_account_id: null,
+  stripe_connect_status: 'not_connected', // not_connected, pending, connected
+  stripe_connect_charges_enabled: false,
+  stripe_connect_payouts_enabled: false,
+  platform_fee_percentage: 2.9, // Platform fee on invoice payments
 
   // Collaboration settings (existing)
   collaboration_settings: {
@@ -375,6 +429,13 @@ export const createCompanySchema = (data) => ({
     welcome_message: '',    // Custom welcome message for clients
     allow_self_registration: false, // Allow clients to self-register via portal
   },
+
+  // Independent Contractor linking (only for company_type = 'independent_contractor')
+  // When a company creates a record for an IC, these fields track the connection
+  ic_user_id: data.ic_user_id || null,           // Links to the actual IC's user account (set when IC accepts/signs up)
+  ic_connection_status: data.ic_connection_status || null, // 'pending', 'accepted', 'declined' (null if not an IC type)
+  ic_invitation_token: data.ic_invitation_token || null,   // Token for IC signup/connection (if IC doesn't have account yet)
+  ic_invitation_sent_at: data.ic_invitation_sent_at || null, // When invitation was sent
 
   // Timestamps
   created_at: serverTimestamp(),
@@ -436,6 +497,14 @@ export const createUserSchema = (data) => ({
   employee_role: data.employee_role || null, // For employees only
   invited_by: data.invited_by || null, // User ID who sent the invitation
   companies: data.companies || [], // For independent contractors - array of company IDs they work with
+
+  // Permission overrides for employees (role + customization)
+  // Allows admins to add or remove specific permissions beyond the role's defaults
+  permission_overrides: data.permission_overrides || {
+    added: [],   // Array of permission strings to ADD to role's base permissions
+    removed: []  // Array of permission strings to REMOVE from role's base permissions
+  },
+
   is_active: true,
   phone: data.phone || '',
   address: data.address || '',
@@ -454,6 +523,41 @@ export const createInvitationSchema = (data) => ({
   invitation_token: data.invitation_token, // Unique token for secure signup
   status: 'pending', // pending, accepted, expired
   expires_at: data.expires_at, // Expiration timestamp
+  created_at: serverTimestamp(),
+  updated_at: serverTimestamp()
+});
+
+// IC Connection Request Schema
+// Used when a company wants to connect with an Independent Contractor
+export const createICConnectionRequestSchema = (data) => ({
+  // The company that created the IC company record
+  requesting_company_id: data.requesting_company_id,
+  requesting_company_name: data.requesting_company_name,
+
+  // The "company" record created for the IC (type: independent_contractor)
+  ic_company_id: data.ic_company_id,
+
+  // IC contact info
+  ic_email: data.ic_email,
+  ic_name: data.ic_name || '',
+
+  // Link to actual IC user account (null until IC signs up or is found)
+  ic_user_id: data.ic_user_id || null,
+
+  // Connection status
+  status: data.status || IC_CONNECTION_STATUS.PENDING, // pending, accepted, declined
+
+  // For new ICs without an account - invitation token for signup
+  invitation_token: data.invitation_token || null,
+
+  // Tracking
+  invited_by: data.invited_by, // User ID who initiated the connection
+  responded_at: null, // When IC accepted/declined
+  decline_reason: null, // Optional reason if declined
+
+  // Expiration (connection requests expire after X days)
+  expires_at: data.expires_at || null,
+
   created_at: serverTimestamp(),
   updated_at: serverTimestamp()
 });

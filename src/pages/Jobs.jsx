@@ -5,7 +5,7 @@
 // - `handleUpdateSharedJobStatus`: Replace the function call with a call to your new Firebase Cloud Function.
 // - `User.me()`: Replace with Firebase Auth to get the current user.
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // FIREBASE TRANSITION: Replace these with Firebase SDK imports.
 // Job, Client, Employee, CourtCase, User are now managed by JobsContext
 import { Job } from "@/api/entities"; // Keep Job for update/delete operations
@@ -13,7 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Plus,
-  Search
+  Search,
+  XCircle,
+  X
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,6 +25,16 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Link, useLocation, useSearchParams } from "react-router-dom"; // Import useLocation and useSearchParams
 import { createPageUrl } from "@/utils";
 // FIREBASE TRANSITION: This will call your new Firebase Cloud Function.
@@ -46,8 +58,13 @@ export default function JobsPage() {
     companyData,
     companySettings,
     isLoading,
-    refreshData
-  } = useGlobalData(); // Changed from useJobs() to useGlobalData()
+    refreshData,
+    user,
+    // Server-side search
+    jobsLoading,
+    loadJobsPaginated,
+    searchJobs
+  } = useGlobalData();
 
   const location = useLocation(); // Get location object
   const [searchParams, setSearchParams] = useSearchParams();
@@ -55,10 +72,19 @@ export default function JobsPage() {
   const [filteredJobs, setFilteredJobs] = useState([]);
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || "");
   const [selectedJobs, setSelectedJobs] = useState([]);
+  const [showCloseConfirmDialog, setShowCloseConfirmDialog] = useState(false);
 
-  // New pagination state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [jobsPerPage] = useState(20); // 20 jobs per page
+  // Debounce timer ref for server-side search
+  const searchDebounceRef = useRef(null);
+
+  // Refs to hold latest functions to avoid dependency issues
+  const searchJobsRef = useRef(searchJobs);
+  searchJobsRef.current = searchJobs;
+  const loadJobsPaginatedRef = useRef(loadJobsPaginated);
+  loadJobsPaginatedRef.current = loadJobsPaginated;
+
+  // Track if we've initialized pagination
+  const [paginationInitialized, setPaginationInitialized] = useState(false);
 
   // Job type sections - for companies with multiple enabled job types
   const enabledJobTypes = companyData?.enabled_job_types || [JOB_TYPES.PROCESS_SERVING];
@@ -102,8 +128,8 @@ export default function JobsPage() {
 
   // URL params handling removed - filters are now per-section
 
-  // Global search filter - status/priority/server filtering is now per-section
-  const filterJobs = useCallback(() => {
+  // Sort jobs by priority and due date (filtering is now server-side)
+  const sortedJobs = useMemo(() => {
     let jobsToSort = [...jobs];
 
     // Sort by priority and due date
@@ -128,35 +154,47 @@ export default function JobsPage() {
       return dateA - dateB;
     });
 
-    let filtered = jobsToSort;
+    return jobsToSort;
+  }, [jobs]);
 
-    // Global search filter - searches across all job types
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(job =>
-        job.recipient?.name?.toLowerCase().includes(term) ||
-        job.job_number?.toLowerCase().includes(term) ||
-        job.client_job_number?.toLowerCase().includes(term) ||
-        job.case_name?.toLowerCase().includes(term) ||
-        job.case_number?.toLowerCase().includes(term)
-      );
+  // Update filteredJobs when sortedJobs changes
+  useEffect(() => {
+    setFilteredJobs(sortedJobs);
+  }, [sortedJobs]);
+
+  // Initialize pagination on mount
+  useEffect(() => {
+    if (!paginationInitialized && user && loadJobsPaginatedRef.current) {
+      setPaginationInitialized(true);
+      // Load initial jobs with default filters (active jobs)
+      loadJobsPaginatedRef.current({ is_closed: false }, '', true);
+    }
+  }, [paginationInitialized, user]); // Removed loadJobsPaginated from deps - using ref instead
+
+  // Debounced server-side search
+  useEffect(() => {
+    // Clear any existing timeout
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
     }
 
-    console.log('[Jobs] Total jobs:', jobs.length);
-    console.log('[Jobs] Search filtered jobs:', filtered.length);
+    // Don't trigger search on initial empty state
+    if (!paginationInitialized) return;
 
-    setFilteredJobs(filtered);
-    setCurrentPage(1);
-  }, [jobs, searchTerm]);
+    // Set new timeout for debounced search
+    // Use ref to avoid dependency on searchJobs which changes frequently
+    searchDebounceRef.current = setTimeout(() => {
+      if (searchJobsRef.current) {
+        searchJobsRef.current(searchTerm);
+      }
+    }, 300); // 300ms debounce
 
-  useEffect(() => {
-    filterJobs();
-  }, [filterJobs]);
-
-  // Reset page when search term changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm]);
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
+  }, [searchTerm, paginationInitialized]); // Removed searchJobs from deps - using ref instead
 
   // Sync URL search param with searchTerm
   useEffect(() => {
@@ -165,22 +203,6 @@ export default function JobsPage() {
       setSearchTerm(urlSearch);
     }
   }, [searchParams]);
-
-  // Get paginated jobs for current page
-  const paginatedJobs = useMemo(() => {
-    const startIndex = (currentPage - 1) * jobsPerPage;
-    const endIndex = startIndex + jobsPerPage;
-    return filteredJobs.slice(startIndex, endIndex);
-  }, [filteredJobs, currentPage, jobsPerPage]);
-
-  // Calculate total pages
-  const totalPages = Math.ceil(filteredJobs.length / jobsPerPage);
-
-  // Pagination handlers
-  const handlePageChange = (page) => {
-    setCurrentPage(page);
-    setSelectedJobs([]); // Clear selected jobs when changing pages
-  };
 
   const handleJobSelection = useCallback((jobId, isSelected) => {
     if (isSelected) {
@@ -192,12 +214,12 @@ export default function JobsPage() {
 
   const handleSelectAll = useCallback((isSelected) => {
     if (isSelected) {
-      // Only select jobs on current page
-      setSelectedJobs(paginatedJobs.map(job => job.id));
+      // Select all currently loaded/filtered jobs
+      setSelectedJobs(filteredJobs.map(job => job.id));
     } else {
       setSelectedJobs([]);
     }
-  }, [paginatedJobs]);
+  }, [filteredJobs]);
 
   const handleBulkStatusUpdate = async (newStatus) => {
     try {
@@ -241,6 +263,51 @@ export default function JobsPage() {
         // Refresh to show accurate state
         refreshData();
       }
+    }
+  };
+
+  const handleCloseJobsClick = () => {
+    setShowCloseConfirmDialog(true);
+  };
+
+  const executeCloseJobs = async () => {
+    setShowCloseConfirmDialog(false);
+
+    try {
+      const jobsToClose = [...selectedJobs];
+
+      // Clear selection immediately for better UX
+      setSelectedJobs([]);
+
+      // Build updates with activity log entries for each job
+      const updates = jobsToClose.map(jobId => {
+        const job = jobs.find(j => j.id === jobId);
+        const currentActivityLog = Array.isArray(job?.activity_log) ? job.activity_log : [];
+
+        const newLogEntry = {
+          timestamp: new Date().toISOString(),
+          user_name: user?.full_name || "System",
+          event_type: "job_closed",
+          description: `Job closed by ${user?.full_name || 'user'}.`
+        };
+
+        return {
+          id: jobId,
+          data: {
+            is_closed: true,
+            activity_log: [...currentActivityLog, newLogEntry]
+          }
+        };
+      });
+
+      await Job.bulkUpdate(updates);
+
+      // Refresh to get latest data from server
+      refreshData();
+    } catch (error) {
+      console.error("Failed to close jobs:", error);
+      alert("Failed to close some jobs. Please try again.");
+      refreshData();
     }
   };
 
@@ -390,7 +457,7 @@ export default function JobsPage() {
                 clients={clients}
                 employees={employees}
                 invoices={invoices}
-                isLoading={isLoading}
+                isLoading={isLoading || jobsLoading}
                 onJobUpdate={refreshData}
                 myCompanyClientId={myCompanyClientId}
                 onUpdateSharedJobStatus={handleUpdateSharedJobStatus}
@@ -406,8 +473,53 @@ export default function JobsPage() {
               />
             ))}
           </div>
+
         </div>
       </div>
+
+      {/* Floating Bulk Action Bar */}
+      {selectedJobs.length > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white rounded-lg shadow-xl px-4 py-3 flex items-center gap-4 animate-in slide-in-from-bottom-4 duration-200">
+          <span className="text-sm font-medium">
+            {selectedJobs.length} job{selectedJobs.length > 1 ? 's' : ''} selected
+          </span>
+          <div className="h-4 w-px bg-slate-700" />
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleCloseJobsClick}
+            className="bg-white text-slate-900 hover:bg-slate-100"
+          >
+            <XCircle className="w-4 h-4 mr-2" />
+            Close Jobs
+          </Button>
+          <button
+            onClick={() => setSelectedJobs([])}
+            className="text-slate-400 hover:text-white ml-2"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Close Jobs Confirmation Dialog */}
+      <AlertDialog open={showCloseConfirmDialog} onOpenChange={setShowCloseConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close {selectedJobs.length} Job{selectedJobs.length > 1 ? 's' : ''}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to close {selectedJobs.length} selected job{selectedJobs.length > 1 ? 's' : ''}?
+              Closed jobs will be removed from the active jobs list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={executeCloseJobs} className="bg-slate-900 hover:bg-slate-800">
+              Yes, Close Job{selectedJobs.length > 1 ? 's' : ''}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

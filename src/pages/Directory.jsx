@@ -79,12 +79,6 @@ export default function DirectoryPage() {
 
         const allPendingRequests = [...sentRequests, ...receivedRequests];
         setPendingRequests(allPendingRequests);
-
-        // Debug logging
-        console.log('[Directory] Loaded partners:', partners);
-        console.log('[Directory] Loaded pending requests:', allPendingRequests);
-        console.log('[Directory] Sent requests:', sentRequests.map(r => r.target_company_id));
-        console.log('[Directory] Received requests:', receivedRequests.map(r => r.requesting_company_id));
       } catch (error) {
         console.error('Error fetching partners and requests:', error);
       }
@@ -105,8 +99,6 @@ export default function DirectoryPage() {
     setResults([]);
 
     try {
-      console.log('Searching for companies near ZIP:', zipCode);
-
       // Validate ZIP code format
       if (!isValidZipCode(zipCode)) {
         setError("Please enter a valid 5-digit ZIP code.");
@@ -119,8 +111,6 @@ export default function DirectoryPage() {
         zipCode,
         50 // Search within 50 miles by default
       );
-
-      console.log(`Found ${companies.length} companies within 50 miles`);
 
       // Transform data to match expected format (companies already have distance calculated)
       const transformedResults = companies.map(company => ({
@@ -259,15 +249,6 @@ export default function DirectoryPage() {
     const alreadyPartner = isPartner(company.company_id);
     const pendingRequest = hasPendingRequest(company.company_id);
     const requestDirection = getPendingRequestStatus(company.company_id);
-
-    // Debug logging for each company card
-    console.log(`[CompanyCard] ${company.name} (${company.company_id}):`, {
-      isMyCompany,
-      alreadyPartner,
-      pendingRequest,
-      requestDirection,
-      totalPendingRequests: pendingRequests.length
-    });
 
     return (
       <Card className="hover:shadow-md transition-shadow">

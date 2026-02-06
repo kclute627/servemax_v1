@@ -3,14 +3,14 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
 import {
   Building2,
   User,
   AlertCircle,
-  Check
+  Check,
+  Shield,
+  ArrowRight
 } from 'lucide-react';
 import { FirebaseAuth } from '@/firebase/auth';
 import { createPageUrl } from '@/utils';
@@ -32,20 +32,15 @@ export default function SignUpPage() {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-
-  // Field-specific errors
   const [fieldErrors, setFieldErrors] = useState({});
 
-  // Combined form data - single source of truth
   const [formData, setFormData] = useState({
-    // Personal Information
     first_name: '',
     last_name: '',
     email: '',
     phone: '',
     password: '',
     confirmPassword: '',
-    // Company Information
     company_name: '',
     website: '',
     address: '',
@@ -60,15 +55,11 @@ export default function SignUpPage() {
   const [isAddressLoading, setIsAddressLoading] = useState(false);
 
   const handleInputChange = (field, value) => {
-    // Format phone number on input
     if (field === 'phone') {
       value = formatPhoneNumber(value);
     }
-
     setFormData(prev => ({ ...prev, [field]: value }));
     setError('');
-
-    // Clear field-specific error when user starts typing
     if (fieldErrors[field]) {
       setFieldErrors(prev => ({ ...prev, [field]: null }));
     }
@@ -90,23 +81,18 @@ export default function SignUpPage() {
   const validateForm = () => {
     const errors = {};
 
-    // Validate first name
     const firstNameError = validateName(formData.first_name, 'First name');
     if (firstNameError) errors.first_name = firstNameError;
 
-    // Validate last name
     const lastNameError = validateName(formData.last_name, 'Last name');
     if (lastNameError) errors.last_name = lastNameError;
 
-    // Validate email
     const emailError = validateEmail(formData.email);
     if (emailError) errors.email = emailError;
 
-    // Validate phone (optional)
     const phoneError = validatePhone(formData.phone);
     if (phoneError) errors.phone = phoneError;
 
-    // Validate passwords
     const passwordError = validatePasswords(formData.password, formData.confirmPassword);
     if (passwordError) {
       if (passwordError.includes('match')) {
@@ -116,11 +102,9 @@ export default function SignUpPage() {
       }
     }
 
-    // Validate company name
     const companyNameError = validateCompanyName(formData.company_name);
     if (companyNameError) errors.company_name = companyNameError;
 
-    // Validate company website (optional)
     const websiteError = validateWebsite(formData.website);
     if (websiteError) errors.website = websiteError;
 
@@ -143,7 +127,6 @@ export default function SignUpPage() {
     setError('');
 
     try {
-      // Prepare user data
       const userData = {
         first_name: formData.first_name,
         last_name: formData.last_name,
@@ -153,24 +136,21 @@ export default function SignUpPage() {
         full_name: `${formData.first_name.trim()} ${formData.last_name.trim()}`.trim()
       };
 
-      // Prepare company data - using same email and phone as user
       const companyData = {
         name: formData.company_name,
-        email: formData.email, // Same as user email
-        phone: formData.phone, // Same as user phone
+        email: formData.email,
+        phone: formData.phone,
         website: formData.website,
         address: formData.address,
         city: formData.city,
         state: formData.state,
         zip: formData.zip,
         county: formData.county,
-        lat: formData.latitude, // From address autocomplete (rename to match schema)
-        lng: formData.longitude // From address autocomplete (rename to match schema)
+        lat: formData.latitude,
+        lng: formData.longitude
       };
 
       const result = await FirebaseAuth.registerCompanyOwner(userData, companyData);
-
-      // Navigate to dashboard - user can verify email later from Settings
       navigate('/Dashboard', { replace: true });
     } catch (err) {
       console.error('Registration error:', err);
@@ -180,30 +160,45 @@ export default function SignUpPage() {
     }
   };
 
+  const inputStyles = (hasError) => `
+    h-12 bg-stone-50 border-stone-200 rounded-xl transition-all
+    focus:border-emerald-500 focus:ring-emerald-500/20
+    ${hasError ? 'border-red-400 focus:border-red-500' : ''}
+  `;
+
   return (
     <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        .font-display { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+      `}</style>
+
       <PublicNavbar />
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-white flex items-center justify-center p-4 py-24">
-        <div className="w-full max-w-2xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 py-24">
+        {/* Background decoration */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-br from-emerald-100/40 to-transparent rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
+          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-gradient-to-tr from-emerald-100/30 to-transparent rounded-full blur-3xl translate-y-1/2 -translate-x-1/3" />
+        </div>
+
+        <div className="w-full max-w-2xl relative">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-900 to-blue-700 bg-clip-text text-transparent mb-2">
-              Start Your Free Trial
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-[#0D2E26] rounded-2xl mb-6">
+              <Shield className="w-8 h-8 text-emerald-400" />
+            </div>
+            <h1 className="text-3xl font-bold text-stone-900 mb-2">
+              Start your free trial
             </h1>
-            <p className="text-slate-600">No credit card required • 30 days free • Cancel anytime</p>
+            <p className="text-stone-600">No credit card required • 30 days free • Cancel anytime</p>
           </div>
 
-          <Card className="shadow-2xl border-slate-200/50 backdrop-blur-sm bg-white/95">
-          <CardHeader className="space-y-1 pb-6">
-            <CardTitle className="text-2xl">Create Your Account</CardTitle>
-            <CardDescription className="text-base">
-              Set up your account and company profile to get started
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+          {/* Card */}
+          <div className="bg-white rounded-2xl shadow-xl shadow-stone-200/50 border border-stone-200/50 p-8">
             <form onSubmit={handleSignUp} className="space-y-6">
               {error && (
-                <Alert variant="destructive">
+                <Alert variant="destructive" className="border-red-200 bg-red-50">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
@@ -211,20 +206,20 @@ export default function SignUpPage() {
 
               {/* Personal Information Section */}
               <div className="space-y-4">
-                <div className="flex items-center gap-2 pb-3 border-b-2 border-blue-100">
-                  <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
-                    <User className="w-4 h-4 text-white" />
+                <div className="flex items-center gap-3 pb-3 border-b border-stone-200">
+                  <div className="w-10 h-10 bg-[#0D2E26] rounded-xl flex items-center justify-center">
+                    <User className="w-5 h-5 text-emerald-400" />
                   </div>
-                  <h3 className="font-semibold text-lg text-slate-900">Personal Information</h3>
+                  <h3 className="font-semibold text-lg text-stone-900">Personal Information</h3>
                 </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="first_name" className="text-slate-700 font-medium">First Name</Label>
+                    <Label className="text-stone-700 font-medium">First Name</Label>
                     <Input
-                      id="first_name"
                       type="text"
                       placeholder="John"
-                      className={`h-11 transition-all duration-200 ${fieldErrors.first_name ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                      className={inputStyles(fieldErrors.first_name)}
                       value={formData.first_name}
                       onChange={(e) => handleInputChange('first_name', e.target.value)}
                       required
@@ -235,12 +230,11 @@ export default function SignUpPage() {
                   </div>
 
                   <div>
-                    <Label htmlFor="last_name" className="text-slate-700 font-medium">Last Name</Label>
+                    <Label className="text-stone-700 font-medium">Last Name</Label>
                     <Input
-                      id="last_name"
                       type="text"
                       placeholder="Smith"
-                      className={`h-11 transition-all duration-200 ${fieldErrors.last_name ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                      className={inputStyles(fieldErrors.last_name)}
                       value={formData.last_name}
                       onChange={(e) => handleInputChange('last_name', e.target.value)}
                       required
@@ -252,12 +246,11 @@ export default function SignUpPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="email" className="text-slate-700 font-medium">Email Address</Label>
+                  <Label className="text-stone-700 font-medium">Email Address</Label>
                   <Input
-                    id="email"
                     type="email"
                     placeholder="john@company.com"
-                    className={`h-11 transition-all duration-200 ${fieldErrors.email ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                    className={inputStyles(fieldErrors.email)}
                     value={formData.email}
                     onChange={(e) => handleInputChange('email', e.target.value)}
                     required
@@ -265,16 +258,15 @@ export default function SignUpPage() {
                   {fieldErrors.email && (
                     <p className="text-red-500 text-sm mt-1">{fieldErrors.email}</p>
                   )}
-                  <p className="text-xs text-slate-500 mt-1.5">This will be used for your account and company contact</p>
+                  <p className="text-xs text-stone-500 mt-1.5">Used for your account and company contact</p>
                 </div>
 
                 <div>
-                  <Label htmlFor="phone" className="text-slate-700 font-medium">Phone Number (Optional)</Label>
+                  <Label className="text-stone-700 font-medium">Phone Number <span className="text-stone-400 font-normal">(Optional)</span></Label>
                   <Input
-                    id="phone"
                     type="tel"
                     placeholder="(555) 123-4567"
-                    className={`h-11 transition-all duration-200 ${fieldErrors.phone ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                    className={inputStyles(fieldErrors.phone)}
                     value={formData.phone}
                     onChange={(e) => handleInputChange('phone', e.target.value)}
                   />
@@ -283,55 +275,54 @@ export default function SignUpPage() {
                   )}
                 </div>
 
-                <div>
-                  <Label htmlFor="password" className="text-slate-700 font-medium">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="At least 8 characters"
-                    className={`h-11 transition-all duration-200 ${fieldErrors.password ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
-                    value={formData.password}
-                    onChange={(e) => handleInputChange('password', e.target.value)}
-                    required
-                  />
-                  {fieldErrors.password && (
-                    <p className="text-red-500 text-sm mt-1">{fieldErrors.password}</p>
-                  )}
-                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-stone-700 font-medium">Password</Label>
+                    <Input
+                      type="password"
+                      placeholder="At least 8 characters"
+                      className={inputStyles(fieldErrors.password)}
+                      value={formData.password}
+                      onChange={(e) => handleInputChange('password', e.target.value)}
+                      required
+                    />
+                    {fieldErrors.password && (
+                      <p className="text-red-500 text-sm mt-1">{fieldErrors.password}</p>
+                    )}
+                  </div>
 
-                <div>
-                  <Label htmlFor="confirmPassword" className="text-slate-700 font-medium">Confirm Password</Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    placeholder="Confirm your password"
-                    className={`h-11 transition-all duration-200 ${fieldErrors.confirmPassword ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
-                    value={formData.confirmPassword}
-                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                    required
-                  />
-                  {fieldErrors.confirmPassword && (
-                    <p className="text-red-500 text-sm mt-1">{fieldErrors.confirmPassword}</p>
-                  )}
+                  <div>
+                    <Label className="text-stone-700 font-medium">Confirm Password</Label>
+                    <Input
+                      type="password"
+                      placeholder="Confirm password"
+                      className={inputStyles(fieldErrors.confirmPassword)}
+                      value={formData.confirmPassword}
+                      onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                      required
+                    />
+                    {fieldErrors.confirmPassword && (
+                      <p className="text-red-500 text-sm mt-1">{fieldErrors.confirmPassword}</p>
+                    )}
+                  </div>
                 </div>
               </div>
 
               {/* Company Information Section */}
               <div className="space-y-4">
-                <div className="flex items-center gap-2 pb-3 border-b-2 border-blue-100">
-                  <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
-                    <Building2 className="w-4 h-4 text-white" />
+                <div className="flex items-center gap-3 pb-3 border-b border-stone-200">
+                  <div className="w-10 h-10 bg-[#0D2E26] rounded-xl flex items-center justify-center">
+                    <Building2 className="w-5 h-5 text-emerald-400" />
                   </div>
-                  <h3 className="font-semibold text-lg text-slate-900">Company Information</h3>
+                  <h3 className="font-semibold text-lg text-stone-900">Company Information</h3>
                 </div>
 
                 <div>
-                  <Label htmlFor="company_name" className="text-slate-700 font-medium">Company Name</Label>
+                  <Label className="text-stone-700 font-medium">Company Name</Label>
                   <Input
-                    id="company_name"
                     type="text"
                     placeholder="ABC Process Serving"
-                    className={`h-11 transition-all duration-200 ${fieldErrors.company_name ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                    className={inputStyles(fieldErrors.company_name)}
                     value={formData.company_name}
                     onChange={(e) => handleInputChange('company_name', e.target.value)}
                     required
@@ -342,12 +333,11 @@ export default function SignUpPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="company_website" className="text-slate-700 font-medium">Company Website (Optional)</Label>
+                  <Label className="text-stone-700 font-medium">Website <span className="text-stone-400 font-normal">(Optional)</span></Label>
                   <Input
-                    id="company_website"
                     type="url"
                     placeholder="www.yourcompany.com"
-                    className={`h-11 transition-all duration-200 ${fieldErrors.website ? 'border-red-500 focus:border-red-500' : 'focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                    className={inputStyles(fieldErrors.website)}
                     value={formData.website}
                     onChange={(e) => handleInputChange('website', e.target.value)}
                   />
@@ -357,9 +347,8 @@ export default function SignUpPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="address" className="text-slate-700 font-medium">Address</Label>
+                  <Label className="text-stone-700 font-medium">Address</Label>
                   <AddressAutocomplete
-                    id="address"
                     value={formData.address}
                     onChange={(value) => handleInputChange('address', value)}
                     onAddressSelect={handleAddressSelect}
@@ -370,37 +359,34 @@ export default function SignUpPage() {
 
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <Label htmlFor="city" className="text-slate-700 font-medium">City</Label>
+                    <Label className="text-stone-700 font-medium">City</Label>
                     <Input
-                      id="city"
                       type="text"
                       placeholder="City"
-                      className="h-11"
+                      className={inputStyles(false)}
                       value={formData.city}
                       onChange={(e) => handleInputChange('city', e.target.value)}
                       disabled={isAddressLoading}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="state" className="text-slate-700 font-medium">State</Label>
+                    <Label className="text-stone-700 font-medium">State</Label>
                     <Input
-                      id="state"
                       type="text"
                       placeholder="CA"
                       maxLength={2}
-                      className="h-11"
+                      className={inputStyles(false)}
                       value={formData.state}
                       onChange={(e) => handleInputChange('state', e.target.value)}
                       disabled={isAddressLoading}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="zip" className="text-slate-700 font-medium">ZIP Code</Label>
+                    <Label className="text-stone-700 font-medium">ZIP Code</Label>
                     <Input
-                      id="zip"
                       type="text"
                       placeholder="90210"
-                      className="h-11"
+                      className={inputStyles(false)}
                       value={formData.zip}
                       onChange={(e) => handleInputChange('zip', e.target.value)}
                       disabled={isAddressLoading}
@@ -410,30 +396,25 @@ export default function SignUpPage() {
               </div>
 
               {/* Trial Information */}
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 border-2 border-blue-200 rounded-xl p-5 shadow-sm">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center">
                     <Check className="w-5 h-5 text-white" />
                   </div>
-                  <h3 className="font-bold text-blue-900 text-lg">30-Day Free Trial</h3>
+                  <h3 className="font-bold text-emerald-900 text-lg">30-Day Free Trial</h3>
                 </div>
-                <ul className="text-sm text-blue-900 space-y-2.5">
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                    <span>Up to 100 jobs during trial period</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                    <span>Full access to all features</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                    <span>No credit card required</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Check className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                    <span>Cancel anytime</span>
-                  </li>
+                <ul className="text-sm text-emerald-800 space-y-2">
+                  {[
+                    'Up to 100 jobs during trial period',
+                    'Full access to all features',
+                    'No credit card required',
+                    'Cancel anytime'
+                  ].map((item, idx) => (
+                    <li key={idx} className="flex items-center gap-2">
+                      <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
                 </ul>
               </div>
 
@@ -441,26 +422,34 @@ export default function SignUpPage() {
               <Button
                 type="submit"
                 disabled={isLoading}
-                className="w-full h-12 bg-gradient-to-r from-blue-800 to-blue-900 hover:from-blue-900 hover:to-blue-950 shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-[1.02] text-base font-semibold"
-                size="lg"
+                className="w-full h-12 bg-[#0D2E26] hover:bg-[#134035] text-white rounded-xl font-medium transition-all hover:scale-[1.01]"
               >
-                {isLoading ? 'Creating Account...' : 'Start Free Trial'}
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Creating account...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    Start free trial
+                    <ArrowRight className="w-4 h-4" />
+                  </span>
+                )}
               </Button>
 
-              <Separator className="my-6" />
-
-              <div className="text-center text-sm text-slate-600">
-                Already have an account?{' '}
-                <Link
-                  to={createPageUrl('Login')}
-                  className="text-blue-600 hover:text-blue-800 font-semibold hover:underline transition-all"
-                >
-                  Sign in here
-                </Link>
+              <div className="pt-6 border-t border-stone-100 text-center">
+                <p className="text-stone-600">
+                  Already have an account?{' '}
+                  <Link
+                    to={createPageUrl('Login')}
+                    className="text-emerald-600 hover:text-emerald-700 font-semibold"
+                  >
+                    Sign in
+                  </Link>
+                </p>
               </div>
             </form>
-          </CardContent>
-        </Card>
+          </div>
         </div>
       </div>
     </>

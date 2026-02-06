@@ -1,5 +1,5 @@
-import React from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   Calendar,
@@ -8,7 +8,10 @@ import {
   CreditCard,
   Receipt,
   Building2,
-  Clock
+  Clock,
+  CheckCircle2,
+  ExternalLink,
+  Loader2
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { useClientAuth } from "@/components/auth/ClientAuthProvider";
 import { useToast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
+import { FirebaseFunctions } from "@/firebase/functions";
 
 const getStatusColor = (status) => {
   const statusColors = {
@@ -32,9 +36,11 @@ const getStatusColor = (status) => {
 
 export default function ClientInvoiceDetail() {
   const { companySlug, invoiceId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { portalData } = useClientAuth();
   const { toast } = useToast();
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
   const invoices = portalData?.invoices || [];
   const branding = portalData?.branding || {};
@@ -43,6 +49,29 @@ export default function ClientInvoiceDetail() {
 
   // Find the invoice by ID
   const invoice = invoices.find(inv => inv.id === invoiceId);
+
+  // Handle payment success/cancel query params
+  useEffect(() => {
+    const paymentStatus = searchParams.get('payment');
+    if (paymentStatus === 'success') {
+      toast({
+        title: "Payment Successful!",
+        description: "Thank you for your payment. The invoice has been marked as paid.",
+        duration: 5000,
+      });
+      // Clean up the URL
+      navigate(`/portal/${companySlug}/invoices/${invoiceId}`, { replace: true });
+    } else if (paymentStatus === 'canceled') {
+      toast({
+        title: "Payment Canceled",
+        description: "Your payment was not completed. You can try again when you're ready.",
+        variant: "destructive",
+        duration: 5000,
+      });
+      // Clean up the URL
+      navigate(`/portal/${companySlug}/invoices/${invoiceId}`, { replace: true });
+    }
+  }, [searchParams, companySlug, invoiceId, navigate, toast]);
 
   const formatDate = (date) => {
     if (!date) return "N/A";
@@ -56,16 +85,40 @@ export default function ClientInvoiceDetail() {
     }
   };
 
-  const handlePayInvoice = () => {
-    // TODO: Stripe PaymentIntent integration
-    console.log('[Pay Invoice] Invoice ID:', invoiceId);
-    console.log('[Pay Invoice] Amount:', invoice?.total || invoice?.balance_due);
+  const handlePayInvoice = async () => {
+    // Check if the company has Stripe Connect enabled
+    if (!company.stripe_connect_account_id || company.stripe_connect_status !== 'connected') {
+      toast({
+        title: "Online Payment Not Available",
+        description: "This company hasn't set up online payments yet. Please contact them for alternative payment options.",
+        variant: "destructive",
+        duration: 5000,
+      });
+      return;
+    }
 
-    toast({
-      title: "Online Payment Coming Soon",
-      description: "Please contact us for payment options. We're working on enabling online payments.",
-      duration: 5000,
-    });
+    setIsProcessingPayment(true);
+    try {
+      const result = await FirebaseFunctions.createInvoicePaymentCheckout({
+        invoiceId: invoice.id,
+        companyId: company.id,
+        successUrl: `${window.location.origin}/portal/${companySlug}/invoices/${invoiceId}?payment=success`,
+        cancelUrl: `${window.location.origin}/portal/${companySlug}/invoices/${invoiceId}?payment=canceled`
+      });
+
+      // Redirect to Stripe Checkout
+      window.location.href = result.checkoutUrl;
+    } catch (error) {
+      console.error('Payment error:', error);
+      toast({
+        title: "Payment Error",
+        description: error.message || "Failed to start payment. Please try again or contact support.",
+        variant: "destructive",
+        duration: 5000,
+      });
+    } finally {
+      setIsProcessingPayment(false);
+    }
   };
 
   const handleDownloadPdf = () => {
@@ -136,11 +189,16 @@ export default function ClientInvoiceDetail() {
           {isPayable && (
             <Button
               onClick={handlePayInvoice}
+              disabled={isProcessingPayment}
               style={{ backgroundColor: primaryColor }}
               className="text-white"
             >
-              <CreditCard className="w-4 h-4 mr-2" />
-              Pay Now
+              {isProcessingPayment ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <CreditCard className="w-4 h-4 mr-2" />
+              )}
+              {isProcessingPayment ? 'Processing...' : 'Pay Now'}
             </Button>
           )}
         </div>
@@ -303,6 +361,36 @@ export default function ClientInvoiceDetail() {
         </Card>
       )}
 
+      {/* Payment Confirmation - For Paid Invoices */}
+      {invoice.status?.toLowerCase() === 'paid' && invoice.stripe_receipt_url && (
+        <Card className="bg-green-50 border-green-200">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <CheckCircle2 className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-green-900">Payment Received</p>
+                  <p className="text-sm text-green-700">
+                    Paid on {formatDate(invoice.paid_at || invoice.last_payment_date)}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open(invoice.stripe_receipt_url, '_blank')}
+                className="gap-2"
+              >
+                <ExternalLink className="w-4 h-4" />
+                View Receipt
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Notes */}
       {invoice.notes && (
         <Card>
@@ -329,11 +417,16 @@ export default function ClientInvoiceDetail() {
               <Button
                 size="lg"
                 onClick={handlePayInvoice}
+                disabled={isProcessingPayment}
                 style={{ backgroundColor: primaryColor }}
                 className="text-white"
               >
-                <CreditCard className="w-5 h-5 mr-2" />
-                Pay ${balanceDue.toFixed(2)} Now
+                {isProcessingPayment ? (
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                ) : (
+                  <CreditCard className="w-5 h-5 mr-2" />
+                )}
+                {isProcessingPayment ? 'Processing...' : `Pay $${balanceDue.toFixed(2)} Now`}
               </Button>
             </div>
           </CardContent>

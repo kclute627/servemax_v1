@@ -4,14 +4,52 @@ const {defineSecret} = require("firebase-functions/params");
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const {PDFDocument, rgb, StandardFonts} = require("pdf-lib");
-const {Client} = require("@googlemaps/google-maps-services-js");
+// PERFORMANCE: Lazy-load Google Maps Client - only used by 2 functions
+let GoogleMapsClient;
+function getGoogleMapsClient() {
+  if (!GoogleMapsClient) {
+    GoogleMapsClient = new (require("@googlemaps/google-maps-services-js").Client)({});
+  }
+  return GoogleMapsClient;
+}
 const QRCode = require("qrcode");
-const puppeteer = require("puppeteer-core");
-const chromium = require("@sparticuz/chromium");
+// PERFORMANCE: Lazy-load Puppeteer and Chromium - only used by PDF generation functions
+let puppeteer;
+let chromium;
+function getPuppeteer() {
+  if (!puppeteer) {
+    puppeteer = require("puppeteer-core");
+  }
+  return puppeteer;
+}
+function getChromium() {
+  if (!chromium) {
+    chromium = require("@sparticuz/chromium");
+  }
+  return chromium;
+}
 const Handlebars = require("handlebars");
 const {format} = require("date-fns");
-const {DocumentProcessorServiceClient} = require("@google-cloud/documentai").v1;
-const Anthropic = require("@anthropic-ai/sdk");
+// PERFORMANCE: Lazy-load DocumentAI client - only used by 1 function
+let DocumentProcessorServiceClient;
+function getDocumentAIClient() {
+  if (!DocumentProcessorServiceClient) {
+    DocumentProcessorServiceClient = require("@google-cloud/documentai").v1.DocumentProcessorServiceClient;
+  }
+  return new DocumentProcessorServiceClient();
+}
+// PERFORMANCE: Lazy-load Anthropic SDK - only used by 4 functions
+let Anthropic;
+let anthropicClient;
+function getAnthropicClient(apiKey) {
+  if (!Anthropic) {
+    Anthropic = require("@anthropic-ai/sdk");
+  }
+  if (!anthropicClient) {
+    anthropicClient = new Anthropic({apiKey});
+  }
+  return anthropicClient;
+}
 const axios = require("axios");
 const sgMail = require("@sendgrid/mail");
 const fs = require("fs");
@@ -24,6 +62,339 @@ admin.initializeApp();
 const googleMapsApiKey = defineSecret("GOOGLE_MAPS_API_KEY");
 const anthropicApiKey = defineSecret("CLAUDE_API_KEY");
 const sendgridApiKey = defineSecret("SENDGRID_API_KEY");
+const stripeSecretKey = defineSecret("STRIPE_SECRET_KEY");
+const stripeWebhookSecret = defineSecret("STRIPE_WEBHOOK_SECRET");
+const stripeConnectWebhookSecret = defineSecret("STRIPE_CONNECT_WEBHOOK_SECRET");
+
+// PERFORMANCE: Lazy-load Stripe SDK
+let stripeClient;
+function getStripe(apiKey) {
+  if (!stripeClient) {
+    const Stripe = require("stripe");
+    stripeClient = new Stripe(apiKey);
+  }
+  return stripeClient;
+}
+
+// PERFORMANCE: SendGrid API key initialization - only set once per function instance
+let sendgridInitialized = false;
+function initSendGrid(apiKey) {
+  if (!sendgridInitialized) {
+    sgMail.setApiKey(apiKey);
+    sendgridInitialized = true;
+  }
+}
+
+// ============================================================================
+// Input Validation Utilities
+// ============================================================================
+
+/**
+ * Validate that a value is a non-empty string within length limits
+ * @param {*} value - Value to validate
+ * @param {string} fieldName - Name of the field for error messages
+ * @param {Object} options - Validation options
+ * @param {number} options.minLength - Minimum length (default: 1)
+ * @param {number} options.maxLength - Maximum length (default: 10000)
+ * @param {boolean} options.required - Whether field is required (default: true)
+ */
+function validateString(value, fieldName, options = {}) {
+  const {minLength = 1, maxLength = 10000, required = true} = options;
+
+  if (value === undefined || value === null || value === "") {
+    if (required) {
+      throw new HttpsError("invalid-argument", `${fieldName} is required`);
+    }
+    return;
+  }
+
+  if (typeof value !== "string") {
+    throw new HttpsError("invalid-argument", `${fieldName} must be a string`);
+  }
+
+  if (value.length < minLength) {
+    throw new HttpsError("invalid-argument", `${fieldName} must be at least ${minLength} characters`);
+  }
+
+  if (value.length > maxLength) {
+    throw new HttpsError("invalid-argument", `${fieldName} exceeds maximum length of ${maxLength} characters`);
+  }
+}
+
+/**
+ * Validate email format
+ * @param {string} email - Email to validate
+ * @param {string} fieldName - Name of the field for error messages
+ * @param {boolean} required - Whether field is required
+ */
+function validateEmail(email, fieldName = "email", required = true) {
+  if (!email && !required) return;
+
+  validateString(email, fieldName, {maxLength: 254, required});
+
+  // RFC 5322 compliant email regex (simplified)
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    throw new HttpsError("invalid-argument", `${fieldName} must be a valid email address`);
+  }
+}
+
+/**
+ * Validate Firebase document ID format
+ * @param {string} id - ID to validate
+ * @param {string} fieldName - Name of the field for error messages
+ * @param {boolean} required - Whether field is required
+ */
+function validateDocumentId(id, fieldName, required = true) {
+  if (!id && !required) return;
+
+  validateString(id, fieldName, {minLength: 1, maxLength: 1500, required});
+
+  // Firebase IDs cannot contain: / . or be . or ..
+  if (id.includes("/") || id === "." || id === "..") {
+    throw new HttpsError("invalid-argument", `${fieldName} contains invalid characters`);
+  }
+}
+
+/**
+ * Validate array input
+ * @param {*} arr - Array to validate
+ * @param {string} fieldName - Name of the field for error messages
+ * @param {Object} options - Validation options
+ */
+function validateArray(arr, fieldName, options = {}) {
+  const {maxLength = 1000, required = true} = options;
+
+  if (!arr && !required) return;
+
+  if (!Array.isArray(arr)) {
+    throw new HttpsError("invalid-argument", `${fieldName} must be an array`);
+  }
+
+  if (arr.length > maxLength) {
+    throw new HttpsError("invalid-argument", `${fieldName} exceeds maximum of ${maxLength} items`);
+  }
+}
+
+/**
+ * Validate boolean input
+ * @param {*} value - Value to validate
+ * @param {string} fieldName - Name of the field for error messages
+ * @param {boolean} required - Whether field is required
+ */
+function validateBoolean(value, fieldName, required = false) {
+  if (value === undefined || value === null) {
+    if (required) {
+      throw new HttpsError("invalid-argument", `${fieldName} is required`);
+    }
+    return;
+  }
+
+  if (typeof value !== "boolean") {
+    throw new HttpsError("invalid-argument", `${fieldName} must be a boolean`);
+  }
+}
+
+/**
+ * Validate number input
+ * @param {*} value - Value to validate
+ * @param {string} fieldName - Name of the field for error messages
+ * @param {Object} options - Validation options
+ */
+function validateNumber(value, fieldName, options = {}) {
+  const {min, max, required = false} = options;
+
+  if (value === undefined || value === null) {
+    if (required) {
+      throw new HttpsError("invalid-argument", `${fieldName} is required`);
+    }
+    return;
+  }
+
+  if (typeof value !== "number" || isNaN(value)) {
+    throw new HttpsError("invalid-argument", `${fieldName} must be a number`);
+  }
+
+  if (min !== undefined && value < min) {
+    throw new HttpsError("invalid-argument", `${fieldName} must be at least ${min}`);
+  }
+
+  if (max !== undefined && value > max) {
+    throw new HttpsError("invalid-argument", `${fieldName} must be at most ${max}`);
+  }
+}
+
+/**
+ * Validate that user is authenticated
+ * @param {Object} auth - Auth object from request
+ * @returns {string} User ID
+ */
+function requireAuth(auth) {
+  if (!auth || !auth.uid) {
+    throw new HttpsError("unauthenticated", "You must be logged in to perform this action");
+  }
+  return auth.uid;
+}
+
+/**
+ * Sanitize string input to prevent injection attacks
+ * @param {string} str - String to sanitize
+ * @returns {string} Sanitized string
+ */
+function sanitizeString(str) {
+  if (!str || typeof str !== "string") return str;
+  // Remove null bytes and control characters
+  return str.replace(/\x00/g, "").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+}
+
+/**
+ * Mask email address for logging (preserves first 2 chars and domain)
+ * @param {string} email - Email to mask
+ * @returns {string} Masked email (e.g., "jo***@example.com")
+ */
+function maskEmail(email) {
+  if (!email || typeof email !== "string") return "[no-email]";
+  const parts = email.split("@");
+  if (parts.length !== 2) return "[invalid-email]";
+  const local = parts[0];
+  const domain = parts[1];
+  const masked = local.length > 2 ? local.substring(0, 2) + "***" : "***";
+  return `${masked}@${domain}`;
+}
+
+/**
+ * Validate URL format
+ * @param {string} url - URL to validate
+ * @param {string} fieldName - Name of the field for error messages
+ * @param {boolean} required - Whether field is required
+ */
+function validateUrl(url, fieldName = "url", required = false) {
+  if (!url && !required) return;
+
+  validateString(url, fieldName, {maxLength: 2048, required});
+
+  try {
+    const parsed = new URL(url);
+    // Only allow http and https protocols
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      throw new HttpsError("invalid-argument", `${fieldName} must use http or https protocol`);
+    }
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    throw new HttpsError("invalid-argument", `${fieldName} must be a valid URL`);
+  }
+}
+
+// ============================================================================
+// Rate Limiting Utilities
+// ============================================================================
+
+/**
+ * Check and enforce rate limits for a given identifier
+ * Uses Firestore to track request counts within time windows
+ *
+ * @param {string} identifier - Unique identifier (e.g., userId, IP, email)
+ * @param {string} action - Action being rate limited (e.g., 'sendEmail', 'login')
+ * @param {Object} limits - Rate limit configuration
+ * @param {number} limits.maxRequests - Maximum requests allowed in window
+ * @param {number} limits.windowSeconds - Time window in seconds
+ * @throws {HttpsError} If rate limit exceeded
+ */
+async function checkRateLimit(identifier, action, limits = {maxRequests: 10, windowSeconds: 60}) {
+  const {maxRequests, windowSeconds} = limits;
+
+  // Sanitize identifier to be safe for document IDs
+  const safeId = identifier.replace(/[^a-zA-Z0-9_-]/g, "_").substring(0, 100);
+  const docId = `${action}_${safeId}`;
+
+  const rateLimitRef = admin.firestore().collection("rate_limits").doc(docId);
+
+  try {
+    const result = await admin.firestore().runTransaction(async (transaction) => {
+      const doc = await transaction.get(rateLimitRef);
+      const now = Date.now();
+      const windowMs = windowSeconds * 1000;
+
+      if (!doc.exists) {
+        // First request - create record
+        transaction.set(rateLimitRef, {
+          count: 1,
+          window_start: now,
+          identifier: safeId,
+          action: action,
+        });
+        return {allowed: true, remaining: maxRequests - 1};
+      }
+
+      const data = doc.data();
+      const windowStart = data.window_start || 0;
+
+      // Check if we're in a new window
+      if (now - windowStart > windowMs) {
+        // Reset window
+        transaction.set(rateLimitRef, {
+          count: 1,
+          window_start: now,
+          identifier: safeId,
+          action: action,
+        });
+        return {allowed: true, remaining: maxRequests - 1};
+      }
+
+      // Same window - check count
+      const currentCount = data.count || 0;
+
+      if (currentCount >= maxRequests) {
+        return {allowed: false, remaining: 0, resetTime: windowStart + windowMs};
+      }
+
+      // Increment count
+      transaction.update(rateLimitRef, {
+        count: currentCount + 1,
+      });
+      return {allowed: true, remaining: maxRequests - currentCount - 1};
+    });
+
+    if (!result.allowed) {
+      const retryAfter = Math.ceil((result.resetTime - Date.now()) / 1000);
+      console.warn(`[RateLimit] Rate limit exceeded for ${action}:${safeId}`);
+      throw new HttpsError(
+          "resource-exhausted",
+          `Too many requests. Please try again in ${retryAfter} seconds.`,
+      );
+    }
+
+    return result;
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    // Log but don't fail the request if rate limiting itself fails
+    console.error(`[RateLimit] Error checking rate limit:`, error);
+    return {allowed: true, remaining: -1};
+  }
+}
+
+/**
+ * Clean up old rate limit records (run periodically)
+ * Records older than 24 hours are deleted
+ */
+async function cleanupRateLimits() {
+  const cutoff = Date.now() - (24 * 60 * 60 * 1000); // 24 hours ago
+
+  const oldRecords = await admin.firestore()
+      .collection("rate_limits")
+      .where("window_start", "<", cutoff)
+      .limit(500)
+      .get();
+
+  if (oldRecords.empty) return 0;
+
+  const batch = admin.firestore().batch();
+  oldRecords.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+
+  console.log(`[RateLimit] Cleaned up ${oldRecords.size} old rate limit records`);
+  return oldRecords.size;
+}
 
 // ============================================================================
 // Platform Usage Tracking Utilities
@@ -88,15 +459,30 @@ async function trackPlatformUsage(operation) {
 // Email Service Utilities
 // ============================================================================
 
+// PERFORMANCE: Cache compiled email templates to avoid repeated disk reads
+const templateCache = {};
+
 /**
  * Load and compile an email template from the email-templates directory
  * @param {string} templateName - Name of the template file (without .hbs extension)
  * @returns {Function} Compiled Handlebars template function
  */
 function loadEmailTemplate(templateName) {
+  // PERFORMANCE: Lazy-register Handlebars helpers only when first template is loaded
+  ensureHandlebarsHelpers();
+
+  // Return cached template if available
+  if (templateCache[templateName]) {
+    return templateCache[templateName];
+  }
+
   const templatePath = path.join(__dirname, "email-templates", `${templateName}.hbs`);
   const templateSource = fs.readFileSync(templatePath, "utf-8");
-  return Handlebars.compile(templateSource);
+  const compiledTemplate = Handlebars.compile(templateSource);
+
+  // Cache for future use
+  templateCache[templateName] = compiledTemplate;
+  return compiledTemplate;
 }
 
 /**
@@ -176,8 +562,8 @@ async function sendEmailWithTemplate(options) {
   // Render the email
   const html = renderEmail(templateName, {...templateData, emailSubject: subject}, companyData);
 
-  // Configure SendGrid
-  sgMail.setApiKey(sendgridApiKey.value());
+  // PERFORMANCE: Initialize SendGrid once per instance
+  initSendGrid(sendgridApiKey.value());
 
   // Build the message
   const msg = {
@@ -512,7 +898,8 @@ exports.googlePlacesAutocomplete = onCall(
           );
         }
 
-        const client = new Client({});
+        // PERFORMANCE: Use singleton Google Maps client
+        const client = getGoogleMapsClient();
         const response = await client.placeAutocomplete({
           params: {
             input: query,
@@ -568,7 +955,8 @@ exports.googlePlaceDetails = onCall(
           );
         }
 
-        const client = new Client({});
+        // PERFORMANCE: Use singleton Google Maps client
+        const client = getGoogleMapsClient();
         const response = await client.placeDetails({
           params: {
             place_id,
@@ -1707,8 +2095,14 @@ function registerHandlebarsHelpers() {
   });
 }
 
-// Register helpers once at startup
-registerHandlebarsHelpers();
+// PERFORMANCE: Lazy register helpers - only when first email template is loaded
+let handlebarsHelpersRegistered = false;
+function ensureHandlebarsHelpers() {
+  if (!handlebarsHelpersRegistered) {
+    registerHandlebarsHelpers();
+    handlebarsHelpersRegistered = true;
+  }
+}
 
 /**
  * Replace constant placeholders in HTML template
@@ -1887,12 +2281,16 @@ function injectSignatureIntoHTML(html, sig) {
 async function generatePDFFromHTML(html, options = {}) {
   let browser = null;
   try {
+    // PERFORMANCE: Lazy-load Puppeteer and Chromium only when needed
+    const puppeteerLib = getPuppeteer();
+    const chromiumLib = getChromium();
+
     // Launch Puppeteer with Cloud Functions optimized settings using @sparticuz/chromium
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
+    browser = await puppeteerLib.launch({
+      args: chromiumLib.args,
+      defaultViewport: chromiumLib.defaultViewport,
+      executablePath: await chromiumLib.executablePath(),
+      headless: chromiumLib.headless,
     });
 
     const page = await browser.newPage();
@@ -2540,9 +2938,7 @@ async function updateJobWithShare(jobId, job, partner, fee, companyData) {
 exports.createJobShareRequest = onCall(async (request) => {
   try {
     // Validate authentication
-    if (!request.auth) {
-      throw new HttpsError("unauthenticated", "User must be authenticated");
-    }
+    const userId = requireAuth(request.auth);
 
     const {
       jobId,
@@ -2558,13 +2954,16 @@ exports.createJobShareRequest = onCall(async (request) => {
       shareChainLevel,
     } = request.data;
 
-    // Validate required fields (use explicit null/undefined check for proposedFee since 0 is valid)
-    if (!jobId || !targetCompanyId || !targetUserId || proposedFee === undefined || proposedFee === null) {
-      throw new HttpsError(
-          "invalid-argument",
-          "Missing required fields: jobId, targetCompanyId, targetUserId, proposedFee",
-      );
-    }
+    // Validate required fields with proper type checking
+    validateDocumentId(jobId, "jobId");
+    validateDocumentId(targetCompanyId, "targetCompanyId");
+    validateDocumentId(targetUserId, "targetUserId");
+    validateNumber(proposedFee, "proposedFee", {min: 0, max: 100000, required: true});
+    validateNumber(expiresInHours, "expiresInHours", {min: 1, max: 720, required: false});
+    validateBoolean(createCarbonCopy, "createCarbonCopy", false);
+    validateDocumentId(sharedJobNumber, "sharedJobNumber", false);
+    validateDocumentId(shareChainRootJobId, "shareChainRootJobId", false);
+    validateNumber(shareChainLevel, "shareChainLevel", {min: 0, max: 10, required: false});
 
     console.log(`Creating job share request for job ${jobId} to company ${targetCompanyId}`);
 
@@ -2717,7 +3116,7 @@ exports.respondToShareRequest = onCall(async (request) => {
       throw new HttpsError("unauthenticated", "User must be authenticated");
     }
 
-    const {requestId, accept, counterFee} = request.data;
+    const {requestId, accept, counterFee, declineReason} = request.data;
 
     if (!requestId || accept === undefined) {
       throw new HttpsError(
@@ -3047,7 +3446,44 @@ exports.respondToShareRequest = onCall(async (request) => {
       await requestDoc.ref.update({
         status: "declined",
         responded_at: admin.firestore.FieldValue.serverTimestamp(),
+        decline_reason: declineReason || null,
       });
+
+      // Update the original job to show "Server Denied" badge
+      try {
+        await admin.firestore()
+            .collection("jobs")
+            .doc(shareRequest.job_id)
+            .update({
+              carbon_copy_pending: false,
+              carbon_copy_declined: true,
+              carbon_copy_decline_reason: declineReason || null,
+              carbon_copy_declined_by: shareRequest.target_company_name,
+            });
+        console.log(`Updated original job ${shareRequest.job_id} with declined status`);
+      } catch (jobUpdateError) {
+        console.error("Failed to update original job:", jobUpdateError);
+      }
+
+      // Create in-app notification for the requesting company
+      try {
+        await admin.firestore().collection("notifications").add({
+          company_id: shareRequest.requesting_company_id,
+          type: "job_share_declined",
+          title: "Job Share Declined",
+          message: `${shareRequest.target_company_name} declined your job share request`,
+          job_id: shareRequest.job_id,
+          job_number: shareRequest.shared_job_number || "",
+          recipient_name: shareRequest.job_preview?.recipient_name || "",
+          decline_reason: declineReason || null,
+          declining_company_name: shareRequest.target_company_name,
+          read: false,
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`Decline notification created for company ${shareRequest.requesting_company_id}`);
+      } catch (notifError) {
+        console.error("Failed to create decline notification:", notifError);
+      }
 
       // Send decline email notification to requesting company
       try {
@@ -3087,6 +3523,421 @@ exports.respondToShareRequest = onCall(async (request) => {
     throw new HttpsError(
         "internal",
         `Failed to respond to share request: ${error.message}`,
+    );
+  }
+});
+
+/**
+ * Toggle visibility of an attempt or document in a shared job chain.
+ * Only the job owner can change visibility settings.
+ *
+ * @param {Object} request.data
+ * @param {string} request.data.jobId - The job ID
+ * @param {string} request.data.collectionType - "attempts" or "documents"
+ * @param {string} request.data.itemId - The document ID of the item to update
+ * @param {string[]} request.data.visibility - Array of targets: ["client"], ["server"], ["client", "server"], or []
+ */
+exports.toggleVisibility = onCall(async (request) => {
+  try {
+    // Validate authentication
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {jobId, collectionType, itemId, visibility} = request.data;
+
+    // Validate required fields
+    if (!jobId || !collectionType || !itemId) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Missing required fields: jobId, collectionType, itemId",
+      );
+    }
+
+    // Validate collection type
+    if (!["attempts", "documents"].includes(collectionType)) {
+      throw new HttpsError(
+          "invalid-argument",
+          "collectionType must be 'attempts' or 'documents'",
+      );
+    }
+
+    // Validate visibility array
+    if (!Array.isArray(visibility)) {
+      throw new HttpsError(
+          "invalid-argument",
+          "visibility must be an array",
+      );
+    }
+
+    const validTargets = ["client", "server"];
+    for (const target of visibility) {
+      if (!validTargets.includes(target)) {
+        throw new HttpsError(
+            "invalid-argument",
+            `Invalid visibility target: ${target}. Must be 'client' or 'server'`,
+        );
+      }
+    }
+
+    // Get the user's company
+    const userDoc = await admin.firestore()
+        .collection("users")
+        .doc(request.auth.uid)
+        .get();
+
+    if (!userDoc.exists) {
+      throw new HttpsError("not-found", "User not found");
+    }
+
+    const userData = userDoc.data();
+    const userCompanyId = userData.company_id;
+
+    if (!userCompanyId) {
+      throw new HttpsError(
+          "failed-precondition",
+          "User does not belong to a company",
+      );
+    }
+
+    // Get the job document
+    const jobDoc = await admin.firestore()
+        .collection("jobs")
+        .doc(jobId)
+        .get();
+
+    if (!jobDoc.exists) {
+      throw new HttpsError("not-found", "Job not found");
+    }
+
+    const jobData = jobDoc.data();
+
+    // Only the job owner can change visibility
+    if (jobData.company_id !== userCompanyId) {
+      throw new HttpsError(
+          "permission-denied",
+          "Only the job owner can change visibility settings",
+      );
+    }
+
+    // Get the item document
+    const itemDoc = await admin.firestore()
+        .collection(collectionType)
+        .doc(itemId)
+        .get();
+
+    if (!itemDoc.exists) {
+      throw new HttpsError("not-found", `${collectionType} item not found`);
+    }
+
+    const itemData = itemDoc.data();
+
+    // Verify the item belongs to this job
+    if (itemData.job_id !== jobId) {
+      throw new HttpsError(
+          "permission-denied",
+          "Item does not belong to this job",
+      );
+    }
+
+    // Update the visibility
+    await admin.firestore()
+        .collection(collectionType)
+        .doc(itemId)
+        .update({
+          visibility: visibility,
+          visibility_updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          visibility_updated_by: request.auth.uid,
+        });
+
+    console.log(`[toggleVisibility] Updated ${collectionType}/${itemId} visibility to: ${JSON.stringify(visibility)}`);
+
+    return {
+      success: true,
+      itemId: itemId,
+      visibility: visibility,
+    };
+  } catch (error) {
+    console.error("Error in toggleVisibility:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError(
+        "internal",
+        `Failed to toggle visibility: ${error.message}`,
+    );
+  }
+});
+
+/**
+ * Report job status to upstream client
+ * Sends an email update to the company that shared the job with us
+ * Also optionally syncs status to the parent job
+ *
+ * @param {Object} request.data
+ * @param {string} request.data.jobId - The job ID
+ * @param {boolean} request.data.includeAttempts - Include service attempts in report
+ * @param {boolean} request.data.includeAffidavit - Include affidavit link if available
+ * @param {boolean} request.data.includeInvoice - Include invoice info if available
+ * @param {boolean} request.data.syncToParent - Also update parent job status
+ * @param {string} request.data.customMessage - Optional message to include
+ */
+exports.reportStatusToUpstream = onCall(async (request) => {
+  try {
+    // Validate authentication
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {
+      jobId,
+      includeAttempts = true,
+      includeAffidavit = true,
+      includeInvoice = false,
+      syncToParent = true,
+      customMessage = "",
+    } = request.data;
+
+    // Validate required fields
+    if (!jobId) {
+      throw new HttpsError("invalid-argument", "Missing required field: jobId");
+    }
+
+    // Get the user's company
+    const userDoc = await admin.firestore()
+        .collection("users")
+        .doc(request.auth.uid)
+        .get();
+
+    if (!userDoc.exists) {
+      throw new HttpsError("not-found", "User not found");
+    }
+
+    const userData = userDoc.data();
+    const userCompanyId = userData.company_id;
+
+    if (!userCompanyId) {
+      throw new HttpsError(
+          "failed-precondition",
+          "User does not belong to a company",
+      );
+    }
+
+    // Get the job document
+    const jobDoc = await admin.firestore()
+        .collection("jobs")
+        .doc(jobId)
+        .get();
+
+    if (!jobDoc.exists) {
+      throw new HttpsError("not-found", "Job not found");
+    }
+
+    const jobData = jobDoc.data();
+
+    // Only the job owner can report status
+    if (jobData.company_id !== userCompanyId) {
+      throw new HttpsError(
+          "permission-denied",
+          "Only the job owner can report status to upstream client",
+      );
+    }
+
+    // Check that this job has an upstream parent
+    const parentJobId = jobData.share_chain?.parent_job_id;
+    const parentCompanyId = jobData.share_chain?.parent_company_id;
+
+    if (!parentJobId || !parentCompanyId) {
+      throw new HttpsError(
+          "failed-precondition",
+          "This job does not have an upstream client to report to",
+      );
+    }
+
+    // Get the parent company info for email
+    const parentCompanyDoc = await admin.firestore()
+        .collection("companies")
+        .doc(parentCompanyId)
+        .get();
+
+    if (!parentCompanyDoc.exists) {
+      throw new HttpsError("not-found", "Parent company not found");
+    }
+
+    const parentCompanyData = parentCompanyDoc.data();
+
+    // Find email to send to - prefer primary contact, then company email
+    let recipientEmail = parentCompanyData.email;
+    let recipientName = parentCompanyData.name || parentCompanyData.company_name;
+
+    if (parentCompanyData.contacts && parentCompanyData.contacts.length > 0) {
+      const primaryContact = parentCompanyData.contacts.find((c) => c.primary);
+      if (primaryContact && primaryContact.email) {
+        recipientEmail = primaryContact.email;
+        recipientName = `${primaryContact.first_name || ""} ${primaryContact.last_name || ""}`.trim() || recipientName;
+      }
+    }
+
+    if (!recipientEmail) {
+      throw new HttpsError(
+          "failed-precondition",
+          "No email address found for the upstream client",
+      );
+    }
+
+    // Get the sender company info
+    const senderCompanyDoc = await admin.firestore()
+        .collection("companies")
+        .doc(userCompanyId)
+        .get();
+
+    const senderCompanyData = senderCompanyDoc.exists ? senderCompanyDoc.data() : {};
+    const senderCompanyName = senderCompanyData.name || senderCompanyData.company_name || "Your Partner";
+
+    // Build the email data
+    const emailData = {
+      recipient_name: recipientName,
+      custom_message: customMessage || `${senderCompanyName} has submitted a status update for this job.`,
+      include_service_info: true,
+      job_number: jobData.job_number || jobData.share_chain?.shared_job_number,
+      case_caption: jobData.case_caption,
+      case_number: jobData.case_number,
+      court_name: jobData.court_name,
+      job_status: jobData.status,
+      service_address: jobData.addresses?.[0]?.full_address ||
+        [
+          jobData.addresses?.[0]?.street,
+          jobData.addresses?.[0]?.city,
+          jobData.addresses?.[0]?.state,
+          jobData.addresses?.[0]?.zip,
+        ].filter(Boolean).join(", "),
+      due_date: jobData.due_date,
+      recipients: jobData.recipient ? [{
+        name: jobData.recipient.name,
+        address: jobData.recipient.address,
+      }] : [],
+    };
+
+    // Fetch attempts if requested
+    if (includeAttempts) {
+      const attemptsSnapshot = await admin.firestore()
+          .collection("attempts")
+          .where("job_id", "==", jobId)
+          .orderBy("created_at", "desc")
+          .get();
+
+      const attempts = attemptsSnapshot.docs.map((doc) => {
+        const data = doc.data();
+        const attemptDate = data.date?.toDate?.() || (data.date ? new Date(data.date) : null);
+        return {
+          status: data.result || data.status,
+          date: attemptDate,
+          time: data.time || (attemptDate ? attemptDate.toLocaleTimeString() : ""),
+          address: data.address?.full_address || data.address_used,
+          person_served: data.person_served,
+          notes: data.notes,
+          server_name: data.server_name,
+        };
+      });
+
+      emailData.include_attempts = true;
+      emailData.attempts = attempts;
+    }
+
+    // Include affidavit if requested and available
+    if (includeAffidavit && jobData.affidavit_url) {
+      emailData.include_affidavit = true;
+      emailData.affidavit_url = jobData.affidavit_url;
+    }
+
+    // Include invoice if requested
+    if (includeInvoice && jobData.invoice_id) {
+      const invoiceDoc = await admin.firestore()
+          .collection("invoices")
+          .doc(jobData.invoice_id)
+          .get();
+
+      if (invoiceDoc.exists) {
+        const invoiceData = invoiceDoc.data();
+        emailData.include_invoice = true;
+        emailData.invoice_number = invoiceData.invoice_number;
+        emailData.invoice_amount = invoiceData.total?.toFixed(2);
+        emailData.invoice_status = invoiceData.status;
+        emailData.invoice_due_date = invoiceData.due_date;
+      }
+    }
+
+    // Add link to view job in portal (if applicable)
+    // Note: This would need to be your portal URL
+    // emailData.job_view_url = `https://your-app.com/portal/jobs/${parentJobId}`;
+
+    // Send the email
+    await sendEmailWithTemplate({
+      to: recipientEmail,
+      subject: `Job Status Report - Job #${emailData.job_number}`,
+      templateName: "job-update",
+      templateData: emailData,
+      companyId: userCompanyId,
+    });
+
+    console.log(`[reportStatusToUpstream] Sent status report for job ${jobId} to ${recipientEmail}`);
+
+    // Optionally sync status to parent job
+    if (syncToParent) {
+      const parentJobRef = admin.firestore().collection("jobs").doc(parentJobId);
+
+      const updateData = {
+        downstream_status: jobData.status,
+        downstream_last_update: admin.firestore.FieldValue.serverTimestamp(),
+        downstream_updated_by_company: userCompanyId,
+      };
+
+      // Sync affidavit URL if available
+      if (jobData.affidavit_url) {
+        updateData.downstream_affidavit_url = jobData.affidavit_url;
+      }
+
+      await parentJobRef.update(updateData);
+
+      console.log(`[reportStatusToUpstream] Synced status to parent job ${parentJobId}`);
+    }
+
+    // Log to sync_history
+    await admin.firestore()
+        .collection("jobs")
+        .doc(jobId)
+        .collection("sync_history")
+        .add({
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          direction: "upstream",
+          type: "status_report",
+          target_job_id: parentJobId,
+          target_company_id: parentCompanyId,
+          reported_by: request.auth.uid,
+          included_attempts: includeAttempts,
+          included_affidavit: includeAffidavit && !!jobData.affidavit_url,
+          included_invoice: includeInvoice,
+          email_sent_to: recipientEmail,
+          synced_to_parent: syncToParent,
+        });
+
+    return {
+      success: true,
+      emailSentTo: recipientEmail,
+      syncedToParent: syncToParent,
+    };
+  } catch (error) {
+    console.error("Error in reportStatusToUpstream:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError(
+        "internal",
+        `Failed to report status to upstream: ${error.message}`,
     );
   }
 });
@@ -3711,6 +4562,169 @@ exports.backfillPartnerClients = onCall(async (request) => {
 });
 
 /**
+ * Generate search terms array for a job to enable server-side search
+ * @param {Object} job - The job data object
+ * @returns {Array<string>} Array of lowercase search terms
+ */
+function generateJobSearchTerms(job) {
+  const terms = new Set();
+
+  // Add recipient name and tokens
+  if (job.recipient?.name) {
+    const name = job.recipient.name.toLowerCase();
+    terms.add(name);
+    name.split(/\s+/).forEach((token) => {
+      if (token.length > 1) terms.add(token);
+    });
+  }
+
+  // Add job number
+  if (job.job_number) {
+    terms.add(job.job_number.toLowerCase());
+  }
+
+  // Add client job number / reference
+  if (job.client_job_number) {
+    terms.add(job.client_job_number.toLowerCase());
+  }
+
+  // Add case name and tokens
+  if (job.case_name) {
+    const caseName = job.case_name.toLowerCase();
+    terms.add(caseName);
+    caseName.split(/\s+/).forEach((token) => {
+      if (token.length > 1) terms.add(token);
+    });
+  }
+
+  // Add case number
+  if (job.case_number) {
+    terms.add(job.case_number.toLowerCase());
+  }
+
+  // Add address parts for location search
+  if (job.addresses?.[0]) {
+    const addr = job.addresses[0];
+    if (addr.city) terms.add(addr.city.toLowerCase());
+    if (addr.state) terms.add(addr.state.toLowerCase());
+    if (addr.postal_code) terms.add(addr.postal_code.toLowerCase());
+  }
+
+  return Array.from(terms).filter((t) => t && t.length > 0);
+}
+
+/**
+ * Backfill search_terms field on all jobs for server-side search
+ * Can be called for a specific company or all companies (super admin)
+ * @param {Object} data - { companyId?: string, batchSize?: number }
+ * @returns {Object} - { success: boolean, updated: number, message: string }
+ */
+exports.backfillJobSearchTerms = onCall({
+  region: "us-central1",
+  timeoutSeconds: 540,
+  memory: "1GiB",
+}, async (request) => {
+  try {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {companyId, batchSize = 500} = request.data || {};
+
+    // Get user's company_id to verify permissions
+    let userCompanyId = request.auth.token.company_id;
+    if (!userCompanyId) {
+      const userDoc = await admin.firestore()
+          .collection("users")
+          .doc(request.auth.uid)
+          .get();
+      if (userDoc.exists) {
+        userCompanyId = userDoc.data().company_id;
+      }
+    }
+
+    // Check if user is super admin for all-company backfill
+    const userDoc = await admin.firestore()
+        .collection("users")
+        .doc(request.auth.uid)
+        .get();
+    const isSuperAdmin = userDoc.exists && userDoc.data().is_super_admin === true;
+
+    // Build query
+    let jobsQuery = admin.firestore().collection("jobs");
+
+    if (companyId) {
+      // Specific company - verify user has access
+      if (!isSuperAdmin && companyId !== userCompanyId) {
+        throw new HttpsError("permission-denied", "Cannot backfill jobs for other companies");
+      }
+      jobsQuery = jobsQuery.where("company_id", "==", companyId);
+    } else if (!isSuperAdmin) {
+      // Non-super admin can only backfill their own company
+      jobsQuery = jobsQuery.where("company_id", "==", userCompanyId);
+    }
+
+    // Get jobs that need search_terms
+    const jobsSnapshot = await jobsQuery.get();
+
+    if (jobsSnapshot.empty) {
+      return {success: true, updated: 0, message: "No jobs found to update"};
+    }
+
+    let updated = 0;
+    let skipped = 0;
+    let batch = admin.firestore().batch();
+    let batchCount = 0;
+
+    for (const doc of jobsSnapshot.docs) {
+      const job = doc.data();
+
+      // Generate search terms
+      const searchTerms = generateJobSearchTerms(job);
+
+      // Check if already has search_terms and they match
+      if (job.search_terms &&
+          JSON.stringify(job.search_terms.sort()) === JSON.stringify(searchTerms.sort())) {
+        skipped++;
+        continue;
+      }
+
+      batch.update(doc.ref, {search_terms: searchTerms});
+      batchCount++;
+      updated++;
+
+      // Commit batch when it reaches batch size
+      if (batchCount >= batchSize) {
+        await batch.commit();
+        batch = admin.firestore().batch();
+        batchCount = 0;
+        console.log(`Backfill progress: ${updated} jobs updated`);
+      }
+    }
+
+    // Commit remaining batch
+    if (batchCount > 0) {
+      await batch.commit();
+    }
+
+    console.log(`Backfill complete: ${updated} jobs updated, ${skipped} skipped`);
+    return {
+      success: true,
+      updated,
+      skipped,
+      total: jobsSnapshot.size,
+      message: `Updated search_terms on ${updated} jobs, skipped ${skipped}`,
+    };
+  } catch (error) {
+    console.error("Error in backfillJobSearchTerms:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to backfill search terms: ${error.message}`);
+  }
+});
+
+/**
  * Extract data from PDF document using Google Document AI
  * @param {Object} data - { file_url: string }
  * @returns {Object} - { success: boolean, extractedData: object }
@@ -3793,8 +4807,8 @@ exports.extractDocumentAI = onCall({
       }
     }
 
-    // Step 2: Initialize Document AI client
-    const client = new DocumentProcessorServiceClient();
+    // Step 2: Initialize Document AI client (lazy-loaded for performance)
+    const client = getDocumentAIClient();
 
     // Your processor endpoint
     const processorName = "projects/326484335453/locations/us/processors/de67c53e241e8ed";
@@ -3927,10 +4941,8 @@ exports.extractDocumentClaudeVision = onCall({
     const pdfBase64 = Buffer.from(firstPageBytes).toString("base64");
     console.log(`[Claude Vision] PDF prepared for Claude, Size: ${firstPageBytes.byteLength} bytes`);
 
-    // Initialize Claude client
-    const anthropic = new Anthropic({
-      apiKey: anthropicApiKey.value(),
-    });
+    // PERFORMANCE: Use singleton Anthropic client (lazy-loaded)
+    const anthropic = getAnthropicClient(anthropicApiKey.value());
 
     // Create extraction prompt
     const extractionPrompt = `You are assisting with legitimate legal document processing for a professional process serving company.
@@ -4192,10 +5204,8 @@ exports.extractDocumentClaudeHaiku = onCall({
     const pdfBase64 = Buffer.from(firstPageBytes).toString("base64");
     console.log(`[Claude Haiku] PDF prepared for Claude, Size: ${firstPageBytes.byteLength} bytes`);
 
-    // Initialize Claude client
-    const anthropic = new Anthropic({
-      apiKey: anthropicApiKey.value(),
-    });
+    // PERFORMANCE: Use singleton Anthropic client (lazy-loaded)
+    const anthropic = getAnthropicClient(anthropicApiKey.value());
 
     // Create extraction prompt (same as Sonnet)
     const extractionPrompt = `You are assisting with legitimate legal document processing for a professional process serving company.
@@ -4404,10 +5414,8 @@ exports.findCourtAddressWithAI = onCall({
 
     console.log(`[AI Court Lookup] Finding address for: ${courtName}`);
 
-    // Initialize Claude client
-    const anthropic = new Anthropic({
-      apiKey: anthropicApiKey.value(),
-    });
+    // PERFORMANCE: Use singleton Anthropic client (lazy-loaded)
+    const anthropic = getAnthropicClient(anthropicApiKey.value());
 
     // Create prompt for Claude
     const prompt = `You are a legal research assistant with knowledge of US court systems and addresses.
@@ -4522,21 +5530,19 @@ Return ONLY valid JSON (no markdown code blocks, no explanations):
  */
 exports.inviteClientUser = onCall(async (request) => {
   try {
+    // Validate authentication first
+    const callerUid = requireAuth(request.auth);
+
     const {email, name, role, client_company_id, parent_company_id} = request.data;
 
-    // Validate input
-    if (!email) {
-      throw new HttpsError("invalid-argument", "Email is required");
-    }
-    if (!name) {
-      throw new HttpsError("invalid-argument", "Name is required");
-    }
-    if (!client_company_id) {
-      throw new HttpsError("invalid-argument", "Client company ID is required");
-    }
-    if (!parent_company_id) {
-      throw new HttpsError("invalid-argument", "Parent company ID is required");
-    }
+    // Validate input with proper type checking and length limits
+    validateEmail(email, "email", true);
+    validateString(name, "name", {minLength: 1, maxLength: 200, required: true});
+    validateDocumentId(client_company_id, "client_company_id", true);
+    validateDocumentId(parent_company_id, "parent_company_id", true);
+
+    // Sanitize name to prevent injection
+    const sanitizedName = sanitizeString(name);
 
     // Validate role
     const validRoles = ["viewer", "manager", "admin"];
@@ -4545,13 +5551,7 @@ exports.inviteClientUser = onCall(async (request) => {
       throw new HttpsError("invalid-argument", `Invalid role. Must be one of: ${validRoles.join(", ")}`);
     }
 
-    // Get the caller's UID for tracking who sent the invite
-    const callerUid = request.auth?.uid;
-    if (!callerUid) {
-      throw new HttpsError("unauthenticated", "User must be authenticated to invite client users");
-    }
-
-    console.log(`[inviteClientUser] Inviting ${email} to portal for company ${parent_company_id}`);
+    console.log(`[inviteClientUser] Inviting ${maskEmail(email)} to portal for company ${parent_company_id}`);
 
     // Get the parent company to retrieve portal slug
     const companyDoc = await admin.firestore().collection("companies").doc(parent_company_id).get();
@@ -4574,7 +5574,7 @@ exports.inviteClientUser = onCall(async (request) => {
     // Check if user already exists in Firebase Auth
     try {
       firebaseUser = await admin.auth().getUserByEmail(email);
-      console.log(`[inviteClientUser] Found existing Firebase Auth user: ${firebaseUser.uid}`);
+      console.log(`[inviteClientUser] Found existing Firebase Auth user`);
 
       // Check if they already have a client_users record for this parent company
       const existingClientUser = await admin.firestore()
@@ -4596,7 +5596,7 @@ exports.inviteClientUser = onCall(async (request) => {
           password: tempPassword,
         });
         isNewUser = true;
-        console.log(`[inviteClientUser] Created new Firebase Auth user: ${firebaseUser.uid}`);
+        console.log(`[inviteClientUser] Created new Firebase Auth user`);
       } else if (error instanceof HttpsError) {
         throw error;
       } else {
@@ -4614,7 +5614,7 @@ exports.inviteClientUser = onCall(async (request) => {
     // Create client_users record in Firestore
     const clientUserData = {
       email: email,
-      name: name,
+      name: sanitizedName,
       uid: firebaseUser.uid,
       client_company_id: client_company_id,
       parent_company_id: parent_company_id,
@@ -4646,7 +5646,7 @@ exports.inviteClientUser = onCall(async (request) => {
       passwordSetupLink = await admin.auth().generatePasswordResetLink(email);
     }
 
-    console.log(`[inviteClientUser] ✅ Successfully invited ${email}`);
+    console.log(`[inviteClientUser] ✅ Successfully invited ${maskEmail(email)}`);
 
     // Send invitation email
     try {
@@ -4662,7 +5662,7 @@ exports.inviteClientUser = onCall(async (request) => {
         },
         companyId: parent_company_id,
       });
-      console.log(`[inviteClientUser] Invitation email sent to ${email}`);
+      console.log(`[inviteClientUser] Invitation email sent to ${maskEmail(email)}`);
     } catch (emailError) {
       console.error("[inviteClientUser] Failed to send invitation email:", emailError);
       // Don't fail the invitation if email fails - the user can still use the link
@@ -4760,18 +5760,26 @@ exports.selfRegisterClientUser = onCall(async (request) => {
       portalSlug,
     } = request.data;
 
-    // Validate required fields
-    if (!email) throw new HttpsError("invalid-argument", "Email is required");
-    if (!password) throw new HttpsError("invalid-argument", "Password is required");
-    if (!companyName) throw new HttpsError("invalid-argument", "Company name is required");
-    if (!contactName) throw new HttpsError("invalid-argument", "Contact name is required");
-    if (!phone) throw new HttpsError("invalid-argument", "Phone number is required");
-    if (!portalSlug) throw new HttpsError("invalid-argument", "Portal slug is required");
+    // Validate inputs with proper type checking
+    validateEmail(email, "email", true);
+    validateString(password, "password", {minLength: 8, maxLength: 128, required: true});
+    validateString(companyName, "companyName", {minLength: 1, maxLength: 200, required: true});
+    validateString(contactName, "contactName", {minLength: 1, maxLength: 200, required: true});
+    validateString(phone, "phone", {minLength: 7, maxLength: 20, required: true});
+    validateString(portalSlug, "portalSlug", {minLength: 1, maxLength: 100, required: true});
+    validateString(address, "address", {maxLength: 500, required: false});
+    validateString(city, "city", {maxLength: 100, required: false});
+    validateString(state, "state", {maxLength: 50, required: false});
+    validateString(zip, "zip", {maxLength: 20, required: false});
+
+    // Rate limit registrations - strict to prevent abuse
+    await checkRateLimit(email, "registration", {maxRequests: 3, windowSeconds: 3600}); // 3 per hour per email
+    await checkRateLimit(portalSlug, "registrationPerPortal", {maxRequests: 50, windowSeconds: 3600}); // 50 per hour per portal
 
     // Extract email domain for tracking/grouping
     const emailDomain = email.split('@')[1]?.toLowerCase() || '';
 
-    console.log(`[selfRegisterClientUser] Self-registration attempt for ${email} on portal ${portalSlug}`);
+    console.log(`[selfRegisterClientUser] Self-registration attempt for ${maskEmail(email)} on portal ${portalSlug}`);
 
     // Find parent company by portal slug
     const companiesSnapshot = await admin.firestore()
@@ -4816,7 +5824,7 @@ exports.selfRegisterClientUser = onCall(async (request) => {
     try {
       firebaseUser = await admin.auth().getUserByEmail(email);
       isExistingAuthUser = true;
-      console.log(`[selfRegisterClientUser] Found existing Firebase user ${firebaseUser.uid}, will link to new company`);
+      console.log(`[selfRegisterClientUser] Found existing Firebase user, will link to new company`);
     } catch (error) {
       if (error.code === "auth/user-not-found") {
         // User doesn't exist in Firebase Auth - create new account
@@ -4825,7 +5833,7 @@ exports.selfRegisterClientUser = onCall(async (request) => {
           password: password,
           displayName: contactName,
         });
-        console.log(`[selfRegisterClientUser] Created new Firebase Auth user: ${firebaseUser.uid}`);
+        console.log(`[selfRegisterClientUser] Created new Firebase Auth user`);
       } else {
         throw new HttpsError("internal", `Failed to check email: ${error.message}`);
       }
@@ -4929,7 +5937,7 @@ exports.selfRegisterClientUser = onCall(async (request) => {
     await admin.firestore().collection("client_registration_notifications").add(notificationData);
     console.log(`[selfRegisterClientUser] Created registration notification`);
 
-    console.log(`[selfRegisterClientUser] ✅ Successfully registered ${email} for ${companyName}`);
+    console.log(`[selfRegisterClientUser] ✅ Successfully registered ${maskEmail(email)} for ${companyName}`);
 
     return {
       success: true,
@@ -4999,7 +6007,7 @@ exports.acceptClientInvitation = onCall(async (request) => {
       throw new HttpsError("invalid-argument", "Invitation token is required");
     }
 
-    console.log(`[acceptClientInvitation] Processing token: ${token.substring(0, 8)}...`);
+    console.log(`[acceptClientInvitation] Processing invitation token`);
 
     // Find client_user by invitation token
     const clientUserQuery = await admin.firestore()
@@ -5034,7 +6042,7 @@ exports.acceptClientInvitation = onCall(async (request) => {
         ? "https://www.servemax.pro"
         : "http://localhost:5173";
 
-    console.log(`[acceptClientInvitation] ✅ Invitation accepted for ${clientUserData.email}`);
+    console.log(`[acceptClientInvitation] ✅ Invitation accepted`);
 
     return {
       success: true,
@@ -5287,24 +6295,26 @@ exports.sendEmail = onCall(
     {secrets: [sendgridApiKey]},
     async (request) => {
       try {
+        // Rate limit by user ID or email
+        const rateLimitId = request.auth?.uid || request.data?.to || "anonymous";
+        await checkRateLimit(rateLimitId, "sendEmail", {maxRequests: 20, windowSeconds: 60});
+
         const {to, subject, templateName, templateData, body, companyId, from, replyTo} = request.data;
 
-        // Validate required fields
-        if (!to) {
-          throw new HttpsError("invalid-argument", "Recipient email (to) is required");
-        }
-        if (!subject) {
-          throw new HttpsError("invalid-argument", "Email subject is required");
-        }
+        // Validate required fields with proper type checking
+        validateEmail(to, "to", true);
+        validateString(subject, "subject", {minLength: 1, maxLength: 500, required: true});
+
         if (!templateName && !body) {
           throw new HttpsError("invalid-argument", "Either templateName or body is required");
         }
 
-        // Validate email format
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(to)) {
-          throw new HttpsError("invalid-argument", "Invalid email address format");
-        }
+        // Validate optional fields
+        validateString(templateName, "templateName", {maxLength: 100, required: false});
+        validateString(body, "body", {maxLength: 500000, required: false}); // 500KB max
+        validateDocumentId(companyId, "companyId", false);
+        validateEmail(from, "from", false);
+        validateEmail(replyTo, "replyTo", false);
 
         console.log(`[sendEmail] Sending "${subject}" to ${to}`);
 
@@ -5319,8 +6329,8 @@ exports.sendEmail = onCall(
           }
         }
 
-        // Configure SendGrid
-        sgMail.setApiKey(sendgridApiKey.value());
+        // PERFORMANCE: Initialize SendGrid once per instance
+        initSendGrid(sendgridApiKey.value());
 
         // Build the email HTML
         let html;
@@ -5844,10 +6854,8 @@ OUTPUT FORMAT - Return ONLY the raw JSON object, no markdown.`;
 
           const pdfBase64 = Buffer.from(firstPageBytes).toString("base64");
 
-          // Call Claude API
-          const anthropic = new Anthropic({
-            apiKey: anthropicApiKey.value(),
-          });
+          // PERFORMANCE: Use singleton Anthropic client (lazy-loaded)
+          const anthropic = getAnthropicClient(anthropicApiKey.value());
 
           const message = await anthropic.messages.create({
             model: "claude-sonnet-4-5-20250929",
@@ -6031,16 +7039,16 @@ exports.generateClientPortalPreview = onCall(async (request) => {
  */
 exports.sendClientPasswordReset = onCall(async (request) => {
   try {
-    const callerUid = request.auth?.uid;
-    if (!callerUid) {
-      throw new HttpsError("unauthenticated", "User must be authenticated");
-    }
+    const callerUid = requireAuth(request.auth);
 
     const {client_user_id, email} = request.data;
 
-    if (!client_user_id || !email) {
-      throw new HttpsError("invalid-argument", "client_user_id and email are required");
-    }
+    // Validate inputs
+    validateDocumentId(client_user_id, "client_user_id", true);
+    validateEmail(email, "email", true);
+
+    // Rate limit password reset emails - strict limit to prevent abuse
+    await checkRateLimit(email, "passwordReset", {maxRequests: 3, windowSeconds: 300}); // 3 per 5 minutes
 
     // Verify the caller is an admin of the parent company
     const userDoc = await admin.firestore().collection("users").doc(callerUid).get();
@@ -6070,8 +7078,8 @@ exports.sendClientPasswordReset = onCall(async (request) => {
     const companyData = companyDoc.data();
     const companyName = companyData?.name || "ServeMax";
 
-    // Use the sendEmail function if available, or just log for now
-    console.log(`[sendClientPasswordReset] Password reset link for ${email}: ${resetLink}`);
+    // Send the password reset email - DO NOT LOG THE RESET LINK for security
+    console.log(`[sendClientPasswordReset] Sending password reset to ${email.replace(/(.{2})(.*)(@.*)/, '$1***$3')}`);
 
     // Try to send via email function
     try {
@@ -6651,6 +7659,262 @@ exports.syncCarbonCopyJobStatus = onDocumentUpdated(
     },
 );
 
+/**
+ * Syncs job detail changes DOWNSTREAM only (parent → child → grandchild).
+ * When critical job fields change, propagate to child jobs in the chain.
+ * Fields synced: recipient, addresses, due_date, first_attempt_due_date, rush/priority
+ */
+exports.syncJobDetailsDownstream = onDocumentUpdated(
+    "jobs/{jobId}",
+    async (event) => {
+      const before = event.data.before.data();
+      const after = event.data.after.data();
+      const jobId = event.params.jobId;
+
+      // Skip if this update came from upstream sync (prevent loops)
+      if (after._upstream_sync_source) {
+        console.log(`[syncDetailsDownstream] Skipping - update from upstream: ${after._upstream_sync_source}`);
+        await event.data.after.ref.update({
+          _upstream_sync_source: admin.firestore.FieldValue.delete(),
+        });
+        return null;
+      }
+
+      // Check if this job has a child job to sync to
+      const childJobId = after.share_chain?.child_job_id;
+      if (!childJobId) {
+        return null; // No downstream jobs to sync
+      }
+
+      // Define fields to check for changes
+      const fieldsToSync = [];
+
+      // Check recipient changes
+      const recipientChanged = JSON.stringify(before.recipient) !== JSON.stringify(after.recipient);
+      if (recipientChanged) {
+        fieldsToSync.push("recipient");
+      }
+
+      // Check addresses changes
+      const addressesChanged = JSON.stringify(before.addresses) !== JSON.stringify(after.addresses);
+      if (addressesChanged) {
+        fieldsToSync.push("addresses");
+      }
+
+      // Check due date changes
+      const dueDateChanged = before.due_date !== after.due_date;
+      if (dueDateChanged) {
+        fieldsToSync.push("due_date");
+      }
+
+      // Check first attempt due date changes
+      const firstAttemptDueDateChanged = before.first_attempt_due_date !== after.first_attempt_due_date;
+      if (firstAttemptDueDateChanged) {
+        fieldsToSync.push("first_attempt_due_date");
+      }
+
+      // Check priority/rush changes
+      const priorityChanged = before.priority !== after.priority;
+      if (priorityChanged) {
+        fieldsToSync.push("priority");
+      }
+
+      // Check service instructions changes
+      const instructionsChanged = before.service_instructions !== after.service_instructions;
+      if (instructionsChanged) {
+        fieldsToSync.push("service_instructions");
+      }
+
+      // If no relevant changes, skip
+      if (fieldsToSync.length === 0) {
+        return null;
+      }
+
+      console.log(`[syncDetailsDownstream] Job ${jobId} changed fields: ${fieldsToSync.join(", ")}`);
+
+      // Build update data
+      const updateData = {
+        _upstream_sync_source: jobId,
+        last_upstream_sync: admin.firestore.FieldValue.serverTimestamp(),
+        upstream_sync_fields: fieldsToSync,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (recipientChanged) {
+        updateData.recipient = after.recipient;
+      }
+      if (addressesChanged) {
+        updateData.addresses = after.addresses;
+      }
+      if (dueDateChanged) {
+        updateData.due_date = after.due_date;
+      }
+      if (firstAttemptDueDateChanged) {
+        updateData.first_attempt_due_date = after.first_attempt_due_date;
+      }
+      if (priorityChanged) {
+        updateData.priority = after.priority;
+      }
+      if (instructionsChanged) {
+        updateData.service_instructions = after.service_instructions;
+      }
+
+      // Update the child job (this will trigger downstream sync for grandchildren)
+      await admin.firestore().collection("jobs").doc(childJobId).update(updateData);
+
+      // Add sync history entry
+      const syncHistoryEntry = {
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        direction: "downstream",
+        source_job_id: jobId,
+        target_job_id: childJobId,
+        fields_changed: fieldsToSync,
+      };
+
+      await admin.firestore()
+          .collection("jobs")
+          .doc(childJobId)
+          .collection("sync_history")
+          .add(syncHistoryEntry);
+
+      console.log(`[syncDetailsDownstream] Synced ${fieldsToSync.length} fields to child job ${childJobId}`);
+
+      return null;
+    },
+);
+
+/**
+ * Syncs new documents DOWNSTREAM when added to a job in a share chain.
+ * When a new service document is added, copy it to child jobs.
+ */
+exports.syncDocumentDownstream = onDocumentCreated(
+    "documents/{documentId}",
+    async (event) => {
+      const document = event.data.data();
+      const documentId = event.params.documentId;
+
+      // Skip if this document was synced from upstream
+      if (document._synced_from_upstream) {
+        console.log(`[syncDocDownstream] Skipping - document synced from upstream`);
+        return null;
+      }
+
+      // Only sync service documents (to_be_served)
+      if (document.document_category !== "to_be_served") {
+        return null;
+      }
+
+      const jobId = document.job_id;
+      if (!jobId) {
+        return null;
+      }
+
+      // Get the job to check for share chain
+      const jobDoc = await admin.firestore().collection("jobs").doc(jobId).get();
+      if (!jobDoc.exists) {
+        return null;
+      }
+
+      const job = jobDoc.data();
+      const childJobId = job.share_chain?.child_job_id;
+      const childCompanyId = job.share_chain?.child_company_id;
+
+      if (!childJobId || !childCompanyId) {
+        return null; // No downstream job to sync to
+      }
+
+      console.log(`[syncDocDownstream] Syncing document ${documentId} to child job ${childJobId}`);
+
+      // Create a copy of the document for the child job
+      const documentCopy = {
+        ...document,
+        job_id: childJobId,
+        company_id: childCompanyId,
+        _synced_from_upstream: true,
+        synced_from_document_id: documentId,
+        synced_from_job_id: jobId,
+        synced_at: admin.firestore.FieldValue.serverTimestamp(),
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      // Remove the original document's ID references
+      delete documentCopy.id;
+
+      await admin.firestore().collection("documents").add(documentCopy);
+
+      console.log(`[syncDocDownstream] Document synced to child job ${childJobId}`);
+
+      return null;
+    },
+);
+
+/**
+ * Cascades job cancellation DOWNSTREAM through the share chain.
+ * When a job is cancelled, cancel all downstream jobs.
+ */
+exports.cancelJobDownstream = onDocumentUpdated(
+    "jobs/{jobId}",
+    async (event) => {
+      const before = event.data.before.data();
+      const after = event.data.after.data();
+      const jobId = event.params.jobId;
+
+      // Only trigger on cancellation (status changed TO cancelled)
+      if (before.status === "cancelled" || after.status !== "cancelled") {
+        return null;
+      }
+
+      // Skip if this cancellation came from upstream cascade
+      if (after._cancellation_cascade_source) {
+        console.log(`[cancelDownstream] Skipping - cancellation from upstream: ${after._cancellation_cascade_source}`);
+        await event.data.after.ref.update({
+          _cancellation_cascade_source: admin.firestore.FieldValue.delete(),
+        });
+        return null;
+      }
+
+      // Check if this job has a child job
+      const childJobId = after.share_chain?.child_job_id;
+      if (!childJobId) {
+        return null; // No downstream jobs to cancel
+      }
+
+      console.log(`[cancelDownstream] Job ${jobId} cancelled, cascading to child ${childJobId}`);
+
+      // Get the cancellation reason if provided
+      const cancellationReason = after.cancellation_reason ||
+        `Cancelled by upstream client (Job ${after.job_number || jobId})`;
+
+      // Cancel the child job
+      await admin.firestore().collection("jobs").doc(childJobId).update({
+        status: "cancelled",
+        _cancellation_cascade_source: jobId,
+        cancellation_reason: cancellationReason,
+        cancelled_at: admin.firestore.FieldValue.serverTimestamp(),
+        cancelled_by_upstream: true,
+        upstream_cancellation_job_id: jobId,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // Add activity log entry to child job
+      const activityEntry = {
+        timestamp: new Date().toISOString(),
+        user_name: "System",
+        event_type: "job_cancelled_by_upstream",
+        description: `Job automatically cancelled because upstream job was cancelled. Reason: ${cancellationReason}`,
+      };
+
+      await admin.firestore().collection("jobs").doc(childJobId).update({
+        activity_log: admin.firestore.FieldValue.arrayUnion(activityEntry),
+      });
+
+      console.log(`[cancelDownstream] Cascaded cancellation to child job ${childJobId}`);
+
+      return null;
+    },
+);
+
 // ============================================================================
 // Share Document with Direct Partner (Parent → Child only)
 // ============================================================================
@@ -6839,3 +8103,1656 @@ exports.syncSignedDocument = onDocumentUpdated(
       return null;
     },
 );
+
+// ============================================================================
+// Independent Contractor (IC) Connection Management
+// ============================================================================
+
+/**
+ * Send IC Connection Request
+ * Called when a company creates a "company" record with type = independent_contractor
+ * Checks if IC already has an account, creates connection request, and sends email
+ * @param {Object} data - { ic_email, ic_name, ic_company_id, requesting_company_id }
+ * @returns {Object} - { success: boolean, connection_request_id, is_existing_user }
+ */
+exports.sendICConnectionRequest = onCall(
+    {secrets: [sendgridApiKey]},
+    async (request) => {
+      try {
+        const {ic_email, ic_name, ic_company_id, requesting_company_id} = request.data;
+
+        // Validate input
+        if (!ic_email) {
+          throw new HttpsError("invalid-argument", "IC email is required");
+        }
+        if (!ic_company_id) {
+          throw new HttpsError("invalid-argument", "IC company ID is required");
+        }
+        if (!requesting_company_id) {
+          throw new HttpsError("invalid-argument", "Requesting company ID is required");
+        }
+
+        // Get the caller's UID
+        const callerUid = request.auth?.uid;
+        if (!callerUid) {
+          throw new HttpsError("unauthenticated", "User must be authenticated");
+        }
+
+        console.log(`[sendICConnectionRequest] Processing connection for ${ic_email}`);
+
+        // Get the requesting company data
+        const requestingCompanyDoc = await admin.firestore()
+            .collection("companies")
+            .doc(requesting_company_id)
+            .get();
+
+        if (!requestingCompanyDoc.exists) {
+          throw new HttpsError("not-found", "Requesting company not found");
+        }
+        const requestingCompany = requestingCompanyDoc.data();
+
+        // Check if IC already has a ServeMax IC user account
+        let existingICUser = null;
+        let isExistingUser = false;
+
+        const existingUsersSnapshot = await admin.firestore()
+            .collection("users")
+            .where("email", "==", ic_email.toLowerCase())
+            .where("user_type", "==", "independent_contractor")
+            .limit(1)
+            .get();
+
+        if (!existingUsersSnapshot.empty) {
+          existingICUser = existingUsersSnapshot.docs[0];
+          isExistingUser = true;
+          console.log(`[sendICConnectionRequest] Found existing IC user: ${existingICUser.id}`);
+        }
+
+        // Generate tokens
+        const invitationToken = crypto.randomBytes(32).toString("hex");
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 7); // 7 day expiration
+
+        // Create IC connection request record
+        const connectionRequestData = {
+          requesting_company_id: requesting_company_id,
+          requesting_company_name: requestingCompany.name || requestingCompany.company_name,
+          ic_company_id: ic_company_id,
+          ic_email: ic_email.toLowerCase(),
+          ic_name: ic_name || "",
+          ic_user_id: existingICUser ? existingICUser.id : null,
+          status: "pending",
+          invitation_token: isExistingUser ? null : invitationToken, // Only for new users
+          invited_by: callerUid,
+          responded_at: null,
+          decline_reason: null,
+          expires_at: expiresAt,
+          created_at: admin.firestore.FieldValue.serverTimestamp(),
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        const connectionRequestRef = await admin.firestore()
+            .collection("ic_connection_requests")
+            .add(connectionRequestData);
+
+        console.log(`[sendICConnectionRequest] Created connection request: ${connectionRequestRef.id}`);
+
+        // Update the IC company record with connection status
+        await admin.firestore().collection("companies").doc(ic_company_id).update({
+          ic_user_id: existingICUser ? existingICUser.id : null,
+          ic_connection_status: "pending",
+          ic_invitation_token: isExistingUser ? null : invitationToken,
+          ic_invitation_sent_at: admin.firestore.FieldValue.serverTimestamp(),
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        // Generate URLs
+        const baseUrl = process.env.GCLOUD_PROJECT === "serve-max-1f01c0af"
+            ? "https://www.servemax.pro"
+            : "http://localhost:5173";
+
+        let actionUrl;
+        let emailTemplateName;
+        let emailSubject;
+
+        if (isExistingUser) {
+          // Existing IC - send connection request email
+          // They'll see the request in their IC dashboard
+          actionUrl = `${baseUrl}/ic/connections`;
+          emailTemplateName = "ic-connection-request";
+          emailSubject = `${requestingCompany.name || "A company"} wants to connect with you on ServeMax`;
+        } else {
+          // New IC - send signup invitation email
+          actionUrl = `${baseUrl}/ic-signup?token=${invitationToken}`;
+          emailTemplateName = "ic-signup-invitation";
+          emailSubject = `You've been invited to join ServeMax as an Independent Contractor`;
+        }
+
+        // Send email
+        try {
+          await sendEmailWithTemplate({
+            to: ic_email,
+            subject: emailSubject,
+            templateName: emailTemplateName,
+            templateData: {
+              ic_name: ic_name || "Process Server",
+              company_name: requestingCompany.name || requestingCompany.company_name || "A company",
+              action_url: actionUrl,
+              is_existing_user: isExistingUser,
+            },
+            companyId: requesting_company_id,
+          });
+          console.log(`[sendICConnectionRequest] Email sent to ${ic_email}`);
+        } catch (emailError) {
+          console.error("[sendICConnectionRequest] Failed to send email:", emailError);
+          // Don't fail the request if email fails
+        }
+
+        return {
+          success: true,
+          connection_request_id: connectionRequestRef.id,
+          is_existing_user: isExistingUser,
+          ic_user_id: existingICUser ? existingICUser.id : null,
+          message: isExistingUser
+              ? "Connection request sent to existing IC user"
+              : "Signup invitation sent to new IC",
+        };
+      } catch (error) {
+        console.error("[sendICConnectionRequest] Error:", error);
+        if (error instanceof HttpsError) {
+          throw error;
+        }
+        throw new HttpsError("internal", `Failed to send IC connection request: ${error.message}`);
+      }
+    },
+);
+
+/**
+ * Accept or Decline IC Connection Request
+ * Called by IC user from their dashboard
+ * @param {Object} data - { connection_request_id, accept, decline_reason? }
+ * @returns {Object} - { success: boolean }
+ */
+exports.respondToICConnection = onCall(async (request) => {
+  try {
+    const {connection_request_id, accept, decline_reason} = request.data;
+
+    if (!connection_request_id) {
+      throw new HttpsError("invalid-argument", "Connection request ID is required");
+    }
+    if (accept === undefined) {
+      throw new HttpsError("invalid-argument", "Accept/decline decision is required");
+    }
+
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    console.log(`[respondToICConnection] Processing response for request ${connection_request_id}`);
+
+    // Get the connection request
+    const connectionRequestDoc = await admin.firestore()
+        .collection("ic_connection_requests")
+        .doc(connection_request_id)
+        .get();
+
+    if (!connectionRequestDoc.exists) {
+      throw new HttpsError("not-found", "Connection request not found");
+    }
+
+    const connectionRequest = connectionRequestDoc.data();
+
+    // Verify the caller is the IC user for this request
+    if (connectionRequest.ic_user_id !== callerUid) {
+      throw new HttpsError("permission-denied", "You are not authorized to respond to this request");
+    }
+
+    // Check if already responded
+    if (connectionRequest.status !== "pending") {
+      throw new HttpsError("failed-precondition", `Request already ${connectionRequest.status}`);
+    }
+
+    // Check expiration
+    if (connectionRequest.expires_at && new Date(connectionRequest.expires_at.toDate()) < new Date()) {
+      throw new HttpsError("failed-precondition", "Connection request has expired");
+    }
+
+    const newStatus = accept ? "accepted" : "declined";
+
+    // Update the connection request
+    await connectionRequestDoc.ref.update({
+      status: newStatus,
+      responded_at: admin.firestore.FieldValue.serverTimestamp(),
+      decline_reason: accept ? null : (decline_reason || null),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Update the IC company record
+    await admin.firestore().collection("companies").doc(connectionRequest.ic_company_id).update({
+      ic_connection_status: newStatus,
+      ic_user_id: accept ? callerUid : null,
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    if (accept) {
+      // Add the requesting company to the IC user's companies array
+      const icUserDoc = await admin.firestore().collection("users").doc(callerUid).get();
+      const icUserData = icUserDoc.data();
+      const currentCompanies = icUserData.companies || [];
+
+      if (!currentCompanies.includes(connectionRequest.requesting_company_id)) {
+        await admin.firestore().collection("users").doc(callerUid).update({
+          companies: admin.firestore.FieldValue.arrayUnion(connectionRequest.requesting_company_id),
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      console.log(`[respondToICConnection] IC ${callerUid} now connected to company ${connectionRequest.requesting_company_id}`);
+    }
+
+    return {
+      success: true,
+      status: newStatus,
+      message: accept
+          ? `You are now connected with ${connectionRequest.requesting_company_name}`
+          : "Connection request declined",
+    };
+  } catch (error) {
+    console.error("[respondToICConnection] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to respond to IC connection: ${error.message}`);
+  }
+});
+
+/**
+ * Complete IC Signup from Invitation Token
+ * Called when a new IC completes signup via the IC signup page
+ * @param {Object} data - { token, first_name, last_name, email, password }
+ * @returns {Object} - { success: boolean, user_id }
+ */
+exports.completeICSignup = onCall(async (request) => {
+  try {
+    const {token, first_name, last_name, email, password} = request.data;
+
+    if (!token) {
+      throw new HttpsError("invalid-argument", "Invitation token is required");
+    }
+    if (!first_name || !last_name) {
+      throw new HttpsError("invalid-argument", "First and last name are required");
+    }
+    if (!email) {
+      throw new HttpsError("invalid-argument", "Email is required");
+    }
+    if (!password || password.length < 6) {
+      throw new HttpsError("invalid-argument", "Password must be at least 6 characters");
+    }
+
+    console.log(`[completeICSignup] Processing IC signup`);
+
+    // Find the connection request with this token
+    const connectionRequestsSnapshot = await admin.firestore()
+        .collection("ic_connection_requests")
+        .where("invitation_token", "==", token)
+        .where("status", "==", "pending")
+        .limit(1)
+        .get();
+
+    if (connectionRequestsSnapshot.empty) {
+      throw new HttpsError("not-found", "Invalid or expired invitation token");
+    }
+
+    const connectionRequestDoc = connectionRequestsSnapshot.docs[0];
+    const connectionRequest = connectionRequestDoc.data();
+
+    // Check expiration
+    if (connectionRequest.expires_at && new Date(connectionRequest.expires_at.toDate()) < new Date()) {
+      throw new HttpsError("failed-precondition", "Invitation has expired");
+    }
+
+    // Verify email matches
+    if (email.toLowerCase() !== connectionRequest.ic_email.toLowerCase()) {
+      throw new HttpsError("invalid-argument", "Email does not match invitation");
+    }
+
+    // Create Firebase Auth user
+    let firebaseUser;
+    try {
+      firebaseUser = await admin.auth().createUser({
+        email: email,
+        password: password,
+        displayName: `${first_name} ${last_name}`,
+      });
+      console.log(`[completeICSignup] Created Firebase Auth user`);
+    } catch (authError) {
+      if (authError.code === "auth/email-already-exists") {
+        throw new HttpsError("already-exists", "An account with this email already exists");
+      }
+      throw new HttpsError("internal", `Failed to create user: ${authError.message}`);
+    }
+
+    // Create user document
+    const userData = {
+      email: email.toLowerCase(),
+      first_name: first_name,
+      last_name: last_name,
+      full_name: `${first_name} ${last_name}`,
+      user_type: "independent_contractor",
+      company_id: null, // ICs don't own a company
+      employee_role: null,
+      invited_by: connectionRequest.invited_by,
+      companies: [connectionRequest.requesting_company_id], // Start with the inviting company
+      is_active: true,
+      phone: "",
+      address: "",
+      email_verified: false,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await admin.firestore().collection("users").doc(firebaseUser.uid).set(userData);
+    console.log(`[completeICSignup] Created user document: ${firebaseUser.uid}`);
+
+    // Update connection request to accepted
+    await connectionRequestDoc.ref.update({
+      status: "accepted",
+      ic_user_id: firebaseUser.uid,
+      responded_at: admin.firestore.FieldValue.serverTimestamp(),
+      invitation_token: null, // Clear token after use
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Update the IC company record
+    await admin.firestore().collection("companies").doc(connectionRequest.ic_company_id).update({
+      ic_connection_status: "accepted",
+      ic_user_id: firebaseUser.uid,
+      ic_invitation_token: null,
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`[completeICSignup] IC signup complete`);
+
+    return {
+      success: true,
+      user_id: firebaseUser.uid,
+      message: "Account created successfully. You can now log in.",
+    };
+  } catch (error) {
+    console.error("[completeICSignup] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to complete IC signup: ${error.message}`);
+  }
+});
+
+/**
+ * Get IC Connection Requests for Current User
+ * Returns pending and recent connection requests for the authenticated IC
+ * @returns {Object} - { success: boolean, requests: [] }
+ */
+exports.getICConnectionRequests = onCall(async (request) => {
+  try {
+    const callerUid = request.auth?.uid;
+    if (!callerUid) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    // Verify user is an IC
+    const userDoc = await admin.firestore().collection("users").doc(callerUid).get();
+    if (!userDoc.exists) {
+      throw new HttpsError("not-found", "User not found");
+    }
+    const userData = userDoc.data();
+    if (userData.user_type !== "independent_contractor") {
+      throw new HttpsError("permission-denied", "Only independent contractors can access this");
+    }
+
+    // Get connection requests for this IC
+    const requestsSnapshot = await admin.firestore()
+        .collection("ic_connection_requests")
+        .where("ic_user_id", "==", callerUid)
+        .orderBy("created_at", "desc")
+        .limit(50)
+        .get();
+
+    const requests = requestsSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+      created_at: doc.data().created_at?.toDate?.()?.toISOString() || null,
+      responded_at: doc.data().responded_at?.toDate?.()?.toISOString() || null,
+      expires_at: doc.data().expires_at?.toDate?.()?.toISOString() || null,
+    }));
+
+    return {
+      success: true,
+      requests: requests,
+    };
+  } catch (error) {
+    console.error("[getICConnectionRequests] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to get IC connection requests: ${error.message}`);
+  }
+});
+
+/**
+ * Validate IC Signup Token
+ * Called to check if an IC signup token is valid before showing the signup form
+ * @param {Object} data - { token }
+ * @returns {Object} - { valid: boolean, ic_email, ic_name, company_name }
+ */
+exports.validateICSignupToken = onCall(async (request) => {
+  try {
+    const {token} = request.data;
+
+    if (!token) {
+      throw new HttpsError("invalid-argument", "Token is required");
+    }
+
+    // Find the connection request with this token
+    const connectionRequestsSnapshot = await admin.firestore()
+        .collection("ic_connection_requests")
+        .where("invitation_token", "==", token)
+        .where("status", "==", "pending")
+        .limit(1)
+        .get();
+
+    if (connectionRequestsSnapshot.empty) {
+      return {
+        valid: false,
+        message: "Invalid or expired invitation token",
+      };
+    }
+
+    const connectionRequest = connectionRequestsSnapshot.docs[0].data();
+
+    // Check expiration
+    if (connectionRequest.expires_at && new Date(connectionRequest.expires_at.toDate()) < new Date()) {
+      return {
+        valid: false,
+        message: "Invitation has expired",
+      };
+    }
+
+    return {
+      valid: true,
+      ic_email: connectionRequest.ic_email,
+      ic_name: connectionRequest.ic_name,
+      company_name: connectionRequest.requesting_company_name,
+    };
+  } catch (error) {
+    console.error("[validateICSignupToken] Error:", error);
+    return {
+      valid: false,
+      message: "Error validating token",
+    };
+  }
+});
+
+// ============================================================================
+// Stripe Integration - Subscription & Payment Functions
+// ============================================================================
+
+const {onRequest} = require("firebase-functions/v2/https");
+
+/**
+ * Create Subscription Checkout Session
+ * Creates a Stripe Checkout session for subscribing to a plan
+ * @param {Object} data - { priceId, companyId, successUrl, cancelUrl }
+ * @returns {Object} - { sessionId, checkoutUrl }
+ */
+exports.createSubscriptionCheckout = onCall({
+  secrets: [stripeSecretKey],
+}, async (request) => {
+  try {
+    const {priceId, companyId, successUrl, cancelUrl} = request.data;
+
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    if (!priceId || !companyId || !successUrl || !cancelUrl) {
+      throw new HttpsError("invalid-argument", "Missing required fields: priceId, companyId, successUrl, cancelUrl");
+    }
+
+    const stripe = getStripe(stripeSecretKey.value());
+
+    // Get company data
+    const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Company not found");
+    }
+    const company = companyDoc.data();
+
+    // Get user data for email
+    const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+    const user = userDoc.exists ? userDoc.data() : {};
+
+    // Create or retrieve Stripe customer
+    let customerId = company.stripe_customer_id;
+
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email || company.email,
+        name: company.name,
+        metadata: {
+          company_id: companyId,
+          firebase_uid: request.auth.uid,
+        },
+      });
+      customerId = customer.id;
+
+      // Save customer ID to company
+      await admin.firestore().collection("companies").doc(companyId).update({
+        stripe_customer_id: customerId,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    // Create checkout session
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [{
+        price: priceId,
+        quantity: 1,
+      }],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      subscription_data: {
+        metadata: {
+          company_id: companyId,
+        },
+      },
+      metadata: {
+        company_id: companyId,
+        type: "subscription",
+      },
+    });
+
+    console.log(`[createSubscriptionCheckout] Session created for company ${companyId}`);
+
+    return {
+      sessionId: session.id,
+      checkoutUrl: session.url,
+    };
+  } catch (error) {
+    console.error("[createSubscriptionCheckout] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to create checkout session: ${error.message}`);
+  }
+});
+
+/**
+ * Create Billing Portal Session
+ * Creates a Stripe Customer Portal session for managing subscription
+ * @param {Object} data - { companyId, returnUrl }
+ * @returns {Object} - { portalUrl }
+ */
+exports.createBillingPortalSession = onCall({
+  secrets: [stripeSecretKey],
+}, async (request) => {
+  try {
+    const {companyId, returnUrl} = request.data;
+
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    if (!companyId || !returnUrl) {
+      throw new HttpsError("invalid-argument", "Missing required fields: companyId, returnUrl");
+    }
+
+    const stripe = getStripe(stripeSecretKey.value());
+
+    // Get company data
+    const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Company not found");
+    }
+    const company = companyDoc.data();
+
+    if (!company.stripe_customer_id) {
+      throw new HttpsError("failed-precondition", "No Stripe customer found for this company");
+    }
+
+    // Create portal session
+    const session = await stripe.billingPortal.sessions.create({
+      customer: company.stripe_customer_id,
+      return_url: returnUrl,
+    });
+
+    console.log(`[createBillingPortalSession] Portal session created for company ${companyId}`);
+
+    return {
+      portalUrl: session.url,
+    };
+  } catch (error) {
+    console.error("[createBillingPortalSession] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to create portal session: ${error.message}`);
+  }
+});
+
+/**
+ * Sync Pricing Plans with Stripe
+ * Creates/updates Stripe Products and Prices for all pricing plans
+ * Super admin only
+ * @returns {Object} - { synced: number, plans: Array }
+ */
+exports.syncPricingPlansWithStripe = onCall({
+  secrets: [stripeSecretKey],
+}, async (request) => {
+  try {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    // Check if super admin
+    const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+    if (!userDoc.exists || !userDoc.data().is_super_admin) {
+      throw new HttpsError("permission-denied", "Only super admins can sync pricing plans");
+    }
+
+    const stripe = getStripe(stripeSecretKey.value());
+
+    // Get all pricing plans
+    const plansSnapshot = await admin.firestore().collection("pricing_plans").get();
+    const syncedPlans = [];
+
+    for (const planDoc of plansSnapshot.docs) {
+      const plan = planDoc.data();
+      const planId = planDoc.id;
+
+      // Skip custom plans (they don't need Stripe prices)
+      if (plan.is_custom) {
+        continue;
+      }
+
+      let productId = plan.stripe_product_id;
+      let priceId = plan.stripe_price_id;
+
+      // Create or update product
+      if (!productId) {
+        const product = await stripe.products.create({
+          name: plan.name,
+          metadata: {
+            plan_id: planId,
+            job_limit: String(plan.job_limit || 0),
+          },
+        });
+        productId = product.id;
+      } else {
+        await stripe.products.update(productId, {
+          name: plan.name,
+          metadata: {
+            plan_id: planId,
+            job_limit: String(plan.job_limit || 0),
+          },
+        });
+      }
+
+      // Create price if not exists or price changed
+      const priceInCents = Math.round((plan.monthly_price || 0) * 100);
+
+      if (!priceId) {
+        const price = await stripe.prices.create({
+          product: productId,
+          unit_amount: priceInCents,
+          currency: "usd",
+          recurring: {interval: "month"},
+          metadata: {
+            plan_id: planId,
+          },
+        });
+        priceId = price.id;
+      }
+
+      // Update plan with Stripe IDs
+      await admin.firestore().collection("pricing_plans").doc(planId).update({
+        stripe_product_id: productId,
+        stripe_price_id: priceId,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      syncedPlans.push({
+        planId,
+        name: plan.name,
+        productId,
+        priceId,
+      });
+    }
+
+    console.log(`[syncPricingPlansWithStripe] Synced ${syncedPlans.length} plans`);
+
+    return {
+      synced: syncedPlans.length,
+      plans: syncedPlans,
+    };
+  } catch (error) {
+    console.error("[syncPricingPlansWithStripe] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to sync pricing plans: ${error.message}`);
+  }
+});
+
+// ============================================================================
+// Stripe Connect Functions
+// ============================================================================
+
+/**
+ * Create Connect Onboarding Link
+ * Creates a Standard Connect account and returns onboarding URL
+ * @param {Object} data - { companyId, refreshUrl, returnUrl }
+ * @returns {Object} - { accountLinkUrl, accountId }
+ */
+exports.createConnectOnboarding = onCall({
+  secrets: [stripeSecretKey],
+}, async (request) => {
+  try {
+    const {companyId, refreshUrl, returnUrl} = request.data;
+
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    if (!companyId || !refreshUrl || !returnUrl) {
+      throw new HttpsError("invalid-argument", "Missing required fields: companyId, refreshUrl, returnUrl");
+    }
+
+    const stripe = getStripe(stripeSecretKey.value());
+
+    // Get company data
+    const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Company not found");
+    }
+    const company = companyDoc.data();
+
+    let accountId = company.stripe_connect_account_id;
+
+    // Create account if not exists
+    if (!accountId) {
+      const account = await stripe.accounts.create({
+        type: "standard",
+        email: company.email,
+        metadata: {
+          company_id: companyId,
+        },
+      });
+      accountId = account.id;
+
+      // Save account ID to company
+      await admin.firestore().collection("companies").doc(companyId).update({
+        stripe_connect_account_id: accountId,
+        stripe_connect_status: "pending",
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    // Create account link for onboarding
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: refreshUrl,
+      return_url: returnUrl,
+      type: "account_onboarding",
+    });
+
+    console.log(`[createConnectOnboarding] Account link created for company ${companyId}`);
+
+    return {
+      accountLinkUrl: accountLink.url,
+      accountId: accountId,
+    };
+  } catch (error) {
+    console.error("[createConnectOnboarding] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to create Connect onboarding: ${error.message}`);
+  }
+});
+
+/**
+ * Get Connect Account Status
+ * Returns the status of a company's Connect account
+ * @param {Object} data - { companyId }
+ * @returns {Object} - Account status and capabilities
+ */
+exports.getConnectAccountStatus = onCall({
+  secrets: [stripeSecretKey],
+}, async (request) => {
+  try {
+    const {companyId} = request.data;
+
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    if (!companyId) {
+      throw new HttpsError("invalid-argument", "Missing required field: companyId");
+    }
+
+    // Get company data
+    const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Company not found");
+    }
+    const company = companyDoc.data();
+
+    if (!company.stripe_connect_account_id) {
+      return {
+        connected: false,
+        status: "not_connected",
+        chargesEnabled: false,
+        payoutsEnabled: false,
+      };
+    }
+
+    const stripe = getStripe(stripeSecretKey.value());
+
+    // Get account from Stripe
+    const account = await stripe.accounts.retrieve(company.stripe_connect_account_id);
+
+    // Determine status
+    let status = "pending";
+    if (account.charges_enabled && account.payouts_enabled) {
+      status = "connected";
+    } else if (account.details_submitted) {
+      status = "pending";
+    }
+
+    // Update company if status changed
+    if (status !== company.stripe_connect_status ||
+        account.charges_enabled !== company.stripe_connect_charges_enabled ||
+        account.payouts_enabled !== company.stripe_connect_payouts_enabled) {
+      await admin.firestore().collection("companies").doc(companyId).update({
+        stripe_connect_status: status,
+        stripe_connect_charges_enabled: account.charges_enabled,
+        stripe_connect_payouts_enabled: account.payouts_enabled,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    return {
+      connected: status === "connected",
+      status: status,
+      chargesEnabled: account.charges_enabled,
+      payoutsEnabled: account.payouts_enabled,
+      detailsSubmitted: account.details_submitted,
+      accountId: account.id,
+    };
+  } catch (error) {
+    console.error("[getConnectAccountStatus] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to get Connect status: ${error.message}`);
+  }
+});
+
+/**
+ * Create Connect Dashboard Link
+ * Creates a login link to the Stripe dashboard for connected accounts
+ * @param {Object} data - { companyId }
+ * @returns {Object} - { dashboardUrl }
+ */
+exports.createConnectDashboardLink = onCall({
+  secrets: [stripeSecretKey],
+}, async (request) => {
+  try {
+    const {companyId} = request.data;
+
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    if (!companyId) {
+      throw new HttpsError("invalid-argument", "Missing required field: companyId");
+    }
+
+    // Get company data
+    const companyDoc = await admin.firestore().collection("companies").doc(companyId).get();
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Company not found");
+    }
+    const company = companyDoc.data();
+
+    if (!company.stripe_connect_account_id) {
+      throw new HttpsError("failed-precondition", "No Connect account found for this company");
+    }
+
+    const stripe = getStripe(stripeSecretKey.value());
+
+    // Create login link
+    const loginLink = await stripe.accounts.createLoginLink(company.stripe_connect_account_id);
+
+    console.log(`[createConnectDashboardLink] Dashboard link created for company ${companyId}`);
+
+    return {
+      dashboardUrl: loginLink.url,
+    };
+  } catch (error) {
+    console.error("[createConnectDashboardLink] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to create dashboard link: ${error.message}`);
+  }
+});
+
+/**
+ * Create Invoice Payment Checkout Session
+ * Creates a Stripe Checkout session for paying an invoice
+ * Payment goes to the company's connected account with platform fee
+ * @param {Object} data - { invoiceId, successUrl, cancelUrl }
+ * @returns {Object} - { sessionId, checkoutUrl }
+ */
+exports.createInvoicePaymentCheckout = onCall({
+  secrets: [stripeSecretKey],
+}, async (request) => {
+  try {
+    const {invoiceId, successUrl, cancelUrl} = request.data;
+
+    // Note: This can be called without auth (by portal clients)
+    if (!invoiceId || !successUrl || !cancelUrl) {
+      throw new HttpsError("invalid-argument", "Missing required fields: invoiceId, successUrl, cancelUrl");
+    }
+
+    const stripe = getStripe(stripeSecretKey.value());
+
+    // Get invoice data
+    const invoiceDoc = await admin.firestore().collection("invoices").doc(invoiceId).get();
+    if (!invoiceDoc.exists) {
+      throw new HttpsError("not-found", "Invoice not found");
+    }
+    const invoice = invoiceDoc.data();
+
+    // Check invoice is payable
+    if (invoice.status === "paid") {
+      throw new HttpsError("failed-precondition", "Invoice is already paid");
+    }
+
+    if (invoice.status === "cancelled") {
+      throw new HttpsError("failed-precondition", "Invoice is cancelled");
+    }
+
+    const amountDue = invoice.amount_outstanding || invoice.total_amount - (invoice.amount_paid || 0);
+    if (amountDue <= 0) {
+      throw new HttpsError("failed-precondition", "No amount due on this invoice");
+    }
+
+    // Get company data
+    const companyDoc = await admin.firestore().collection("companies").doc(invoice.company_id).get();
+    if (!companyDoc.exists) {
+      throw new HttpsError("not-found", "Company not found");
+    }
+    const company = companyDoc.data();
+
+    // Check if company has Connect account
+    if (!company.stripe_connect_account_id) {
+      throw new HttpsError("failed-precondition", "Company has not set up payment processing");
+    }
+
+    if (!company.stripe_connect_charges_enabled) {
+      throw new HttpsError("failed-precondition", "Company payment processing is not fully enabled");
+    }
+
+    // Calculate amounts
+    const amountInCents = Math.round(amountDue * 100);
+    const platformFeePercent = company.platform_fee_percentage || 2.9;
+    const applicationFeeInCents = Math.round(amountInCents * (platformFeePercent / 100));
+
+    // Get client name for description
+    let clientName = "Client";
+    if (invoice.client_id) {
+      const clientDoc = await admin.firestore().collection("clients").doc(invoice.client_id).get();
+      if (clientDoc.exists) {
+        clientName = clientDoc.data().company_name || clientDoc.data().name || "Client";
+      }
+    }
+
+    // Create checkout session
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [{
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: `Invoice ${invoice.invoice_number || invoiceId}`,
+            description: `Payment for services - ${company.name}`,
+          },
+          unit_amount: amountInCents,
+        },
+        quantity: 1,
+      }],
+      payment_intent_data: {
+        application_fee_amount: applicationFeeInCents,
+        transfer_data: {
+          destination: company.stripe_connect_account_id,
+        },
+        metadata: {
+          invoice_id: invoiceId,
+          company_id: invoice.company_id,
+          client_id: invoice.client_id || "",
+        },
+      },
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata: {
+        invoice_id: invoiceId,
+        company_id: invoice.company_id,
+        type: "invoice_payment",
+      },
+    });
+
+    console.log(`[createInvoicePaymentCheckout] Session created for invoice ${invoiceId}, amount: $${amountDue}`);
+
+    return {
+      sessionId: session.id,
+      checkoutUrl: session.url,
+    };
+  } catch (error) {
+    console.error("[createInvoicePaymentCheckout] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to create payment checkout: ${error.message}`);
+  }
+});
+
+// ============================================================================
+// Stripe Webhooks
+// ============================================================================
+
+/**
+ * Stripe Webhook Handler - Platform Events
+ * Handles subscription and customer events
+ */
+exports.stripeWebhook = onRequest({
+  secrets: [stripeSecretKey, stripeWebhookSecret],
+}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).send("Method not allowed");
+    return;
+  }
+
+  const stripe = getStripe(stripeSecretKey.value());
+  const sig = req.headers["stripe-signature"];
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+        req.rawBody,
+        sig,
+        stripeWebhookSecret.value(),
+    );
+  } catch (err) {
+    console.error("[stripeWebhook] Signature verification failed:", err.message);
+    res.status(400).send(`Webhook Error: ${err.message}`);
+    return;
+  }
+
+  // Check if event already processed (idempotency)
+  const eventDoc = await admin.firestore().collection("stripe_events").doc(event.id).get();
+  if (eventDoc.exists && eventDoc.data().processed) {
+    console.log(`[stripeWebhook] Event ${event.id} already processed`);
+    res.json({received: true, already_processed: true});
+    return;
+  }
+
+  try {
+    // Store event for idempotency
+    await admin.firestore().collection("stripe_events").doc(event.id).set({
+      type: event.type,
+      created: new Date(event.created * 1000),
+      processed: false,
+      data: event.data.object,
+    });
+
+    // Handle the event
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object;
+
+        if (session.mode === "subscription" && session.metadata?.company_id) {
+          const companyId = session.metadata.company_id;
+          const subscriptionId = session.subscription;
+
+          // Get subscription details
+          const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+          const priceId = subscription.items.data[0]?.price?.id;
+
+          // Find the plan by price ID
+          const plansSnapshot = await admin.firestore()
+              .collection("pricing_plans")
+              .where("stripe_price_id", "==", priceId)
+              .limit(1)
+              .get();
+
+          let planName = "paid";
+          let jobLimit = 500;
+
+          if (!plansSnapshot.empty) {
+            const plan = plansSnapshot.docs[0].data();
+            planName = plan.name;
+            jobLimit = plan.job_limit || 500;
+          }
+
+          // Update company
+          await admin.firestore().collection("companies").doc(companyId).update({
+            stripe_subscription_id: subscriptionId,
+            subscription_status: "active",
+            billing_tier: "paid",
+            plan_name: planName,
+            monthly_job_limit: jobLimit,
+            subscription_current_period_end: new Date(subscription.current_period_end * 1000),
+            subscription_cancel_at_period_end: subscription.cancel_at_period_end,
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          console.log(`[stripeWebhook] Subscription activated for company ${companyId}`);
+        }
+        break;
+      }
+
+      case "customer.subscription.updated": {
+        const subscription = event.data.object;
+        const companyId = subscription.metadata?.company_id;
+
+        if (companyId) {
+          let status = "active";
+          if (subscription.status === "past_due") {
+            status = "past_due";
+          } else if (subscription.status === "canceled") {
+            status = "canceled";
+          } else if (subscription.status === "incomplete") {
+            status = "incomplete";
+          }
+
+          await admin.firestore().collection("companies").doc(companyId).update({
+            subscription_status: status,
+            subscription_current_period_end: new Date(subscription.current_period_end * 1000),
+            subscription_cancel_at_period_end: subscription.cancel_at_period_end,
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          console.log(`[stripeWebhook] Subscription updated for company ${companyId}: ${status}`);
+        }
+        break;
+      }
+
+      case "customer.subscription.deleted": {
+        const subscription = event.data.object;
+        const companyId = subscription.metadata?.company_id;
+
+        if (companyId) {
+          await admin.firestore().collection("companies").doc(companyId).update({
+            subscription_status: "canceled",
+            billing_tier: "free",
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          console.log(`[stripeWebhook] Subscription canceled for company ${companyId}`);
+        }
+        break;
+      }
+
+      case "invoice.payment_failed": {
+        const invoice = event.data.object;
+        const customerId = invoice.customer;
+
+        // Find company by customer ID
+        const companiesSnapshot = await admin.firestore()
+            .collection("companies")
+            .where("stripe_customer_id", "==", customerId)
+            .limit(1)
+            .get();
+
+        if (!companiesSnapshot.empty) {
+          const companyDoc = companiesSnapshot.docs[0];
+          await companyDoc.ref.update({
+            subscription_status: "past_due",
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          console.log(`[stripeWebhook] Payment failed for company ${companyDoc.id}`);
+        }
+        break;
+      }
+
+      default:
+        console.log(`[stripeWebhook] Unhandled event type: ${event.type}`);
+    }
+
+    // Mark event as processed
+    await admin.firestore().collection("stripe_events").doc(event.id).update({
+      processed: true,
+      processed_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.json({received: true});
+  } catch (error) {
+    console.error(`[stripeWebhook] Error processing event ${event.id}:`, error);
+
+    // Store error
+    await admin.firestore().collection("stripe_events").doc(event.id).update({
+      error: error.message,
+    });
+
+    res.status(500).json({error: error.message});
+  }
+});
+
+/**
+ * Stripe Connect Webhook Handler
+ * Handles Connect account and invoice payment events
+ */
+exports.stripeConnectWebhook = onRequest({
+  secrets: [stripeSecretKey, stripeConnectWebhookSecret],
+}, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).send("Method not allowed");
+    return;
+  }
+
+  const stripe = getStripe(stripeSecretKey.value());
+  const sig = req.headers["stripe-signature"];
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+        req.rawBody,
+        sig,
+        stripeConnectWebhookSecret.value(),
+    );
+  } catch (err) {
+    console.error("[stripeConnectWebhook] Signature verification failed:", err.message);
+    res.status(400).send(`Webhook Error: ${err.message}`);
+    return;
+  }
+
+  // Check if event already processed
+  const eventDoc = await admin.firestore().collection("stripe_events").doc(event.id).get();
+  if (eventDoc.exists && eventDoc.data().processed) {
+    console.log(`[stripeConnectWebhook] Event ${event.id} already processed`);
+    res.json({received: true, already_processed: true});
+    return;
+  }
+
+  try {
+    // Store event
+    await admin.firestore().collection("stripe_events").doc(event.id).set({
+      type: event.type,
+      created: new Date(event.created * 1000),
+      processed: false,
+      data: event.data.object,
+    });
+
+    // Handle the event
+    switch (event.type) {
+      case "account.updated": {
+        const account = event.data.object;
+
+        // Find company by Connect account ID
+        const companiesSnapshot = await admin.firestore()
+            .collection("companies")
+            .where("stripe_connect_account_id", "==", account.id)
+            .limit(1)
+            .get();
+
+        if (!companiesSnapshot.empty) {
+          const companyDoc = companiesSnapshot.docs[0];
+
+          let status = "pending";
+          if (account.charges_enabled && account.payouts_enabled) {
+            status = "connected";
+          }
+
+          await companyDoc.ref.update({
+            stripe_connect_status: status,
+            stripe_connect_charges_enabled: account.charges_enabled,
+            stripe_connect_payouts_enabled: account.payouts_enabled,
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          console.log(`[stripeConnectWebhook] Account updated for company ${companyDoc.id}: ${status}`);
+        }
+        break;
+      }
+
+      case "checkout.session.completed": {
+        const session = event.data.object;
+
+        // Check if this is an invoice payment
+        if (session.metadata?.type === "invoice_payment" && session.metadata?.invoice_id) {
+          const invoiceId = session.metadata.invoice_id;
+          const companyId = session.metadata.company_id;
+
+          // Get payment intent for details
+          const paymentIntent = await stripe.paymentIntents.retrieve(session.payment_intent);
+
+          // Get invoice
+          const invoiceDoc = await admin.firestore().collection("invoices").doc(invoiceId).get();
+          if (invoiceDoc.exists) {
+            const invoice = invoiceDoc.data();
+            const amountPaid = paymentIntent.amount / 100;
+
+            // Calculate new amounts
+            const newAmountPaid = (invoice.amount_paid || 0) + amountPaid;
+            const newAmountOutstanding = invoice.total_amount - newAmountPaid;
+            const newStatus = newAmountOutstanding <= 0 ? "paid" : "partially_paid";
+
+            // Create payment record
+            await admin.firestore().collection("payments").add({
+              invoice_id: invoiceId,
+              company_id: companyId,
+              client_id: invoice.client_id || null,
+              amount: amountPaid,
+              payment_method: "stripe",
+              payment_date: new Date(),
+              notes: "Online payment via Stripe",
+              stripe_payment_intent_id: paymentIntent.id,
+              stripe_checkout_session_id: session.id,
+              stripe_charge_id: paymentIntent.latest_charge,
+              stripe_receipt_url: null, // Will be updated when charge is retrieved
+              stripe_application_fee: paymentIntent.application_fee_amount / 100,
+              payment_status: "succeeded",
+              created_at: admin.firestore.FieldValue.serverTimestamp(),
+              updated_at: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            // Update invoice
+            await admin.firestore().collection("invoices").doc(invoiceId).update({
+              amount_paid: newAmountPaid,
+              amount_outstanding: newAmountOutstanding,
+              status: newStatus,
+              last_payment_date: new Date(),
+              updated_at: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            console.log(`[stripeConnectWebhook] Payment recorded for invoice ${invoiceId}: $${amountPaid}`);
+
+            // Track platform usage
+            await trackPlatformUsage("invoice_payments_processed");
+          }
+        }
+        break;
+      }
+
+      default:
+        console.log(`[stripeConnectWebhook] Unhandled event type: ${event.type}`);
+    }
+
+    // Mark event as processed
+    await admin.firestore().collection("stripe_events").doc(event.id).update({
+      processed: true,
+      processed_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.json({received: true});
+  } catch (error) {
+    console.error(`[stripeConnectWebhook] Error processing event ${event.id}:`, error);
+
+    await admin.firestore().collection("stripe_events").doc(event.id).update({
+      error: error.message,
+    });
+
+    res.status(500).json({error: error.message});
+  }
+});
+
+// ============================================================================
+// Job Notes - Hub-and-Spoke Messaging System
+// ============================================================================
+
+/**
+ * Create a new job note with optional email notification
+ * Supports hub-and-spoke model: Company <-> Client, Company <-> Server
+ * Client and Server cannot communicate directly
+ */
+exports.createJobNote = onCall(
+    {secrets: [sendgridApiKey]},
+    async (request) => {
+      const uid = request.auth?.uid;
+      if (!uid) {
+        throw new HttpsError("unauthenticated", "Authentication required");
+      }
+
+      const {
+        jobId,
+        content,
+        visibility, // 'client' | 'server' | 'both' | 'internal'
+        sendEmail,
+      } = request.data;
+
+      // Validate inputs
+      validateDocumentId(jobId, "jobId");
+      validateString(content, "content", {maxLength: 5000});
+
+      if (!["client", "server", "both", "internal"].includes(visibility)) {
+        throw new HttpsError("invalid-argument", "Invalid visibility value. Must be: client, server, both, or internal");
+      }
+
+      // Get job and verify it exists
+      const jobDoc = await admin.firestore().doc(`jobs/${jobId}`).get();
+      if (!jobDoc.exists) {
+        throw new HttpsError("not-found", "Job not found");
+      }
+
+      const job = jobDoc.data();
+      job.id = jobDoc.id; // Add document ID to job object
+      const userDoc = await admin.firestore().doc(`users/${uid}`).get();
+      if (!userDoc.exists) {
+        throw new HttpsError("not-found", "User not found");
+      }
+      const user = userDoc.data();
+
+      // Determine author type and verify permissions
+      let authorType;
+      const authorCompanyId = user.company_id;
+
+      if (user.company_id === job.company_id) {
+        // User is from the company that owns the job
+        authorType = "company";
+      } else if (job.share_chain?.parent_company_id === user.company_id) {
+        // User is from the upstream client company
+        authorType = "client";
+        // Clients can only send to company (internal visibility)
+        if (visibility !== "internal") {
+          throw new HttpsError("permission-denied", "Clients can only reply to the company");
+        }
+      } else if (job.share_chain?.child_company_id === user.company_id) {
+        // User is from the downstream server company
+        authorType = "server";
+        // Servers can only send to company (internal visibility)
+        if (visibility !== "internal") {
+          throw new HttpsError("permission-denied", "Servers can only reply to the company");
+        }
+      } else {
+        throw new HttpsError("permission-denied", "You do not have access to this job");
+      }
+
+      // Build the note document
+      const noteData = {
+        created_at: admin.firestore.FieldValue.serverTimestamp(),
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        author_id: uid,
+        author_name: user.full_name || `${user.first_name || ""} ${user.last_name || ""}`.trim() || "Unknown",
+        author_type: authorType,
+        author_company_id: authorCompanyId,
+        content: content.trim(),
+        visibility: authorType === "company" ? visibility : "internal",
+        direction: authorType === "company" ? "outgoing" : "incoming",
+        email_sent: false,
+        email_sent_at: null,
+        read_by_client: authorType === "client", // Author has read their own note
+        read_by_server: authorType === "server",
+        read_at_client: authorType === "client" ? admin.firestore.FieldValue.serverTimestamp() : null,
+        read_at_server: authorType === "server" ? admin.firestore.FieldValue.serverTimestamp() : null,
+        is_system_note: false,
+        related_event: null,
+      };
+
+      // Create the note in the subcollection
+      const noteRef = await admin.firestore()
+          .collection(`jobs/${jobId}/notes`)
+          .add(noteData);
+
+      console.log(`[createJobNote] Created note ${noteRef.id} on job ${jobId} by ${authorType}`);
+
+      // Send email if requested (only company can send emails to clients/servers)
+      if (sendEmail && authorType === "company" && visibility !== "internal") {
+        try {
+          await sendJobNoteEmails(job, noteData, visibility, noteRef.id);
+
+          await noteRef.update({
+            email_sent: true,
+            email_sent_at: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          console.log(`[createJobNote] Sent email notification for note ${noteRef.id}`);
+        } catch (emailError) {
+          console.error(`[createJobNote] Failed to send email for note ${noteRef.id}:`, emailError);
+          // Don't fail the whole operation if email fails
+        }
+      }
+
+      // Create in-app notification for the recipient
+      await createJobNoteNotification(job, noteData, authorType);
+
+      return {success: true, noteId: noteRef.id};
+    },
+);
+
+/**
+ * Helper: Send job note emails to recipients based on visibility
+ */
+async function sendJobNoteEmails(job, note, visibility, noteId) {
+  const recipients = [];
+
+  // Get client email if visibility includes client
+  if (visibility === "client" || visibility === "both") {
+    // Use contact_email from job or look up client company
+    if (job.contact_email) {
+      recipients.push({
+        email: job.contact_email,
+        type: "client",
+        name: job.contact_name || null,
+      });
+    }
+  }
+
+  // Get server email if visibility includes server
+  if (visibility === "server" || visibility === "both") {
+    if (job.share_chain?.child_company_id) {
+      const serverCompanyDoc = await admin.firestore()
+          .doc(`companies/${job.share_chain.child_company_id}`)
+          .get();
+      if (serverCompanyDoc.exists) {
+        const serverCompany = serverCompanyDoc.data();
+        if (serverCompany.email) {
+          recipients.push({
+            email: serverCompany.email,
+            type: "server",
+            name: serverCompany.name || serverCompany.company_name || null,
+          });
+        }
+      }
+    }
+  }
+
+  // Send emails to all recipients
+  for (const recipient of recipients) {
+    await sendEmailWithTemplate({
+      to: recipient.email,
+      subject: `New Message - Job #${job.job_number}`,
+      templateName: "job-note",
+      templateData: {
+        recipient_name: recipient.name,
+        job_number: job.job_number,
+        defendant_name: job.recipient?.name || job.defendant_name || job.recipient_name,
+        case_number: job.case_number,
+        note_content: note.content,
+        author_name: note.author_name,
+        sent_at: new Date(),
+        portal_url: recipient.type === "client" ?
+          `${process.env.APP_URL || "https://app.servemax.pro"}/portal/orders` :
+          null,
+      },
+      companyId: job.company_id,
+    });
+  }
+}
+
+/**
+ * Helper: Create in-app notification for job note recipients
+ */
+async function createJobNoteNotification(job, note, authorType) {
+  // Determine who should receive the notification
+  const notificationTargets = [];
+
+  if (authorType === "company") {
+    // Company sent a note - notify client and/or server based on visibility
+    if (note.visibility === "client" || note.visibility === "both") {
+      // Create notification for client (if job has a client portal user)
+      // For now, we'll create a notification in the notifications collection
+      // that can be queried by client portal users
+      if (job.client_id) {
+        notificationTargets.push({
+          target_type: "client",
+          target_id: job.client_id,
+        });
+      }
+    }
+    if (note.visibility === "server" || note.visibility === "both") {
+      // Create notification for server company
+      if (job.share_chain?.child_company_id) {
+        notificationTargets.push({
+          target_type: "server",
+          target_id: job.share_chain.child_company_id,
+        });
+      }
+    }
+  } else {
+    // Client or server sent a reply - notify the company
+    notificationTargets.push({
+      target_type: "company",
+      target_id: job.company_id,
+    });
+  }
+
+  // Create notifications for each target
+  for (const target of notificationTargets) {
+    await admin.firestore().collection("notifications").add({
+      type: "new_job_note",
+      company_id: target.target_type === "company" ? target.target_id : job.company_id,
+      target_type: target.target_type,
+      target_id: target.target_id,
+      job_id: job.id,
+      job_number: job.job_number,
+      note_author: note.author_name,
+      note_author_type: note.author_type,
+      note_preview: note.content.substring(0, 100) + (note.content.length > 100 ? "..." : ""),
+      read: false,
+      persistent: false,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
+  console.log(`[createJobNoteNotification] Created ${notificationTargets.length} notifications`);
+}

@@ -13,11 +13,13 @@ import {
   Loader2
 } from "lucide-react";
 
-export default function ClientSearchInput({ value, onValueChange, onClientSelected, onShowNewClient, selectedClient }) {
+export default function ClientSearchInput({ value, onValueChange, onClientSelected, onTextChange, selectedClient }) {
   const [filteredClients, setFilteredClients] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const searchTimeoutRef = useRef(null);
+  const lastSearchResultsRef = useRef({ hasResults: false });
+  const currentSearchTermRef = useRef(""); // Track current search to prevent stale results
 
   // Debounced search effect - triggers after user stops typing
   useEffect(() => {
@@ -25,6 +27,9 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
+
+    // Track the current search term to prevent stale results
+    currentSearchTermRef.current = value;
 
     // Only search if 3+ characters
     if (value.length >= 3) {
@@ -39,6 +44,10 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
       setFilteredClients([]);
       setShowDropdown(value.length > 0); // Show "type 3 chars" message
       setIsLoading(false);
+      // Notify parent that there's no valid search (too short)
+      if (onTextChange && value.length < 3) {
+        onTextChange(value, false);
+      }
     }
 
     return () => {
@@ -46,13 +55,19 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [value]);
+  }, [value, onTextChange]);
 
   const searchClients = async (searchTerm) => {
     setIsLoading(true);
     try {
       // Get all clients for this company
       const clientsData = await SecureClientAccess.list();
+
+      // Check if this search is still relevant (user may have typed more)
+      if (currentSearchTermRef.current !== searchTerm) {
+        console.log('[ClientSearchInput] Ignoring stale search results for:', searchTerm);
+        return;
+      }
 
       console.log('[ClientSearchInput] Retrieved clients from database:', {
         count: clientsData.length,
@@ -81,15 +96,35 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
         return fallbackMatch;
       });
 
+      // Double-check search is still current before updating state
+      if (currentSearchTermRef.current !== searchTerm) {
+        console.log('[ClientSearchInput] Ignoring stale results after filtering for:', searchTerm);
+        return;
+      }
+
       console.log('[ClientSearchInput] Filtered results:', {
         count: filtered.length,
         clients: filtered.map(c => c.company_name)
       });
 
       setFilteredClients(filtered);
+
+      // Track results and notify parent about text change
+      const hasResults = filtered.length > 0;
+      lastSearchResultsRef.current = { hasResults };
+      if (onTextChange) {
+        onTextChange(searchTerm, hasResults);
+      }
     } catch (error) {
       console.error("Error searching clients:", error);
-      setFilteredClients([]);
+      // Only update state if search is still current
+      if (currentSearchTermRef.current === searchTerm) {
+        setFilteredClients([]);
+        lastSearchResultsRef.current = { hasResults: false };
+        if (onTextChange) {
+          onTextChange(searchTerm, false);
+        }
+      }
     }
     setIsLoading(false);
   };
@@ -181,17 +216,8 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
               </>
             ) : (
               <div className="p-3 text-center">
-                <p className="text-slate-500 text-sm mb-3">No clients found matching "{value}"</p>
-                {/* <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={onShowNewClient}
-                  className="gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add New Client
-                </Button> */}
+                <p className="text-slate-500 text-sm">No clients found matching "{value}"</p>
+                <p className="text-blue-600 text-xs mt-1">Keep typing to create a new client</p>
               </div>
             )}
           </CardContent>

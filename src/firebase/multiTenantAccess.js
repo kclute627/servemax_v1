@@ -76,6 +76,73 @@ export class MultiTenantAccess {
     return filteredJobs;
   }
 
+  // Jobs with pagination support for large datasets
+  static async getJobsPaginated({
+    pageSize = 50,
+    cursor = null,
+    filters = {},
+    searchTerm = null
+  } = {}) {
+    const user = await this.getCurrentUser();
+
+    // Build where conditions
+    const whereConditions = [];
+
+    // Add company filter (required for non-super-admins)
+    if (!isSuperAdmin(user)) {
+      const accessibleCompanies = getAccessibleCompanies(user);
+      if (accessibleCompanies.length === 0) {
+        return { data: [], lastDoc: null, hasMore: false };
+      }
+      // For simplicity, use first company (most users have one company)
+      whereConditions.push(['company_id', '==', accessibleCompanies[0]]);
+    }
+
+    // Add filter conditions
+    if (filters.is_closed !== undefined) {
+      whereConditions.push(['is_closed', '==', filters.is_closed]);
+    }
+    if (filters.status && filters.status !== 'all') {
+      whereConditions.push(['status', '==', filters.status]);
+    }
+    if (filters.priority && filters.priority !== 'all') {
+      whereConditions.push(['priority', '==', filters.priority]);
+    }
+    if (filters.assigned_to) {
+      whereConditions.push(['assigned_to', '==', filters.assigned_to]);
+    }
+    if (filters.client_id) {
+      whereConditions.push(['client_id', '==', filters.client_id]);
+    }
+
+    // Add search term (uses array-contains on search_terms field)
+    if (searchTerm && searchTerm.trim()) {
+      whereConditions.push(['search_terms', 'array-contains', searchTerm.toLowerCase().trim()]);
+    }
+
+    const result = await entities.Job.findPaginated({
+      where: whereConditions,
+      limit: pageSize,
+      startAfterDoc: cursor,
+      orderBy: ['created_at', 'desc']
+    });
+
+    // Apply role-based filtering on results
+    let filteredData = result.data.filter(job => canAccessJob(user, job));
+
+    // For contractors, sanitize data
+    if (user.user_type === USER_TYPES.INDEPENDENT_CONTRACTOR) {
+      filteredData = filterJobsForContractor(user, filteredData);
+      filteredData = filteredData.map(job => sanitizeJobForContractor(user, job));
+    }
+
+    return {
+      data: filteredData,
+      lastDoc: result.lastDoc,
+      hasMore: result.hasMore
+    };
+  }
+
   // Get single job with access control
   static async getJob(jobId) {
     const user = await this.getCurrentUser();

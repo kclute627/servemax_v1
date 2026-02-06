@@ -46,6 +46,10 @@ import CheckEmail from "./CheckEmail";
 
 import ChangePassword from "./ChangePassword";
 
+import PrivacyPolicy from "./PrivacyPolicy";
+
+import Terms from "./Terms";
+
 import TemplateEditor from "./TemplateEditor";
 
 import TemplatesManagement from "./TemplatesManagement";
@@ -70,6 +74,14 @@ import ClientSignup from "./portal/ClientSignup";
 import ClientOrderForm from "./portal/ClientOrderForm";
 import ClientSettings from "./portal/ClientSettings";
 import ClientContact from "./portal/ClientContact";
+
+// IC (Independent Contractor) Portal pages
+import ICSignUp from "./ICSignUp";
+import ICLayout from "./ic/ICLayout";
+import ICJobs from "./ic/ICJobs";
+import ICJobDetails from "./ic/ICJobDetails";
+import ICConnections from "./ic/ICConnections";
+import ICLogAttempt from "./ic/ICLogAttempt";
 
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import { GlobalDataProvider } from "../components/GlobalDataContext";
@@ -121,6 +133,10 @@ const PAGES = {
 
     ChangePassword: ChangePassword,
 
+    PrivacyPolicy: PrivacyPolicy,
+
+    Terms: Terms,
+
     TemplatesManagement: TemplatesManagement,
 
     Companies: Companies,
@@ -170,6 +186,13 @@ function PagesContent() {
                 <Route path="/check-email" element={<PublicRoute><CheckEmail /></PublicRoute>} />
                 {/* Verify email works for both logged-in and logged-out users */}
                 <Route path="/verify-email/:token" element={<VerifyEmail />} />
+
+                {/* Legal pages - public */}
+                <Route path="/PrivacyPolicy" element={<PublicRoute><PrivacyPolicy /></PublicRoute>} />
+                <Route path="/Terms" element={<PublicRoute><Terms /></PublicRoute>} />
+
+                {/* IC Signup - standalone public route (only accessible via email invite) */}
+                <Route path="/ic-signup" element={<PublicRoute><ICSignUp /></PublicRoute>} />
 
                 {/* Protected routes for authenticated users */}
                 <Route path="/Dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -224,6 +247,21 @@ function PortalRoutes() {
     );
 }
 
+// Wrapper for IC (Independent Contractor) routes
+function ICRoutes() {
+    return (
+        <Routes>
+            <Route path="/ic" element={<ICLayout />}>
+                <Route path="jobs" element={<ICJobs />} />
+                <Route path="job/:jobId" element={<ICJobDetails />} />
+                <Route path="log-attempt/:jobId" element={<ICLogAttempt />} />
+                <Route path="connections" element={<ICConnections />} />
+                <Route index element={<ICJobs />} />
+            </Route>
+        </Routes>
+    );
+}
+
 // Main app content wrapper
 function AppContent() {
     const location = useLocation();
@@ -231,6 +269,11 @@ function AppContent() {
     // Check if we're on a portal route
     if (location.pathname.startsWith('/portal/')) {
         return <PortalRoutes />;
+    }
+
+    // Check if we're on an IC (Independent Contractor) route
+    if (location.pathname.startsWith('/ic/') || location.pathname === '/ic') {
+        return <ICRoutes />;
     }
 
     // Regular app routes

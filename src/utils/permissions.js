@@ -41,6 +41,99 @@ export const PERMISSIONS = {
   MANAGE_DIRECTORY: 'manage_directory',
 };
 
+// Permission categories for UI organization
+export const PERMISSION_CATEGORIES = {
+  JOBS: {
+    label: 'Jobs',
+    description: 'Permissions for managing service jobs',
+    permissions: [
+      { key: PERMISSIONS.CREATE_JOBS, label: 'Create Jobs', description: 'Create new service jobs' },
+      { key: PERMISSIONS.EDIT_ALL_JOBS, label: 'Edit All Jobs', description: 'Edit any company job' },
+      { key: PERMISSIONS.EDIT_ASSIGNED_JOBS, label: 'Edit Assigned Jobs', description: 'Edit only jobs assigned to them' },
+      { key: PERMISSIONS.DELETE_JOBS, label: 'Delete Jobs', description: 'Delete jobs from the system' },
+      { key: PERMISSIONS.ASSIGN_JOBS, label: 'Assign Jobs', description: 'Assign jobs to servers' },
+      { key: PERMISSIONS.VIEW_ALL_JOBS, label: 'View All Jobs', description: 'See all company jobs' },
+      { key: PERMISSIONS.VIEW_ASSIGNED_JOBS, label: 'View Assigned Jobs', description: 'See only jobs assigned to them' },
+    ]
+  },
+  CLIENTS: {
+    label: 'Clients',
+    description: 'Permissions for client management',
+    permissions: [
+      { key: PERMISSIONS.MANAGE_CLIENTS, label: 'Manage Clients', description: 'Create, edit, and delete clients' },
+      { key: PERMISSIONS.VIEW_ALL_CLIENTS, label: 'View All Clients', description: 'View the client list' },
+      { key: PERMISSIONS.VIEW_CLIENT_DETAILS, label: 'View Client Details', description: 'View client contact information' },
+    ]
+  },
+  FINANCIAL: {
+    label: 'Financial',
+    description: 'Permissions for invoicing and payments',
+    permissions: [
+      { key: PERMISSIONS.VIEW_INVOICES, label: 'View Invoices', description: 'View invoice records' },
+      { key: PERMISSIONS.MANAGE_INVOICES, label: 'Manage Invoices', description: 'Create and edit invoices' },
+      { key: PERMISSIONS.VIEW_PAYMENTS, label: 'View Payments', description: 'View payment records' },
+      { key: PERMISSIONS.MANAGE_PAYMENTS, label: 'Manage Payments', description: 'Record and manage payments' },
+      { key: PERMISSIONS.VIEW_ACCOUNTING, label: 'View Accounting', description: 'Access accounting reports' },
+    ]
+  },
+  TEAM: {
+    label: 'Team',
+    description: 'Permissions for team management',
+    permissions: [
+      { key: PERMISSIONS.MANAGE_EMPLOYEES, label: 'Manage Employees', description: 'Add, edit, and remove employees' },
+      { key: PERMISSIONS.MANAGE_INVITATIONS, label: 'Manage Invitations', description: 'Send and manage invitations' },
+    ]
+  },
+  SERVER_PAY: {
+    label: 'Server Pay',
+    description: 'Permissions for server compensation',
+    permissions: [
+      { key: PERMISSIONS.VIEW_SERVER_PAY, label: 'View Server Pay', description: 'View server compensation' },
+      { key: PERMISSIONS.MANAGE_SERVER_PAY, label: 'Manage Server Pay', description: 'Edit server pay rates' },
+    ]
+  },
+  SETTINGS: {
+    label: 'Settings',
+    description: 'Permissions for company settings',
+    permissions: [
+      { key: PERMISSIONS.MANAGE_SETTINGS, label: 'Manage Settings', description: 'Access and modify company settings' },
+      { key: PERMISSIONS.VIEW_BILLING, label: 'View Billing', description: 'View billing and subscription info' },
+      { key: PERMISSIONS.MANAGE_COMPANY, label: 'Manage Company', description: 'Edit company information (owner only)' },
+    ]
+  },
+  DIRECTORY: {
+    label: 'Directory',
+    description: 'Permissions for ServeMax directory',
+    permissions: [
+      { key: PERMISSIONS.VIEW_DIRECTORY, label: 'View Directory', description: 'Browse the ServeMax directory' },
+      { key: PERMISSIONS.MANAGE_DIRECTORY, label: 'Manage Directory', description: 'Manage directory listing' },
+    ]
+  }
+};
+
+// Get all permissions as a flat array with labels
+export const getAllPermissions = () => {
+  const allPermissions = [];
+  Object.values(PERMISSION_CATEGORIES).forEach(category => {
+    category.permissions.forEach(perm => {
+      allPermissions.push({
+        ...perm,
+        category: category.label
+      });
+    });
+  });
+  return allPermissions;
+};
+
+// Get permission label by key
+export const getPermissionLabel = (permissionKey) => {
+  for (const category of Object.values(PERMISSION_CATEGORIES)) {
+    const found = category.permissions.find(p => p.key === permissionKey);
+    if (found) return found.label;
+  }
+  return permissionKey;
+};
+
 // Role-based permission mappings
 const ROLE_PERMISSIONS = {
   [USER_TYPES.COMPANY_OWNER]: {
@@ -127,8 +220,8 @@ const ROLE_PERMISSIONS = {
   }
 };
 
-// Get user permissions based on their type and role
-export const getUserPermissions = (user) => {
+// Get base role permissions (without overrides)
+export const getBaseRolePermissions = (user) => {
   if (!user) return [];
 
   const userType = user.user_type;
@@ -148,6 +241,57 @@ export const getUserPermissions = (user) => {
   }
 
   return [];
+};
+
+// Get user permissions based on their type, role, AND custom overrides
+export const getUserPermissions = (user) => {
+  if (!user) return [];
+
+  // Get base role permissions
+  let permissions = [...getBaseRolePermissions(user)];
+
+  // Apply permission overrides if present (for employees only)
+  // Company owners cannot have their permissions restricted
+  if (user.user_type === USER_TYPES.EMPLOYEE && user.permission_overrides) {
+    // Add custom permissions
+    if (user.permission_overrides.added && Array.isArray(user.permission_overrides.added)) {
+      permissions = [...permissions, ...user.permission_overrides.added];
+    }
+
+    // Remove denied permissions
+    if (user.permission_overrides.removed && Array.isArray(user.permission_overrides.removed)) {
+      permissions = permissions.filter(p => !user.permission_overrides.removed.includes(p));
+    }
+  }
+
+  // Dedupe and return
+  return [...new Set(permissions)];
+};
+
+// Get permissions that can be added to a role (not already in base permissions)
+export const getAddablePermissions = (user) => {
+  const basePermissions = getBaseRolePermissions(user);
+  const allPermissionKeys = Object.values(PERMISSIONS);
+
+  // Filter out permissions already in the role AND owner-only permissions for non-owners
+  return allPermissionKeys.filter(perm => {
+    // Already has this permission
+    if (basePermissions.includes(perm)) return false;
+
+    // MANAGE_COMPANY is owner-only
+    if (perm === PERMISSIONS.MANAGE_COMPANY) return false;
+
+    return true;
+  });
+};
+
+// Get permissions that can be removed from a role (currently in base permissions)
+export const getRemovablePermissions = (user) => {
+  const basePermissions = getBaseRolePermissions(user);
+
+  // Can remove any permission that's in the base role
+  // Exception: VIEW_ASSIGNED_JOBS should generally not be removed as it's minimal access
+  return basePermissions.filter(perm => perm !== PERMISSIONS.VIEW_ASSIGNED_JOBS);
 };
 
 // Check if user has a specific permission
@@ -323,14 +467,14 @@ const SUPER_ADMIN_DOMAIN = 'yourdomain.com'; // Replace with your actual domain
 const SUPER_ADMIN_EMAILS = [
   // Add specific super admin emails here if needed
   // 'admin@example.com',
-  "kyclutter@gmail.comm"
+  "kyclutter@gmail.com"
 ];
 
 export const isSuperAdmin = (user) => {
   if (!user || !user.email) return false;
 
   // Temporary override for testing - force super admin access
-  if (user.email === 'kyclutter@gmail.comm') {
+  if (user.email === 'kyclutter@gmail.com') {
     return true;
   }
 

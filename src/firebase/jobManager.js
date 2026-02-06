@@ -4,6 +4,58 @@ import { CompanyManager } from './schemas';
 import { UsageTracker } from './usageTracker';
 
 /**
+ * Generate search terms array for a job to enable server-side search
+ * @param {Object} job - The job data object
+ * @returns {Array<string>} Array of lowercase search terms
+ */
+export function generateSearchTerms(job) {
+  const terms = new Set();
+
+  // Add recipient name and tokens
+  if (job.recipient?.name) {
+    const name = job.recipient.name.toLowerCase();
+    terms.add(name);
+    name.split(/\s+/).forEach(token => {
+      if (token.length > 1) terms.add(token);
+    });
+  }
+
+  // Add job number
+  if (job.job_number) {
+    terms.add(job.job_number.toLowerCase());
+  }
+
+  // Add client job number / reference
+  if (job.client_job_number) {
+    terms.add(job.client_job_number.toLowerCase());
+  }
+
+  // Add case name and tokens
+  if (job.case_name) {
+    const caseName = job.case_name.toLowerCase();
+    terms.add(caseName);
+    caseName.split(/\s+/).forEach(token => {
+      if (token.length > 1) terms.add(token);
+    });
+  }
+
+  // Add case number
+  if (job.case_number) {
+    terms.add(job.case_number.toLowerCase());
+  }
+
+  // Add address parts for location search
+  if (job.addresses?.[0]) {
+    const addr = job.addresses[0];
+    if (addr.city) terms.add(addr.city.toLowerCase());
+    if (addr.state) terms.add(addr.state.toLowerCase());
+    if (addr.postal_code) terms.add(addr.postal_code.toLowerCase());
+  }
+
+  return Array.from(terms).filter(t => t && t.length > 0);
+}
+
+/**
  * JobManager - Enhanced job management with automatic stats tracking
  * Wraps the base Job entity to include business intelligence tracking
  */
@@ -22,9 +74,13 @@ export class JobManager {
         throw new Error('client_id is required for job creation');
       }
 
+      // Generate search terms for server-side search
+      const searchTerms = generateSearchTerms(jobData);
+
       // Create the job using the base entity
       const job = await entities.Job.create({
         ...jobData,
+        search_terms: searchTerms,
         status: jobData.status || 'pending',
         created_at: new Date(),
         updated_at: new Date()

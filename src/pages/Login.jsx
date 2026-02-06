@@ -3,10 +3,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
-import { Mail, Lock, AlertCircle } from 'lucide-react';
+import { Mail, Lock, AlertCircle, Shield, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { createPageUrl } from '@/utils';
 import PublicNavbar from '@/components/layout/PublicNavbar';
@@ -43,12 +41,10 @@ export default function LoginPage() {
 
     try {
       await login(formData.email, formData.password);
-      // Redirect will be handled by the ProtectedRoute component
       navigate(createPageUrl('Dashboard'), { replace: true });
     } catch (err) {
       console.error('Login error:', err);
 
-      // Provide user-friendly error messages
       if (err.message.includes('user-not-found')) {
         setError('No account found with this email address.');
       } else if (err.message.includes('wrong-password')) {
@@ -67,42 +63,51 @@ export default function LoginPage() {
 
   return (
     <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        .font-display { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+      `}</style>
+
       <PublicNavbar />
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-white flex items-center justify-center p-4 pt-24">
-        <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-500">
+
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center p-4 pt-24">
+        {/* Background decoration */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-br from-emerald-100/40 to-transparent rounded-full blur-3xl -translate-y-1/2 translate-x-1/3" />
+          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-gradient-to-tr from-emerald-100/30 to-transparent rounded-full blur-3xl translate-y-1/2 -translate-x-1/3" />
+        </div>
+
+        <div className="w-full max-w-md relative">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-900 to-blue-700 bg-clip-text text-transparent mb-2">
-              Welcome Back
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-[#0D2E26] rounded-2xl mb-6">
+              <Shield className="w-8 h-8 text-emerald-400" />
+            </div>
+            <h1 className="text-3xl font-bold text-stone-900 mb-2">
+              Welcome back
             </h1>
-            <p className="text-slate-600">Sign in to your account</p>
+            <p className="text-stone-600">Sign in to your Diligence account</p>
           </div>
 
-          <Card className="shadow-2xl border-slate-200/50 backdrop-blur-sm bg-white/95">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl">Sign In</CardTitle>
-            <CardDescription>
-              Enter your credentials to access your account
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleLogin} className="space-y-4">
+          {/* Card */}
+          <div className="bg-white rounded-2xl shadow-xl shadow-stone-200/50 border border-stone-200/50 p-8">
+            <form onSubmit={handleLogin} className="space-y-5">
               {error && (
-                <Alert variant="destructive">
+                <Alert variant="destructive" className="border-red-200 bg-red-50">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-slate-700 font-medium">Email Address</Label>
-                <div className="relative group">
-                  <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+                <Label htmlFor="email" className="text-stone-700 font-medium">Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-stone-400" />
                   <Input
                     id="email"
                     type="email"
-                    placeholder="your@email.com"
-                    className="pl-10 h-11 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    placeholder="you@company.com"
+                    className="pl-10 h-12 bg-stone-50 border-stone-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl"
                     value={formData.email}
                     onChange={(e) => handleInputChange('email', e.target.value)}
                     disabled={isLoading}
@@ -112,14 +117,22 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-slate-700 font-medium">Password</Label>
-                <div className="relative group">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400 group-focus-within:text-blue-600 transition-colors" />
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password" className="text-stone-700 font-medium">Password</Label>
+                  <Link
+                    to={createPageUrl('ForgotPassword')}
+                    className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-stone-400" />
                   <Input
                     id="password"
                     type="password"
-                    placeholder="Your password"
-                    className="pl-10 h-11 transition-all duration-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    placeholder="Enter your password"
+                    className="pl-10 h-12 bg-stone-50 border-stone-200 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl"
                     value={formData.password}
                     onChange={(e) => handleInputChange('password', e.target.value)}
                     disabled={isLoading}
@@ -130,63 +143,67 @@ export default function LoginPage() {
 
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-blue-800 to-blue-900 hover:from-blue-900 hover:to-blue-950 shadow-md hover:shadow-lg transition-all duration-200 hover:scale-[1.02]"
-                size="lg"
+                className="w-full h-12 bg-[#0D2E26] hover:bg-[#134035] text-white rounded-xl font-medium transition-all hover:scale-[1.01]"
                 disabled={isLoading}
               >
-                {isLoading ? 'Signing In...' : 'Sign In'}
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Signing in...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-2">
+                    Sign in
+                    <ArrowRight className="w-4 h-4" />
+                  </span>
+                )}
               </Button>
             </form>
 
-            {/* Forgot Password Link */}
-            <div className="text-center mt-4">
-              <Link
-                to={createPageUrl('ForgotPassword')}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all"
-              >
-                Forgot your password?
-              </Link>
-            </div>
-
-            <Separator className="my-6" />
-
-            <div className="space-y-4">
-              <div className="text-center text-sm text-slate-600">
+            <div className="mt-6 pt-6 border-t border-stone-100">
+              <p className="text-center text-stone-600">
                 Don't have an account?{' '}
                 <Link
                   to={createPageUrl('SignUp')}
-                  className="text-blue-600 hover:text-blue-800 font-semibold hover:underline transition-all"
+                  className="text-emerald-600 hover:text-emerald-700 font-semibold"
                 >
-                  Start your free trial
+                  Start free trial
                 </Link>
-              </div>
-
-              <div className="text-center text-sm text-slate-600">
-                Have an invitation?{' '}
-                <Link
-                  to={createPageUrl('InviteSignUp')}
-                  className="text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all"
-                >
-                  Join a company
-                </Link>
-              </div>
+              </p>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Features reminder */}
-        <div className="mt-8 text-center">
-          <p className="text-sm text-slate-500 mb-3">
-            Process serving made simple with ServeMax
-          </p>
-          <div className="flex justify-center space-x-6 text-xs text-slate-400">
-            <span>✓ Job Management</span>
-            <span>✓ Client Portal</span>
-            <span>✓ Automated Documents</span>
+            <div className="mt-4 text-center">
+              <Link
+                to={createPageUrl('InviteSignUp')}
+                className="text-sm text-stone-500 hover:text-stone-700"
+              >
+                Have an invitation? Join a company →
+              </Link>
+            </div>
+          </div>
+
+          {/* Features */}
+          <div className="mt-8 text-center">
+            <p className="text-sm text-stone-500 mb-4">
+              Process serving made simple
+            </p>
+            <div className="flex justify-center gap-6 text-xs text-stone-400">
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                Job Management
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                Auto Documents
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                Invoicing
+              </span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  </>
+    </>
   );
 }

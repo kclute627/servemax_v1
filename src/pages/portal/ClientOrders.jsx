@@ -81,6 +81,8 @@ export default function ClientOrders() {
         onClose={() => navigate(`/portal/${companySlug}/orders`)}
         primaryColor={primaryColor}
         onViewInvoice={(invoice) => navigate(`/portal/${companySlug}/invoices/${invoice.id}`)}
+        clientUser={clientUser}
+        companyId={portalData?.company?.id}
       />
     );
   }

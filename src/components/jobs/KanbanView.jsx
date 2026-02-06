@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, memo } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,8 @@ const priorityConfig = {
   emergency: { color: "border-red-500" }
 };
 
-const JobCard = ({ job, client, server, index }) => (
+// PERFORMANCE: Wrap with React.memo to prevent unnecessary re-renders
+const JobCard = memo(({ job, client, server, index }) => (
   <Draggable draggableId={job.id} index={index}>
     {(provided) => (
       <div
@@ -48,7 +49,7 @@ const JobCard = ({ job, client, server, index }) => (
       </div>
     )}
   </Draggable>
-);
+));
 
 export default function KanbanView({ jobs, clients, employees, onJobStatusChange, isLoading, statusColumns = [] }) {
   const [columns, setColumns] = useState({});
@@ -70,10 +71,23 @@ export default function KanbanView({ jobs, clients, employees, onJobStatusChange
     setColumns(groupedJobs);
   }, [jobs, statusColumns]);
 
-  const getClientName = (clientId) => clients.find(c => c.id === clientId);
+  // PERFORMANCE: Create lookup Maps to avoid O(n) .find() on every render
+  const clientsMap = useMemo(() => {
+    const map = new Map();
+    clients.forEach(c => map.set(c.id, c));
+    return map;
+  }, [clients]);
+
+  const employeesMap = useMemo(() => {
+    const map = new Map();
+    employees.forEach(e => map.set(e.id, e));
+    return map;
+  }, [employees]);
+
+  const getClientName = (clientId) => clientsMap.get(clientId);
   const getServerName = (serverId) => {
     if (!serverId) return 'Unassigned';
-    const server = employees.find(e => e.id === serverId);
+    const server = employeesMap.get(serverId);
     return server ? `${server.first_name} ${server.last_name}` : 'Unknown';
   };
 
