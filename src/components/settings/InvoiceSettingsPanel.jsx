@@ -8,10 +8,12 @@ import { Plus, X, Pencil, Save, Star } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { CompanyManager } from '@/firebase/schemas';
 import { useGlobalData } from '@/components/GlobalDataContext';
+import { useToast } from '@/components/ui/use-toast';
 
 export default function InvoiceSettingsPanel() {
   const { user } = useAuth();
   const { companyData, refreshData } = useGlobalData();
+  const { toast } = useToast();
   const [invoiceSettings, setInvoiceSettings] = useState({
     invoice_for_printing: false,
     per_page_copy_rate: 0.25,
@@ -20,6 +22,8 @@ export default function InvoiceSettingsPanel() {
     service_fee: 75,
     rush_fee: 50,
     emergency_fee: 150,
+    credit_card_fee_enabled: false,
+    credit_card_fee_percent: 0,
     invoice_presets: []
   });
   const [isSaving, setIsSaving] = useState(false);
@@ -50,7 +54,7 @@ export default function InvoiceSettingsPanel() {
 
   const handleAddPreset = () => {
     if (!newPreset.description || !newPreset.default_amount) {
-      alert('Please enter both description and amount');
+      toast({ variant: "destructive", title: "Missing fields", description: "Please enter both description and amount" });
       return;
     }
 
@@ -101,7 +105,7 @@ export default function InvoiceSettingsPanel() {
 
   const handleSave = async () => {
     if (!user?.company_id) {
-      alert("No company associated with user");
+      toast({ variant: "destructive", title: "Error", description: "No company associated with user" });
       return;
     }
 
@@ -112,10 +116,10 @@ export default function InvoiceSettingsPanel() {
       });
       // Refresh global data to update all components using company settings
       await refreshData();
-      alert("Invoice settings saved successfully!");
+      toast({ variant: "success", title: "Settings saved successfully", description: "Your invoice settings have been updated" });
     } catch (error) {
       console.error("Error saving invoice settings:", error);
-      alert("Failed to save invoice settings");
+      toast({ variant: "destructive", title: "Error", description: "Failed to save invoice settings" });
     }
     setIsSaving(false);
   };
@@ -185,6 +189,64 @@ export default function InvoiceSettingsPanel() {
           )}
         </CardContent>
       </Card>
+
+      {/* Credit Card Fee Settings - Admin Only */}
+      {(user?.employee_role === 'admin' || user?.user_type === 'company_owner') && (
+        <Card>
+          <CardContent className="pt-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-base font-semibold">Credit Card Processing Fee</Label>
+                <p className="text-sm text-slate-500">
+                  Pass credit card processing costs to clients who pay by card
+                </p>
+              </div>
+              <Switch
+                checked={invoiceSettings.credit_card_fee_enabled}
+                onCheckedChange={() => handleToggle('credit_card_fee_enabled')}
+              />
+            </div>
+
+            {invoiceSettings.credit_card_fee_enabled && (
+              <div>
+                <Label htmlFor="credit_card_fee_percent">Fee Percentage (%)</Label>
+                <Input
+                  id="credit_card_fee_percent"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="e.g. 3.95"
+                  value={invoiceSettings.credit_card_fee_percent || ''}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    // Allow empty (user clearing field)
+                    if (raw === '') {
+                      handleChange('credit_card_fee_percent', '');
+                      return;
+                    }
+                    // Only allow digits and one decimal point, max 2 decimal places
+                    // No leading zeros before other digits (allow "0" and "0." but not "07")
+                    if (!/^(0|[1-9]\d*)?\.?\d{0,2}$/.test(raw)) return;
+                    // Block values above 7
+                    const num = parseFloat(raw);
+                    if (!isNaN(num) && num > 7) return;
+                    handleChange('credit_card_fee_percent', raw);
+                  }}
+                  onBlur={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (isNaN(val) || val <= 0) {
+                      handleChange('credit_card_fee_percent', 0);
+                    } else {
+                      handleChange('credit_card_fee_percent', Math.min(7, Math.round(val * 100) / 100));
+                    }
+                  }}
+                  className="max-w-xs"
+                />
+                <p className="text-xs text-slate-400 mt-1">Maximum 7%. This fee is added as a separate line item at Stripe checkout.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Invoice Presets */}
       <Card>

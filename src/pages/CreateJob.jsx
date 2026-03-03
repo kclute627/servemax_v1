@@ -56,7 +56,7 @@ import {
   ClipboardList,
   Receipt
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { geocodeAddress } from "@/utils/googlePlaces";
 import { findCourtByName, addCourtToUniversal } from "@/firebase/universalCourts";
@@ -82,51 +82,82 @@ import { InvoiceManager } from "@/firebase/invoiceManager";
 
 export default function CreateJobPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { companyData, companySettings, refreshData } = useGlobalData();
   const { toast } = useToast();
+
+  // Check for duplicate job data passed via navigation state
+  const duplicateFrom = location.state?.duplicateFrom || null;
 
   // Refresh data on mount
   useEffect(() => {
     refreshData();
   }, []);
-  const [formData, setFormData] = useState({
-    job_type: JOB_TYPES.PROCESS_SERVING, // Default to process serving
-    client_id: "",
-    client_job_number: "",
-    contact_id: "",
-    contact_email: "",
-    plaintiff: "",
-    defendant: "",
-    case_number: "",
-    court_name: "",
-    court_county: "",
-    court_address: {},
-    recipient_name: "",
-    recipient_type: "individual",
-    // Updated to support multiple addresses
-    addresses: [{
-      label: "Service Address",
-      address1: "",
-      address2: "",
-      city: "",
-      state: "",
-      postal_code: "",
-      latitude: null,
-      longitude: null,
-      primary: true
-    }],
-    service_instructions: "",
-    server_type: "employee",
-    assigned_server_id: "unassigned",
-    priority: "standard",
-    due_date: "",
-    first_attempt_instructions: "",
-    first_attempt_due_date: "",
-    service_fee: 0,
-    rush_fee: 0,
-    mileage_fee: 0,
-    server_pay_items: []
+  const [formData, setFormData] = useState(() => {
+    const defaults = {
+      job_type: JOB_TYPES.PROCESS_SERVING,
+      client_id: "",
+      client_job_number: "",
+      contact_id: "",
+      contact_email: "",
+      plaintiff: "",
+      defendant: "",
+      case_number: "",
+      court_name: "",
+      court_county: "",
+      court_address: {},
+      recipient_name: "",
+      recipient_type: "individual",
+      addresses: [{
+        label: "Service Address",
+        address1: "",
+        address2: "",
+        city: "",
+        state: "",
+        postal_code: "",
+        latitude: null,
+        longitude: null,
+        primary: true
+      }],
+      service_instructions: "",
+      server_type: "employee",
+      assigned_server_id: "unassigned",
+      priority: "standard",
+      due_date: "",
+      first_attempt_instructions: "",
+      first_attempt_due_date: "",
+      service_fee: 0,
+      rush_fee: 0,
+      mileage_fee: 0,
+      server_pay_items: []
+    };
+
+    if (duplicateFrom) {
+      return {
+        ...defaults,
+        job_type: duplicateFrom.job_type || defaults.job_type,
+        client_id: duplicateFrom.client_id || "",
+        client_job_number: duplicateFrom.client_job_number || "",
+        contact_email: duplicateFrom.contact_email || "",
+        plaintiff: duplicateFrom.plaintiff || "",
+        defendant: duplicateFrom.defendant || "",
+        case_number: duplicateFrom.case_number || "",
+        court_name: duplicateFrom.court_name || "",
+        court_county: duplicateFrom.court_county || "",
+        court_address: duplicateFrom.court_address || {},
+        recipient_name: duplicateFrom.recipient_name || "",
+        recipient_type: duplicateFrom.recipient_type || "individual",
+        addresses: duplicateFrom.addresses || defaults.addresses,
+        service_instructions: duplicateFrom.service_instructions || "",
+        priority: duplicateFrom.priority || "standard",
+        first_attempt_instructions: duplicateFrom.first_attempt_instructions || "",
+        server_type: duplicateFrom.server_type || "employee",
+        assigned_server_id: duplicateFrom.assigned_server_id || "unassigned",
+      };
+    }
+
+    return defaults;
   });
 
   const [employees, setEmployees] = useState([]);
@@ -157,6 +188,7 @@ export default function CreateJobPage() {
   ]);
   const [contractorSearchText, setContractorSearchText] = useState("");
   const [selectedContractor, setSelectedContractor] = useState(null);
+  const [manualServerName, setManualServerName] = useState("");
   const [selectedCase, setSelectedCase] = useState(null); // New state
   const [isEditingCase, setIsEditingCase] = useState(false); // New state for case editing
   const [showCaseEditWarning, setShowCaseEditWarning] = useState(false); // New state for case warning dialog
@@ -164,6 +196,59 @@ export default function CreateJobPage() {
   const [courtFromExtraction, setCourtFromExtraction] = useState(false); // Flag to skip autocomplete when court is from AI extraction
   const [showPDFViewer, setShowPDFViewer] = useState(false); // PDF viewer visibility
   const [pdfViewerWidth, setPdfViewerWidth] = useState(35); // PDF viewer width as percentage (min 25, max 75)
+
+  // Pre-populate form when duplicating a job
+  useEffect(() => {
+    if (!duplicateFrom) return;
+
+    // Set up client selection
+    if (duplicateFrom._client) {
+      const client = duplicateFrom._client;
+      setSelectedClient(client);
+      setClientContacts(client.contacts || []);
+      setClientSearchText(client.company_name || "");
+    }
+
+    // Set up court case selection (re-link to same case)
+    if (duplicateFrom._courtCase) {
+      const cc = duplicateFrom._courtCase;
+      setSelectedCase(cc);
+      // If the case has court info, set up the court display
+      if (duplicateFrom.court_name) {
+        const courtObj = {
+          id: cc.court_id || null,
+          branch_name: duplicateFrom.court_name,
+          county: duplicateFrom.court_county,
+          address: duplicateFrom.court_address || {}
+        };
+        setSelectedCourtFromAutocomplete(courtObj);
+        if (courtObj.address?.address1) {
+          setShowCourtDetails(true);
+        }
+      }
+    } else if (duplicateFrom.court_name) {
+      // No case object but court info exists - set court for display
+      const courtObj = {
+        branch_name: duplicateFrom.court_name,
+        county: duplicateFrom.court_county,
+        address: duplicateFrom.court_address || {}
+      };
+      setSelectedCourtFromAutocomplete(courtObj);
+      if (courtObj.address?.address1) {
+        setShowCourtDetails(true);
+      }
+    }
+
+    // Set up server assignment if it was a contractor
+    if (duplicateFrom.server_type === "contractor" && duplicateFrom.assigned_server_id && duplicateFrom.assigned_server_id !== "unassigned") {
+      setContractorSearchText(duplicateFrom.assigned_server_id);
+    }
+
+    toast({
+      title: "Duplicating Job",
+      description: "Form pre-filled from existing job. Update the address and recipient, then hit Create.",
+    });
+  }, []); // Only run on mount
 
   // Section navigation (competitor-style): click any section to jump there (no gating)
   const enabledJobTypes = useMemo(
@@ -310,7 +395,7 @@ export default function CreateJobPage() {
 
   const loadPrioritySettings = async () => {
     try {
-      const settings = await CompanySettings.filter({ setting_key: "job_priorities" });
+      const settings = await CompanySettings.filter({ setting_key: "job_priorities", company_id: user?.company_id });
       if (settings.length > 0 && settings[0].setting_value && settings[0].setting_value.priorities) {
         const loadedPriorities = settings[0].setting_value.priorities;
         if (Array.isArray(loadedPriorities) && loadedPriorities.length > 0) {
@@ -1364,8 +1449,11 @@ export default function CreateJobPage() {
 
       // Fix for Assigned Server Display: Ensure assigned_server_id is always a string ('unassigned' or actual ID)
       // For court reporting jobs, there's no server_type, so default to unassigned
+      // For manual entry, store 'manual' so we know it was a manually entered name
       const serverIdForSubmission = formData.job_type === JOB_TYPES.PROCESS_SERVING
-        ? ((formData.assigned_server_id === "unassigned" || !formData.assigned_server_id) ? "unassigned" : String(formData.assigned_server_id))
+        ? ((formData.assigned_server_id === "unassigned" || !formData.assigned_server_id) ? "unassigned"
+          : formData.assigned_server_id === "manual" ? "manual"
+          : String(formData.assigned_server_id))
         : "unassigned";
 
       const totalServerPay = formData.job_type === JOB_TYPES.PROCESS_SERVING
@@ -1414,7 +1502,9 @@ export default function CreateJobPage() {
 
       // Determine server name based on server type for field sheet
       let serverNameForJob = "Unassigned";
-      if (serverIdForSubmission !== "unassigned") {
+      if (serverIdForSubmission === "manual") {
+        serverNameForJob = manualServerName.trim() || "Unassigned";
+      } else if (serverIdForSubmission !== "unassigned") {
         if (formData.server_type === 'employee') {
           const server = employees.find(e => String(e.id) === serverIdForSubmission);
           serverNameForJob = server ? `${server.first_name} ${server.last_name}` : "Unknown";
@@ -2007,6 +2097,10 @@ export default function CreateJobPage() {
                                     setIsNewClient(false);
                                     setNewClientName("");
                                   }
+                                }}
+                                onUseAsNewClient={(name) => {
+                                  setIsNewClient(true);
+                                  setNewClientName(name);
                                 }}
                                 selectedClient={selectedClient}
                               />
@@ -2632,19 +2726,36 @@ export default function CreateJobPage() {
                                 Assign To {formData.server_type === 'employee' ? 'Employee' : 'Contractor'}
                               </Label>
                               {formData.server_type === 'employee' ? (
-                                <select
-                                  id="assigned_server_id"
-                                  value={String(formData.assigned_server_id || 'unassigned')}
-                                  onChange={(e) => handleInputChange('assigned_server_id', e.target.value)}
-                                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  <option value="unassigned">Unassigned</option>
-                                  {employees.map(employee => (
-                                    <option key={employee.id} value={String(employee.id)}>
-                                      {employee.first_name} {employee.last_name} {employee.is_default_server ? '★' : ''}
-                                    </option>
-                                  ))}
-                                </select>
+                                <>
+                                  <select
+                                    id="assigned_server_id"
+                                    value={String(formData.assigned_server_id || 'unassigned')}
+                                    onChange={(e) => {
+                                      handleInputChange('assigned_server_id', e.target.value);
+                                      if (e.target.value !== 'manual') {
+                                        setManualServerName("");
+                                      }
+                                    }}
+                                    className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    <option value="unassigned">Unassigned</option>
+                                    {employees.map(employee => (
+                                      <option key={employee.id} value={String(employee.id)}>
+                                        {employee.first_name} {employee.last_name} {employee.is_default_server ? '★' : ''}
+                                      </option>
+                                    ))}
+                                    <option value="manual">Enter name manually...</option>
+                                  </select>
+                                  {formData.assigned_server_id === 'manual' && (
+                                    <Input
+                                      value={manualServerName}
+                                      onChange={(e) => setManualServerName(e.target.value)}
+                                      placeholder="Enter server name"
+                                      className="mt-2"
+                                      autoFocus
+                                    />
+                                  )}
+                                </>
                               ) : (
                                 <ContractorSearchInput
                                   value={contractorSearchText}

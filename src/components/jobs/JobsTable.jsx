@@ -98,6 +98,7 @@ const sharedStatusConfig = {
 const priorityConfig = {
   standard: { color: "bg-slate-100 text-slate-700" },
   rush: { color: "bg-orange-100 text-orange-700" },
+  same_day: { color: "bg-red-100 text-red-700" },
   emergency: { color: "bg-red-100 text-red-700" }
 };
 
@@ -275,8 +276,9 @@ const JobsTableRow = memo(function JobsTableRow({
       className={`hover:bg-slate-50 transition-colors ${
         job.is_closed ? 'opacity-60 bg-slate-100' :
         isSelected ? 'bg-blue-50' :
-        job.priority === 'emergency' ? 'bg-red-50' :
-        job.priority === 'rush' ? 'bg-orange-50' : ''
+        job.priority === 'same_day' ? 'bg-red-50 border-l-4 border-l-red-400' :
+        job.priority === 'emergency' ? 'bg-red-50 border-l-4 border-l-red-400' :
+        job.priority === 'rush' ? 'bg-orange-50 border-l-4 border-l-orange-400' : ''
       }`}
     >
       <TableCell>
@@ -383,7 +385,7 @@ const JobsTableRow = memo(function JobsTableRow({
           )}
         </div>
       </TableCell>
-      <TableCell className="text-slate-700 text-[18px]">
+      <TableCell className="text-slate-700 text-[18px] capitalize">
           {getClientName(job.client_id)}
       </TableCell>
       <TableCell>

@@ -6358,15 +6358,15 @@ exports.sendEmail = onCall(
           });
         }
 
-        // Build from address
-        const fromEmail = from || companyData.email || "info@nationwide-investigations.com";
+        // Build from address - always use verified sender, company email goes to reply-to
+        const fromEmail = "info@nationwide-investigations.com";
         const msg = {
           to: to,
           from: {
             email: fromEmail,
-            name: companyData.name || companyData.company_name || "ServeMax",
+            name: companyData.name || companyData.company_name || "Diligence",
           },
-          replyTo: replyTo || (companyData.email && companyData.email !== fromEmail ? companyData.email : undefined),
+          replyTo: replyTo || companyData.email || undefined,
           subject: subject,
           html: html,
         };
@@ -8744,6 +8744,297 @@ exports.createBillingPortalSession = onCall({
 });
 
 /**
+ * Create or Update Pricing Plan with Stripe Sync
+ * Saves plan to Firestore and creates/updates Stripe Product + Price
+ * Super admin only
+ * @param {Object} data - { planId?, planData }
+ * @returns {Object} - { plan, stripeProductId?, stripePriceId? }
+ */
+exports.createOrUpdatePricingPlan = onCall({
+  secrets: [stripeSecretKey],
+}, async (request) => {
+  try {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    // Check if super admin
+    const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+    if (!userDoc.exists || !userDoc.data().is_super_admin) {
+      throw new HttpsError("permission-denied", "Only super admins can manage pricing plans");
+    }
+
+    const {planId, planData} = request.data;
+
+    if (!planData || !planData.name) {
+      throw new HttpsError("invalid-argument", "Plan data with name is required");
+    }
+
+    const stripe = getStripe(stripeSecretKey.value());
+    const db = admin.firestore();
+
+    // Prepare plan data
+    const plan = {
+      name: planData.name,
+      job_limit: parseInt(planData.job_limit) || 0,
+      monthly_price: parseFloat(planData.monthly_price) || 0,
+      features: planData.features || [],
+      is_custom: planData.is_custom || false,
+      is_free: planData.is_free || planData.monthly_price === 0 || planData.monthly_price === "0",
+      is_visible_on_home: planData.is_visible_on_home !== false,
+      assigned_companies: planData.assigned_companies || [],
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    let docRef;
+    let existingPlan = null;
+
+    if (planId) {
+      // Update existing plan
+      docRef = db.collection("pricing_plans").doc(planId);
+      const existingDoc = await docRef.get();
+      if (existingDoc.exists) {
+        existingPlan = existingDoc.data();
+      }
+    } else {
+      // Create new plan
+      plan.created_at = admin.firestore.FieldValue.serverTimestamp();
+      docRef = db.collection("pricing_plans").doc();
+    }
+
+    // Handle Stripe sync for non-free, non-custom plans
+    if (!plan.is_free && !plan.is_custom && plan.monthly_price > 0) {
+      let productId = existingPlan?.stripe_product_id;
+      let priceId = existingPlan?.stripe_price_id;
+      const priceInCents = Math.round(plan.monthly_price * 100);
+
+      // Create or update product
+      if (!productId) {
+        const product = await stripe.products.create({
+          name: plan.name,
+          metadata: {
+            plan_id: docRef.id,
+            job_limit: String(plan.job_limit),
+          },
+        });
+        productId = product.id;
+      } else {
+        await stripe.products.update(productId, {
+          name: plan.name,
+          metadata: {
+            plan_id: docRef.id,
+            job_limit: String(plan.job_limit),
+          },
+        });
+      }
+
+      // Check if price changed - if so, create new price (Stripe prices are immutable)
+      const existingPriceInCents = existingPlan ? Math.round((existingPlan.monthly_price || 0) * 100) : 0;
+
+      if (!priceId || priceInCents !== existingPriceInCents) {
+        // Archive old price if exists
+        if (priceId) {
+          try {
+            await stripe.prices.update(priceId, {active: false});
+          } catch (e) {
+            console.log("Could not archive old price:", e.message);
+          }
+        }
+
+        // Create new price
+        const price = await stripe.prices.create({
+          product: productId,
+          unit_amount: priceInCents,
+          currency: "usd",
+          recurring: {interval: "month"},
+          metadata: {
+            plan_id: docRef.id,
+          },
+        });
+        priceId = price.id;
+      }
+
+      plan.stripe_product_id = productId;
+      plan.stripe_price_id = priceId;
+
+      console.log(`[createOrUpdatePricingPlan] Synced plan "${plan.name}" to Stripe: product=${productId}, price=${priceId}`);
+    } else {
+      // Free or custom plan - no Stripe sync needed
+      plan.stripe_product_id = null;
+      plan.stripe_price_id = null;
+      console.log(`[createOrUpdatePricingPlan] Saved ${plan.is_free ? "free" : "custom"} plan "${plan.name}" (no Stripe sync)`);
+    }
+
+    // Save to Firestore
+    await docRef.set(plan, {merge: true});
+
+    return {
+      success: true,
+      planId: docRef.id,
+      plan: {
+        id: docRef.id,
+        ...plan,
+      },
+    };
+  } catch (error) {
+    console.error("[createOrUpdatePricingPlan] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to save pricing plan: ${error.message}`);
+  }
+});
+
+/**
+ * Delete Pricing Plan
+ * Removes plan from Firestore and archives Stripe product/price
+ * Super admin only
+ * @param {Object} data - { planId }
+ */
+exports.deletePricingPlan = onCall({
+  secrets: [stripeSecretKey],
+}, async (request) => {
+  try {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    // Check if super admin
+    const userDoc = await admin.firestore().collection("users").doc(request.auth.uid).get();
+    if (!userDoc.exists || !userDoc.data().is_super_admin) {
+      throw new HttpsError("permission-denied", "Only super admins can delete pricing plans");
+    }
+
+    const {planId} = request.data;
+    if (!planId) {
+      throw new HttpsError("invalid-argument", "Plan ID is required");
+    }
+
+    const db = admin.firestore();
+    const planDoc = await db.collection("pricing_plans").doc(planId).get();
+
+    if (!planDoc.exists) {
+      throw new HttpsError("not-found", "Pricing plan not found");
+    }
+
+    const plan = planDoc.data();
+
+    // Archive Stripe product and price if they exist
+    if (plan.stripe_product_id || plan.stripe_price_id) {
+      const stripe = getStripe(stripeSecretKey.value());
+
+      if (plan.stripe_price_id) {
+        try {
+          await stripe.prices.update(plan.stripe_price_id, {active: false});
+        } catch (e) {
+          console.log("Could not archive Stripe price:", e.message);
+        }
+      }
+
+      if (plan.stripe_product_id) {
+        try {
+          await stripe.products.update(plan.stripe_product_id, {active: false});
+        } catch (e) {
+          console.log("Could not archive Stripe product:", e.message);
+        }
+      }
+    }
+
+    // Delete from Firestore
+    await db.collection("pricing_plans").doc(planId).delete();
+
+    console.log(`[deletePricingPlan] Deleted plan ${planId}`);
+
+    return {success: true};
+  } catch (error) {
+    console.error("[deletePricingPlan] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to delete pricing plan: ${error.message}`);
+  }
+});
+
+/**
+ * Activate Free Subscription
+ * Activates a free tier subscription without requiring payment
+ * @param {Object} data - { planId, companyId }
+ */
+exports.activateFreeSubscription = onCall({}, async (request) => {
+  try {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "User must be authenticated");
+    }
+
+    const {planId, companyId} = request.data;
+
+    if (!planId || !companyId) {
+      throw new HttpsError("invalid-argument", "Plan ID and Company ID are required");
+    }
+
+    const db = admin.firestore();
+
+    // Verify the plan is free
+    const planDoc = await db.collection("pricing_plans").doc(planId).get();
+    if (!planDoc.exists) {
+      throw new HttpsError("not-found", "Pricing plan not found");
+    }
+
+    const plan = planDoc.data();
+    if (!plan.is_free && plan.monthly_price > 0) {
+      throw new HttpsError("invalid-argument", "This plan requires payment");
+    }
+
+    // Verify user has access to this company
+    const userDoc = await db.collection("users").doc(request.auth.uid).get();
+    const user = userDoc.data();
+    if (user.company_id !== companyId && !user.is_super_admin) {
+      throw new HttpsError("permission-denied", "You don't have access to this company");
+    }
+
+    // Update company with free subscription
+    await db.collection("companies").doc(companyId).update({
+      billing_tier: "free",
+      subscription_status: "active",
+      plan_name: plan.name,
+      plan_id: planId,
+      monthly_job_limit: plan.job_limit,
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Create subscription record
+    await db.collection("subscriptions").add({
+      company_id: companyId,
+      plan_id: planId,
+      plan_name: plan.name,
+      status: "active",
+      price_per_month: 0,
+      job_limit: plan.job_limit,
+      is_free: true,
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`[activateFreeSubscription] Activated free plan "${plan.name}" for company ${companyId}`);
+
+    return {
+      success: true,
+      subscription: {
+        planName: plan.name,
+        jobLimit: plan.job_limit,
+        status: "active",
+      },
+    };
+  } catch (error) {
+    console.error("[activateFreeSubscription] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to activate free subscription: ${error.message}`);
+  }
+});
+
+/**
  * Sync Pricing Plans with Stripe
  * Creates/updates Stripe Products and Prices for all pricing plans
  * Super admin only
@@ -9088,9 +9379,12 @@ exports.createInvoicePaymentCheckout = onCall({
       throw new HttpsError("failed-precondition", "Invoice is cancelled");
     }
 
-    const amountDue = invoice.amount_outstanding || invoice.total_amount - (invoice.amount_paid || 0);
-    if (amountDue <= 0) {
-      throw new HttpsError("failed-precondition", "No amount due on this invoice");
+    // Handle both `total_amount` and `total` field names for compatibility
+    const totalAmount = invoice.total_amount || invoice.total || 0;
+    const amountDue = invoice.amount_outstanding || (totalAmount - (invoice.amount_paid || 0));
+
+    if (isNaN(amountDue) || amountDue <= 0) {
+      throw new HttpsError("failed-precondition", `No valid amount due on this invoice (total: ${totalAmount}, paid: ${invoice.amount_paid || 0})`);
     }
 
     // Get company data
@@ -9111,8 +9405,21 @@ exports.createInvoicePaymentCheckout = onCall({
 
     // Calculate amounts
     const amountInCents = Math.round(amountDue * 100);
+
+    // Check for credit card processing fee
+    const ccFeeEnabled = company.invoice_settings?.credit_card_fee_enabled === true;
+    const ccFeePercent = parseFloat(company.invoice_settings?.credit_card_fee_percent) || 0;
+    let feeAmountInCents = 0;
+    let feeAmount = 0;
+
+    if (ccFeeEnabled && ccFeePercent > 0 && ccFeePercent <= 7) {
+      feeAmount = Math.round(amountDue * (ccFeePercent / 100) * 100) / 100;
+      feeAmountInCents = Math.round(feeAmount * 100);
+    }
+
+    const totalAmountInCents = amountInCents + feeAmountInCents;
     const platformFeePercent = company.platform_fee_percentage || 2.9;
-    const applicationFeeInCents = Math.round(amountInCents * (platformFeePercent / 100));
+    const applicationFeeInCents = Math.round(totalAmountInCents * (platformFeePercent / 100));
 
     // Get client name for description
     let clientName = "Client";
@@ -9123,42 +9430,71 @@ exports.createInvoicePaymentCheckout = onCall({
       }
     }
 
+    // Build line items
+    const lineItems = [{
+      price_data: {
+        currency: "usd",
+        product_data: {
+          name: `Invoice ${invoice.invoice_number || invoiceId}`,
+          description: `Payment for services - ${company.name}`,
+        },
+        unit_amount: amountInCents,
+      },
+      quantity: 1,
+    }];
+
+    if (feeAmountInCents > 0) {
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Credit Card Processing Fee",
+            description: `${ccFeePercent}% processing fee`,
+          },
+          unit_amount: feeAmountInCents,
+        },
+        quantity: 1,
+      });
+    }
+
+    // Build metadata
+    const sessionMetadata = {
+      invoice_id: invoiceId,
+      company_id: invoice.company_id,
+      type: "invoice_payment",
+    };
+
+    const paymentIntentMetadata = {
+      invoice_id: invoiceId,
+      company_id: invoice.company_id,
+      client_id: invoice.client_id || "",
+    };
+
+    if (feeAmountInCents > 0) {
+      sessionMetadata.credit_card_fee_amount = String(feeAmount);
+      sessionMetadata.credit_card_fee_percent = String(ccFeePercent);
+      paymentIntentMetadata.credit_card_fee_amount = String(feeAmount);
+      paymentIntentMetadata.credit_card_fee_percent = String(ccFeePercent);
+    }
+
     // Create checkout session
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
-      line_items: [{
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: `Invoice ${invoice.invoice_number || invoiceId}`,
-            description: `Payment for services - ${company.name}`,
-          },
-          unit_amount: amountInCents,
-        },
-        quantity: 1,
-      }],
+      line_items: lineItems,
       payment_intent_data: {
         application_fee_amount: applicationFeeInCents,
         transfer_data: {
           destination: company.stripe_connect_account_id,
         },
-        metadata: {
-          invoice_id: invoiceId,
-          company_id: invoice.company_id,
-          client_id: invoice.client_id || "",
-        },
+        metadata: paymentIntentMetadata,
       },
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: {
-        invoice_id: invoiceId,
-        company_id: invoice.company_id,
-        type: "invoice_payment",
-      },
+      metadata: sessionMetadata,
     });
 
-    console.log(`[createInvoicePaymentCheckout] Session created for invoice ${invoiceId}, amount: $${amountDue}`);
+    console.log(`[createInvoicePaymentCheckout] Session created for invoice ${invoiceId}, amount: $${amountDue}${feeAmountInCents > 0 ? `, cc fee: $${feeAmount}` : ""}`);
 
     return {
       sessionId: session.id,
@@ -9170,6 +9506,86 @@ exports.createInvoicePaymentCheckout = onCall({
       throw error;
     }
     throw new HttpsError("internal", `Failed to create payment checkout: ${error.message}`);
+  }
+});
+
+/**
+ * Get Invoice by Payment Token
+ * Public endpoint - no authentication required
+ * Used for the public invoice payment page
+ * @param {Object} data - { token }
+ * @returns {Object} - { invoice, company }
+ */
+exports.getInvoiceByPaymentToken = onCall({}, async (request) => {
+  try {
+    const {token} = request.data;
+
+    if (!token) {
+      throw new HttpsError("invalid-argument", "Payment token is required");
+    }
+
+    // Find invoice by payment token
+    const invoicesSnapshot = await admin.firestore()
+        .collection("invoices")
+        .where("payment_token", "==", token)
+        .limit(1)
+        .get();
+
+    if (invoicesSnapshot.empty) {
+      throw new HttpsError("not-found", "Invoice not found or link has expired");
+    }
+
+    const invoiceDoc = invoicesSnapshot.docs[0];
+    const invoice = {
+      id: invoiceDoc.id,
+      ...invoiceDoc.data(),
+    };
+
+    // Sanitize NaN values (can occur if total_amount vs total field mismatch)
+    Object.keys(invoice).forEach((key) => {
+      if (typeof invoice[key] === "number" && isNaN(invoice[key])) {
+        invoice[key] = 0;
+      }
+    });
+
+    // Remove sensitive fields
+    delete invoice.payment_token;
+
+    // Get company info (limited fields for public display)
+    const companyDoc = await admin.firestore()
+        .collection("companies")
+        .doc(invoice.company_id)
+        .get();
+
+    let company = null;
+    if (companyDoc.exists) {
+      const companyData = companyDoc.data();
+      company = {
+        id: companyDoc.id,
+        name: companyData.name,
+        email: companyData.email,
+        phone: companyData.phone,
+        logo_url: companyData.logo_url,
+        stripe_connect_account_id: companyData.stripe_connect_account_id,
+        stripe_connect_status: companyData.stripe_connect_status,
+        stripe_connect_charges_enabled: companyData.stripe_connect_charges_enabled,
+        credit_card_fee_enabled: companyData.invoice_settings?.credit_card_fee_enabled || false,
+        credit_card_fee_percent: companyData.invoice_settings?.credit_card_fee_percent || 0,
+      };
+    }
+
+    console.log(`[getInvoiceByPaymentToken] Invoice ${invoiceDoc.id} retrieved via token`);
+
+    return {
+      invoice,
+      company,
+    };
+  } catch (error) {
+    console.error("[getInvoiceByPaymentToken] Error:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", `Failed to retrieve invoice: ${error.message}`);
   }
 });
 
@@ -9446,15 +9862,44 @@ exports.stripeConnectWebhook = onRequest({
           // Get payment intent for details
           const paymentIntent = await stripe.paymentIntents.retrieve(session.payment_intent);
 
+          // Get charge to retrieve receipt URL
+          let receiptUrl = null;
+          if (paymentIntent.latest_charge) {
+            try {
+              const charge = await stripe.charges.retrieve(paymentIntent.latest_charge);
+              receiptUrl = charge.receipt_url || null;
+            } catch (chargeError) {
+              console.log(`[stripeConnectWebhook] Could not retrieve charge: ${chargeError.message}`);
+            }
+          }
+
           // Get invoice
           const invoiceDoc = await admin.firestore().collection("invoices").doc(invoiceId).get();
           if (invoiceDoc.exists) {
             const invoice = invoiceDoc.data();
             const amountPaid = paymentIntent.amount / 100;
 
-            // Calculate new amounts
+            // Check for credit card fee from session metadata
+            const ccFeeAmount = parseFloat(session.metadata?.credit_card_fee_amount) || 0;
+            const ccFeePercent = parseFloat(session.metadata?.credit_card_fee_percent) || 0;
+
+            // Calculate new amounts - handle both `total_amount` and `total` field names
+            let invoiceTotal = invoice.total_amount || invoice.total || 0;
+            let updatedLineItems = invoice.line_items || [];
+
+            // If a credit card fee was charged, add it to the invoice
+            if (ccFeeAmount > 0) {
+              updatedLineItems = [...updatedLineItems, {
+                description: "Credit Card Processing Fee",
+                quantity: 1,
+                rate: ccFeeAmount,
+                amount: ccFeeAmount,
+              }];
+              invoiceTotal = invoiceTotal + ccFeeAmount;
+            }
+
             const newAmountPaid = (invoice.amount_paid || 0) + amountPaid;
-            const newAmountOutstanding = invoice.total_amount - newAmountPaid;
+            const newAmountOutstanding = invoiceTotal - newAmountPaid;
             const newStatus = newAmountOutstanding <= 0 ? "paid" : "partially_paid";
 
             // Create payment record
@@ -9469,21 +9914,36 @@ exports.stripeConnectWebhook = onRequest({
               stripe_payment_intent_id: paymentIntent.id,
               stripe_checkout_session_id: session.id,
               stripe_charge_id: paymentIntent.latest_charge,
-              stripe_receipt_url: null, // Will be updated when charge is retrieved
+              stripe_receipt_url: receiptUrl,
               stripe_application_fee: paymentIntent.application_fee_amount / 100,
               payment_status: "succeeded",
               created_at: admin.firestore.FieldValue.serverTimestamp(),
               updated_at: admin.firestore.FieldValue.serverTimestamp(),
             });
 
-            // Update invoice
-            await admin.firestore().collection("invoices").doc(invoiceId).update({
+            // Build invoice update
+            const invoiceUpdate = {
               amount_paid: newAmountPaid,
               amount_outstanding: newAmountOutstanding,
+              balance_due: newAmountOutstanding, // Also update balance_due for frontend compatibility
               status: newStatus,
               last_payment_date: new Date(),
+              stripe_payment_intent_id: paymentIntent.id,
+              stripe_receipt_url: receiptUrl,
               updated_at: admin.firestore.FieldValue.serverTimestamp(),
-            });
+            };
+
+            // Include credit card fee data if applicable
+            if (ccFeeAmount > 0) {
+              invoiceUpdate.line_items = updatedLineItems;
+              invoiceUpdate.total_amount = invoiceTotal;
+              invoiceUpdate.total = invoiceTotal;
+              invoiceUpdate.credit_card_fee_amount = ccFeeAmount;
+              invoiceUpdate.credit_card_fee_percent = ccFeePercent;
+            }
+
+            // Update invoice with payment info and receipt URL
+            await admin.firestore().collection("invoices").doc(invoiceId).update(invoiceUpdate);
 
             console.log(`[stripeConnectWebhook] Payment recorded for invoice ${invoiceId}: $${amountPaid}`);
 
@@ -9756,3 +10216,944 @@ async function createJobNoteNotification(job, note, authorType) {
 
   console.log(`[createJobNoteNotification] Created ${notificationTargets.length} notifications`);
 }
+
+// ============================================================================
+// ServeManager Data Import Functions
+// ============================================================================
+
+/**
+ * ServeManager API helper - makes authenticated requests
+ * @param {string} apiKey - ServeManager API key
+ * @param {string} endpoint - API endpoint (e.g., '/account', '/jobs')
+ * @param {Object} params - Query parameters
+ * @returns {Promise<Object>} API response data
+ */
+async function serveManagerRequest(apiKey, endpoint, params = {}) {
+  const baseUrl = "https://www.servemanager.com/api";
+  const url = new URL(`${baseUrl}${endpoint}`);
+
+  // Add query params
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      url.searchParams.append(key, value);
+    }
+  });
+
+  // Create Basic Auth header (API key as username, empty password)
+  const authHeader = Buffer.from(`${apiKey}:`).toString("base64");
+
+  const response = await axios({
+    method: "GET",
+    url: url.toString(),
+    headers: {
+      "Authorization": `Basic ${authHeader}`,
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+    },
+    timeout: 30000, // 30 second timeout
+  });
+
+  return response.data;
+}
+
+/**
+ * ServeManager API helper with retry and rate limiting
+ */
+async function serveManagerRequestWithRetry(apiKey, endpoint, params = {}, maxRetries = 3) {
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await serveManagerRequest(apiKey, endpoint, params);
+      return result;
+    } catch (error) {
+      const status = error.response?.status;
+
+      // Rate limited - exponential backoff
+      if (status === 429) {
+        const waitTime = Math.pow(2, attempt) * 30000; // 30s, 60s, 120s
+        console.log(`[ServeManager] Rate limited, waiting ${waitTime / 1000}s before retry...`);
+        await delay(waitTime);
+        continue;
+      }
+
+      // Auth errors - don't retry
+      if (status === 401 || status === 403) {
+        throw new HttpsError("permission-denied", "Invalid ServeManager API key");
+      }
+
+      // Server errors - retry with backoff
+      if (status >= 500) {
+        const waitTime = Math.pow(2, attempt) * 5000; // 5s, 10s, 20s
+        console.log(`[ServeManager] Server error ${status}, retrying in ${waitTime / 1000}s...`);
+        await delay(waitTime);
+        continue;
+      }
+
+      // Other errors - don't retry
+      throw error;
+    }
+  }
+
+  throw new HttpsError("unavailable", "ServeManager API unavailable after retries");
+}
+
+/**
+ * Paginate through all results from a ServeManager endpoint
+ */
+async function serveManagerPaginateAll(apiKey, endpoint, onPage = null) {
+  const allResults = [];
+  let nextUrl = null;
+  let pageNum = 1;
+
+  // Initial request
+  let response = await serveManagerRequestWithRetry(apiKey, endpoint, {per_page: 100});
+
+  // Handle both array response and object with data property
+  const getData = (res) => {
+    if (Array.isArray(res)) return res;
+    if (res.data) return res.data;
+    return [];
+  };
+
+  allResults.push(...getData(response));
+
+  if (onPage) {
+    await onPage(getData(response), pageNum);
+  }
+
+  // Follow pagination links
+  while (response.links?.next) {
+    pageNum++;
+    // Add delay between requests to be respectful of rate limits
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    // Extract path from next URL
+    const nextPath = new URL(response.links.next).pathname.replace("/api", "");
+    const nextParams = Object.fromEntries(new URL(response.links.next).searchParams);
+
+    response = await serveManagerRequestWithRetry(apiKey, nextPath, nextParams);
+    allResults.push(...getData(response));
+
+    if (onPage) {
+      await onPage(getData(response), pageNum);
+    }
+  }
+
+  return allResults;
+}
+
+/**
+ * Validate a ServeManager API key by making a test request
+ */
+exports.validateServeManagerApiKey = onCall({
+  region: "us-central1",
+  timeoutSeconds: 30,
+}, async (request) => {
+  const userId = requireAuth(request.auth);
+  const {apiKey} = request.data;
+
+  validateString(apiKey, "apiKey", {minLength: 10, maxLength: 100});
+
+  console.log(`[validateServeManagerApiKey] User ${userId} validating API key`);
+
+  try {
+    // Test the API key by fetching account info
+    const accountData = await serveManagerRequest(apiKey, "/account");
+
+    console.log(`[validateServeManagerApiKey] API key valid for account: ${accountData.company_name || "Unknown"}`);
+
+    return {
+      valid: true,
+      account: {
+        companyName: accountData.company_name || accountData.name,
+        monthlyQuota: accountData.monthly_quota,
+        address: accountData.address,
+      },
+    };
+  } catch (error) {
+    console.error(`[validateServeManagerApiKey] Validation failed:`, error.message);
+
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      return {
+        valid: false,
+        error: "Invalid API key. Please check your ServeManager API key and try again.",
+      };
+    }
+
+    return {
+      valid: false,
+      error: error.message || "Failed to validate API key",
+    };
+  }
+});
+
+/**
+ * Start a ServeManager data import
+ */
+exports.startServeManagerImport = onCall({
+  region: "us-central1",
+  timeoutSeconds: 60,
+  secrets: [sendgridApiKey],
+}, async (request) => {
+  const userId = requireAuth(request.auth);
+  const {apiKey} = request.data;
+
+  validateString(apiKey, "apiKey", {minLength: 10, maxLength: 100});
+
+  // Get user's company ID
+  const userDoc = await admin.firestore().doc(`users/${userId}`).get();
+  if (!userDoc.exists) {
+    throw new HttpsError("not-found", "User not found");
+  }
+  const userData = userDoc.data();
+  const companyId = userData.company_id;
+
+  if (!companyId) {
+    throw new HttpsError("failed-precondition", "User is not associated with a company");
+  }
+
+  console.log(`[startServeManagerImport] User ${userId} starting import for company ${companyId}`);
+
+  // Check if an import is already in progress
+  const existingImports = await admin.firestore()
+      .collection("legacy_imports")
+      .where("_accountId", "==", companyId)
+      .where("status", "in", ["pending", "in_progress"])
+      .get();
+
+  if (!existingImports.empty) {
+    throw new HttpsError("already-exists", "An import is already in progress for this account");
+  }
+
+  // Validate the API key first
+  let accountData;
+  try {
+    accountData = await serveManagerRequest(apiKey, "/account");
+  } catch (error) {
+    throw new HttpsError("permission-denied", "Invalid ServeManager API key");
+  }
+
+  // Create the import document
+  const importDoc = {
+    _accountId: companyId,
+    _userId: userId,
+    source: "servemanager",
+    status: "pending",
+    progress: {
+      totalJobs: null,
+      importedJobs: 0,
+      totalCompanies: null,
+      importedCompanies: 0,
+      totalCourtCases: null,
+      importedCourtCases: 0,
+      totalCourts: null,
+      importedCourts: 0,
+      totalEmployees: null,
+      importedEmployees: 0,
+      currentStep: "pending",
+    },
+    stats: {
+      jobsImported: 0,
+      companiesImported: 0,
+      courtCasesImported: 0,
+      courtsImported: 0,
+      employeesImported: 0,
+      documentsReferenced: 0,
+      invoicesImported: 0,
+      attemptsImported: 0,
+      notesImported: 0,
+    },
+    errors: [],
+    serveManagerAccount: {
+      companyName: accountData.company_name || accountData.name,
+      monthlyQuota: accountData.monthly_quota,
+    },
+    startedAt: admin.firestore.FieldValue.serverTimestamp(),
+    completedAt: null,
+  };
+
+  const importRef = await admin.firestore().collection("legacy_imports").add(importDoc);
+  const importId = importRef.id;
+
+  // Store the API key in a secure subcollection
+  await importRef.collection("credentials").doc("api_key").set({
+    apiKey: apiKey, // In production, encrypt this with Cloud KMS
+    validatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  console.log(`[startServeManagerImport] Created import ${importId}, starting background processing`);
+
+  // Start the import process immediately (using a scheduled call pattern)
+  // In a production app, you might use Cloud Tasks for better reliability
+  processServeManagerImportInternal(importId, companyId).catch((error) => {
+    console.error(`[startServeManagerImport] Background import failed:`, error);
+    // Update status to failed
+    admin.firestore().doc(`legacy_imports/${importId}`).update({
+      status: "failed",
+      errors: admin.firestore.FieldValue.arrayUnion({
+        timestamp: new Date().toISOString(),
+        step: "startup",
+        message: error.message,
+      }),
+    });
+  });
+
+  return {
+    importId,
+    status: "pending",
+    message: "Import started. You will receive an email when complete.",
+  };
+});
+
+/**
+ * Internal function to process the ServeManager import
+ * This runs as a background process
+ */
+async function processServeManagerImportInternal(importId, accountId) {
+  const importRef = admin.firestore().doc(`legacy_imports/${importId}`);
+
+  try {
+    // Get credentials
+    const credDoc = await importRef.collection("credentials").doc("api_key").get();
+    if (!credDoc.exists) {
+      throw new Error("API credentials not found");
+    }
+    const apiKey = credDoc.data().apiKey;
+
+    // Update status to in_progress
+    await importRef.update({
+      status: "in_progress",
+      "progress.currentStep": "account",
+    });
+
+    console.log(`[processServeManagerImport] Starting import ${importId}`);
+
+    // Helper to update progress
+    const updateProgress = async (updates) => {
+      await importRef.update(updates);
+    };
+
+    // Helper to log error without failing
+    const logError = async (step, message, jobId = null) => {
+      console.error(`[processServeManagerImport] Error in ${step}: ${message}`);
+      await importRef.update({
+        errors: admin.firestore.FieldValue.arrayUnion({
+          timestamp: new Date().toISOString(),
+          step,
+          message,
+          jobId,
+        }),
+      });
+    };
+
+    // STEP 1: Import Employees
+    console.log(`[processServeManagerImport] Importing employees...`);
+    await updateProgress({"progress.currentStep": "employees"});
+
+    try {
+      const employees = await serveManagerPaginateAll(apiKey, "/employees");
+      await updateProgress({
+        "progress.totalEmployees": employees.length,
+      });
+
+      const batch = admin.firestore().batch();
+      let employeeCount = 0;
+
+      for (const employee of employees) {
+        const docId = `sm_${employee.id}`;
+        const docRef = admin.firestore().collection("legacy_employees").doc(docId);
+        batch.set(docRef, {
+          _importId: importId,
+          _accountId: accountId,
+          _importedAt: admin.firestore.FieldValue.serverTimestamp(),
+          _serveManagerId: employee.id,
+          ...employee,
+        });
+        employeeCount++;
+
+        // Commit batch every 400 docs (Firestore limit is 500)
+        if (employeeCount % 400 === 0) {
+          await batch.commit();
+        }
+      }
+      await batch.commit();
+
+      await updateProgress({
+        "progress.importedEmployees": employeeCount,
+        "stats.employeesImported": employeeCount,
+      });
+      console.log(`[processServeManagerImport] Imported ${employeeCount} employees`);
+    } catch (error) {
+      await logError("employees", error.message);
+    }
+
+    // STEP 2: Import Companies
+    console.log(`[processServeManagerImport] Importing companies...`);
+    await updateProgress({"progress.currentStep": "companies"});
+
+    try {
+      const companies = await serveManagerPaginateAll(apiKey, "/companies");
+      await updateProgress({
+        "progress.totalCompanies": companies.length,
+      });
+
+      let companyCount = 0;
+      const batchSize = 400;
+
+      for (let i = 0; i < companies.length; i += batchSize) {
+        const batch = admin.firestore().batch();
+        const chunk = companies.slice(i, i + batchSize);
+
+        for (const company of chunk) {
+          const docId = `sm_${company.id}`;
+          const docRef = admin.firestore().collection("legacy_companies").doc(docId);
+          batch.set(docRef, {
+            _importId: importId,
+            _accountId: accountId,
+            _importedAt: admin.firestore.FieldValue.serverTimestamp(),
+            _serveManagerId: company.id,
+            ...company,
+          });
+          companyCount++;
+        }
+        await batch.commit();
+
+        await updateProgress({
+          "progress.importedCompanies": companyCount,
+        });
+      }
+
+      await updateProgress({
+        "stats.companiesImported": companyCount,
+      });
+      console.log(`[processServeManagerImport] Imported ${companyCount} companies`);
+    } catch (error) {
+      await logError("companies", error.message);
+    }
+
+    // STEP 3: Import Courts
+    console.log(`[processServeManagerImport] Importing courts...`);
+    await updateProgress({"progress.currentStep": "courts"});
+
+    try {
+      const courts = await serveManagerPaginateAll(apiKey, "/courts");
+      await updateProgress({
+        "progress.totalCourts": courts.length,
+      });
+
+      let courtCount = 0;
+      const batchSize = 400;
+
+      for (let i = 0; i < courts.length; i += batchSize) {
+        const batch = admin.firestore().batch();
+        const chunk = courts.slice(i, i + batchSize);
+
+        for (const court of chunk) {
+          const docId = `sm_${court.id}`;
+          const docRef = admin.firestore().collection("legacy_courts").doc(docId);
+          batch.set(docRef, {
+            _importId: importId,
+            _accountId: accountId,
+            _importedAt: admin.firestore.FieldValue.serverTimestamp(),
+            _serveManagerId: court.id,
+            ...court,
+          });
+          courtCount++;
+        }
+        await batch.commit();
+      }
+
+      await updateProgress({
+        "progress.importedCourts": courtCount,
+        "stats.courtsImported": courtCount,
+      });
+      console.log(`[processServeManagerImport] Imported ${courtCount} courts`);
+    } catch (error) {
+      await logError("courts", error.message);
+    }
+
+    // STEP 4: Import Court Cases
+    console.log(`[processServeManagerImport] Importing court cases...`);
+    await updateProgress({"progress.currentStep": "court_cases"});
+
+    try {
+      const courtCases = await serveManagerPaginateAll(apiKey, "/court_cases");
+      await updateProgress({
+        "progress.totalCourtCases": courtCases.length,
+      });
+
+      let caseCount = 0;
+      const batchSize = 400;
+
+      for (let i = 0; i < courtCases.length; i += batchSize) {
+        const batch = admin.firestore().batch();
+        const chunk = courtCases.slice(i, i + batchSize);
+
+        for (const courtCase of chunk) {
+          const docId = `sm_${courtCase.id}`;
+          const docRef = admin.firestore().collection("legacy_court_cases").doc(docId);
+          batch.set(docRef, {
+            _importId: importId,
+            _accountId: accountId,
+            _importedAt: admin.firestore.FieldValue.serverTimestamp(),
+            _serveManagerId: courtCase.id,
+            ...courtCase,
+          });
+          caseCount++;
+        }
+        await batch.commit();
+      }
+
+      await updateProgress({
+        "progress.importedCourtCases": caseCount,
+        "stats.courtCasesImported": caseCount,
+      });
+      console.log(`[processServeManagerImport] Imported ${caseCount} court cases`);
+    } catch (error) {
+      await logError("court_cases", error.message);
+    }
+
+    // STEP 5: Import Jobs (Most Complex)
+    console.log(`[processServeManagerImport] Importing jobs...`);
+    await updateProgress({"progress.currentStep": "jobs"});
+
+    try {
+      // First, get total count
+      const firstPage = await serveManagerRequestWithRetry(apiKey, "/jobs", {per_page: 1});
+      const totalJobs = firstPage.total || firstPage.meta?.total || 0;
+
+      await updateProgress({
+        "progress.totalJobs": totalJobs,
+      });
+
+      let jobCount = 0;
+      let documentsCount = 0;
+      let attemptsCount = 0;
+      let notesCount = 0;
+      let invoicesCount = 0;
+
+      // Paginate through all jobs
+      await serveManagerPaginateAll(apiKey, "/jobs", async (jobsPage, pageNum) => {
+        console.log(`[processServeManagerImport] Processing jobs page ${pageNum}...`);
+
+        for (const jobSummary of jobsPage) {
+          try {
+            // Add delay between job detail fetches
+            await new Promise((resolve) => setTimeout(resolve, 500));
+
+            // Fetch full job details
+            const job = await serveManagerRequestWithRetry(apiKey, `/jobs/${jobSummary.id}`);
+
+            // Fetch notes for this job
+            let notes = [];
+            try {
+              const notesResponse = await serveManagerRequestWithRetry(apiKey, `/jobs/${jobSummary.id}/notes`);
+              notes = Array.isArray(notesResponse) ? notesResponse : (notesResponse.data || []);
+            } catch (noteError) {
+              console.warn(`[processServeManagerImport] Failed to fetch notes for job ${jobSummary.id}`);
+            }
+
+            // Count documents
+            const docsToServe = job.documents_to_be_served?.length || 0;
+            const miscAttachments = job.misc_attachments?.length || 0;
+            const affidavits = job.affidavits?.length || 0;
+            documentsCount += docsToServe + miscAttachments + affidavits;
+
+            // Count attempts
+            attemptsCount += job.attempts?.length || 0;
+
+            // Count notes
+            notesCount += notes.length;
+
+            // Count invoices
+            if (job.invoice) {
+              invoicesCount++;
+            }
+
+            // Store the job
+            const docId = `sm_${job.id}`;
+            await admin.firestore().collection("legacy_jobs").doc(docId).set({
+              _importId: importId,
+              _accountId: accountId,
+              _importedAt: admin.firestore.FieldValue.serverTimestamp(),
+              _serveManagerId: job.id,
+              ...job,
+              notes: notes, // Add notes to the job document
+            });
+
+            jobCount++;
+
+            // Update progress every 10 jobs
+            if (jobCount % 10 === 0) {
+              await updateProgress({
+                "progress.importedJobs": jobCount,
+              });
+            }
+          } catch (jobError) {
+            await logError("job_detail", jobError.message, jobSummary.id);
+          }
+        }
+      });
+
+      await updateProgress({
+        "progress.importedJobs": jobCount,
+        "stats.jobsImported": jobCount,
+        "stats.documentsReferenced": documentsCount,
+        "stats.attemptsImported": attemptsCount,
+        "stats.notesImported": notesCount,
+        "stats.invoicesImported": invoicesCount,
+      });
+
+      console.log(`[processServeManagerImport] Imported ${jobCount} jobs`);
+    } catch (error) {
+      await logError("jobs", error.message);
+    }
+
+    // STEP 6: Finalize
+    console.log(`[processServeManagerImport] Finalizing import...`);
+
+    // Get final stats
+    const finalDoc = await importRef.get();
+    const finalData = finalDoc.data();
+
+    await importRef.update({
+      status: "completed",
+      "progress.currentStep": "complete",
+      completedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Send completion email
+    try {
+      await sendImportCompletionEmail(importId, accountId, finalData);
+    } catch (emailError) {
+      console.error(`[processServeManagerImport] Failed to send completion email:`, emailError);
+    }
+
+    console.log(`[processServeManagerImport] Import ${importId} completed successfully`);
+  } catch (error) {
+    console.error(`[processServeManagerImport] Import ${importId} failed:`, error);
+
+    await importRef.update({
+      status: "failed",
+      errors: admin.firestore.FieldValue.arrayUnion({
+        timestamp: new Date().toISOString(),
+        step: "fatal",
+        message: error.message,
+      }),
+    });
+
+    // Send failure email
+    try {
+      const importDoc = await importRef.get();
+      await sendImportFailureEmail(importId, accountId, importDoc.data(), error.message);
+    } catch (emailError) {
+      console.error(`[processServeManagerImport] Failed to send failure email:`, emailError);
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * Send import completion email
+ */
+async function sendImportCompletionEmail(importId, accountId, importData) {
+  // Get user email
+  const userDoc = await admin.firestore().doc(`users/${importData._userId}`).get();
+  if (!userDoc.exists) return;
+
+  const userEmail = userDoc.data().email;
+  const companyDoc = await admin.firestore().doc(`companies/${accountId}`).get();
+  const companyName = companyDoc.exists ? companyDoc.data().name : "Your Company";
+
+  const stats = importData.stats || {};
+  const statsHtml = `
+    <h2>Import Complete!</h2>
+    <p>Your ServeManager data has been successfully imported into Diligence.</p>
+
+    <div class="info-box">
+      <p><strong>Import Summary:</strong></p>
+      <p>Jobs imported: <strong>${stats.jobsImported || 0}</strong></p>
+      <p>Companies imported: <strong>${stats.companiesImported || 0}</strong></p>
+      <p>Court cases imported: <strong>${stats.courtCasesImported || 0}</strong></p>
+      <p>Employees imported: <strong>${stats.employeesImported || 0}</strong></p>
+      <p>Documents referenced: <strong>${stats.documentsReferenced || 0}</strong></p>
+    </div>
+
+    <p>Your imported data is now available in the <strong>Legacy Jobs</strong> section of your Diligence account.</p>
+    <p>This data is read-only and preserved exactly as it was in ServeManager.</p>
+
+    <p style="text-align: center; margin-top: 24px;">
+      <a href="${process.env.APP_URL || "https://app.diligence.app"}/LegacyJobs" class="button">View Legacy Data</a>
+    </p>
+  `;
+
+  await sendEmailWithTemplate({
+    to: userEmail,
+    subject: "ServeManager Import Complete",
+    templateName: "base-layout",
+    templateData: {
+      emailSubject: "ServeManager Import Complete",
+      company_name: companyName,
+      content: statsHtml,
+      branding: {},
+    },
+    companyId: accountId,
+  });
+}
+
+/**
+ * Send import failure email
+ */
+async function sendImportFailureEmail(importId, accountId, importData, errorMessage) {
+  // Get user email
+  const userDoc = await admin.firestore().doc(`users/${importData._userId}`).get();
+  if (!userDoc.exists) return;
+
+  const userEmail = userDoc.data().email;
+  const companyDoc = await admin.firestore().doc(`companies/${accountId}`).get();
+  const companyName = companyDoc.exists ? companyDoc.data().name : "Your Company";
+
+  const contentHtml = `
+    <h2>Import Failed</h2>
+    <p>Unfortunately, your ServeManager data import encountered an error.</p>
+
+    <div class="info-box">
+      <p><strong>Error:</strong></p>
+      <p>${errorMessage}</p>
+    </div>
+
+    <p>Some data may have been partially imported. You can check the import status in your Settings page.</p>
+    <p>If this problem persists, please contact our support team for assistance.</p>
+
+    <p style="text-align: center; margin-top: 24px;">
+      <a href="${process.env.APP_URL || "https://app.diligence.app"}/Settings?tab=data-import" class="button">Check Import Status</a>
+    </p>
+  `;
+
+  await sendEmailWithTemplate({
+    to: userEmail,
+    subject: "ServeManager Import Failed",
+    templateName: "base-layout",
+    templateData: {
+      emailSubject: "ServeManager Import Failed",
+      company_name: companyName,
+      content: contentHtml,
+      branding: {},
+    },
+    companyId: accountId,
+  });
+}
+
+/**
+ * Get the status of a ServeManager import
+ */
+exports.getServeManagerImportStatus = onCall({
+  region: "us-central1",
+  timeoutSeconds: 30,
+}, async (request) => {
+  const userId = requireAuth(request.auth);
+  const {importId} = request.data;
+
+  if (importId) {
+    validateDocumentId(importId, "importId");
+  }
+
+  // Get user's company ID
+  const userDoc = await admin.firestore().doc(`users/${userId}`).get();
+  if (!userDoc.exists) {
+    throw new HttpsError("not-found", "User not found");
+  }
+  const userData = userDoc.data();
+  const companyId = userData.company_id;
+
+  if (!companyId) {
+    throw new HttpsError("failed-precondition", "User is not associated with a company");
+  }
+
+  // If specific import ID provided, get that one
+  if (importId) {
+    const importDoc = await admin.firestore().doc(`legacy_imports/${importId}`).get();
+    if (!importDoc.exists) {
+      throw new HttpsError("not-found", "Import not found");
+    }
+
+    const importData = importDoc.data();
+    if (importData._accountId !== companyId) {
+      throw new HttpsError("permission-denied", "Access denied");
+    }
+
+    return {
+      id: importId,
+      status: importData.status,
+      progress: importData.progress,
+      stats: importData.stats,
+      errors: importData.errors?.slice(-10) || [], // Last 10 errors
+      startedAt: importData.startedAt,
+      completedAt: importData.completedAt,
+      serveManagerAccount: importData.serveManagerAccount,
+    };
+  }
+
+  // Get the most recent import for this company
+  const imports = await admin.firestore()
+      .collection("legacy_imports")
+      .where("_accountId", "==", companyId)
+      .orderBy("startedAt", "desc")
+      .limit(1)
+      .get();
+
+  if (imports.empty) {
+    return {
+      hasImport: false,
+    };
+  }
+
+  const latestImport = imports.docs[0];
+  const importData = latestImport.data();
+
+  return {
+    hasImport: true,
+    id: latestImport.id,
+    status: importData.status,
+    progress: importData.progress,
+    stats: importData.stats,
+    errors: importData.errors?.slice(-10) || [],
+    startedAt: importData.startedAt,
+    completedAt: importData.completedAt,
+    serveManagerAccount: importData.serveManagerAccount,
+  };
+});
+
+/**
+ * Get legacy jobs with pagination and filtering
+ */
+exports.getLegacyJobs = onCall({
+  region: "us-central1",
+  timeoutSeconds: 30,
+}, async (request) => {
+  const userId = requireAuth(request.auth);
+  const {pageSize = 50, cursor, filters = {}} = request.data;
+
+  validateNumber(pageSize, "pageSize", {min: 1, max: 100});
+
+  // Get user's company ID
+  const userDoc = await admin.firestore().doc(`users/${userId}`).get();
+  if (!userDoc.exists) {
+    throw new HttpsError("not-found", "User not found");
+  }
+  const companyId = userDoc.data().company_id;
+
+  if (!companyId) {
+    throw new HttpsError("failed-precondition", "User is not associated with a company");
+  }
+
+  // Build query
+  let query = admin.firestore()
+      .collection("legacy_jobs")
+      .where("_accountId", "==", companyId)
+      .orderBy("created_at", "desc")
+      .limit(pageSize + 1); // Fetch one extra to check if there are more
+
+  // Apply cursor for pagination
+  if (cursor) {
+    const cursorDoc = await admin.firestore().doc(`legacy_jobs/${cursor}`).get();
+    if (cursorDoc.exists) {
+      query = query.startAfter(cursorDoc);
+    }
+  }
+
+  const snapshot = await query.get();
+  const jobs = [];
+  let hasMore = false;
+
+  snapshot.docs.forEach((doc, index) => {
+    if (index < pageSize) {
+      jobs.push({
+        id: doc.id,
+        ...doc.data(),
+      });
+    } else {
+      hasMore = true;
+    }
+  });
+
+  // Get last cursor
+  const lastDoc = jobs.length > 0 ? jobs[jobs.length - 1].id : null;
+
+  return {
+    jobs,
+    cursor: lastDoc,
+    hasMore,
+  };
+});
+
+/**
+ * Search legacy jobs
+ */
+exports.searchLegacyJobs = onCall({
+  region: "us-central1",
+  timeoutSeconds: 30,
+}, async (request) => {
+  const userId = requireAuth(request.auth);
+  const {searchTerm, filters = {}, limit = 50} = request.data;
+
+  validateString(searchTerm, "searchTerm", {minLength: 2, maxLength: 100, required: false});
+  validateNumber(limit, "limit", {min: 1, max: 100});
+
+  // Get user's company ID
+  const userDoc = await admin.firestore().doc(`users/${userId}`).get();
+  if (!userDoc.exists) {
+    throw new HttpsError("not-found", "User not found");
+  }
+  const companyId = userDoc.data().company_id;
+
+  if (!companyId) {
+    throw new HttpsError("failed-precondition", "User is not associated with a company");
+  }
+
+  // Base query
+  let query = admin.firestore()
+      .collection("legacy_jobs")
+      .where("_accountId", "==", companyId);
+
+  // Apply filters
+  if (filters.service_status) {
+    query = query.where("service_status", "==", filters.service_status);
+  }
+
+  if (filters.job_status) {
+    query = query.where("job_status", "==", filters.job_status);
+  }
+
+  // Execute query
+  query = query.orderBy("created_at", "desc").limit(limit);
+  const snapshot = await query.get();
+
+  let results = snapshot.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+
+  // Client-side search filtering (Firestore doesn't support full-text search)
+  if (searchTerm) {
+    const searchLower = searchTerm.toLowerCase();
+    results = results.filter((job) => {
+      const recipientName = job.recipient?.name?.toLowerCase() || "";
+      const jobNumber = job.servemanager_job_number?.toLowerCase() || "";
+      const caseNumber = job.court_case?.case_number?.toLowerCase() || "";
+      const address = job.addresses?.[0]?.address1?.toLowerCase() || "";
+
+      return recipientName.includes(searchLower) ||
+             jobNumber.includes(searchLower) ||
+             caseNumber.includes(searchLower) ||
+             address.includes(searchLower);
+    });
+  }
+
+  return {
+    jobs: results,
+    total: results.length,
+  };
+});

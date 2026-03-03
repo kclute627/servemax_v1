@@ -509,8 +509,9 @@ service cloud.firestore {
     }
 
     // Pricing Plans - platform-wide subscription/pricing configuration
+    // Read is public so the home page can display plans without authentication
     match /pricing_plans/{planId} {
-      allow read: if isAuthenticated(); // All users can read pricing plans
+      allow read: if true;
       allow write: if isSuperAdmin(); // Only super admins can create/update/delete pricing plans
     }
 
@@ -524,6 +525,72 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isAuthenticated() && request.auth.uid == userId;
       allow write: if false; // Users are managed by Firebase Auth, not direct writes
+    }
+
+    // ============================================================================
+    // Legacy Data Import Collections (ServeManager Import)
+    // All legacy collections are READ-ONLY for clients - only Cloud Functions can write
+    // ============================================================================
+
+    // Legacy imports - tracks import operations
+    match /legacy_imports/{importId} {
+      allow read: if isAuthenticated() && (
+        resource.data._accountId == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data._accountId == getUserCompanyId();
+      allow update, delete: if false; // Only Cloud Functions can update/delete
+
+      // Credentials subcollection - no client access (stores API keys)
+      match /credentials/{credentialId} {
+        allow read, write: if false; // Only Cloud Functions can access
+      }
+    }
+
+    // Legacy jobs - imported ServeManager jobs (read-only)
+    match /legacy_jobs/{jobId} {
+      allow read: if isAuthenticated() && (
+        resource.data._accountId == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      allow write: if false; // No writes from client - import only via Cloud Functions
+    }
+
+    // Legacy companies - imported ServeManager companies (read-only)
+    match /legacy_companies/{companyId} {
+      allow read: if isAuthenticated() && (
+        resource.data._accountId == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      allow write: if false;
+    }
+
+    // Legacy court cases - imported ServeManager court cases (read-only)
+    match /legacy_court_cases/{caseId} {
+      allow read: if isAuthenticated() && (
+        resource.data._accountId == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      allow write: if false;
+    }
+
+    // Legacy courts - imported ServeManager courts (read-only)
+    match /legacy_courts/{courtId} {
+      allow read: if isAuthenticated() && (
+        resource.data._accountId == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      allow write: if false;
+    }
+
+    // Legacy employees - imported ServeManager employees (read-only)
+    match /legacy_employees/{employeeId} {
+      allow read: if isAuthenticated() && (
+        resource.data._accountId == getUserCompanyId() ||
+        isSuperAdmin()
+      );
+      allow write: if false;
     }
   }
 }

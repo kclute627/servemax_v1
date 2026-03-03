@@ -32,9 +32,13 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
-  Camera
+  Camera,
+  Scale
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Badge } from '@/components/ui/badge';
+import { format } from 'date-fns';
+import { loadGooglePlacesAPI } from '@/utils/googlePlaces';
 import PhotoVideoUpload from '../components/jobs/PhotoVideoUpload';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
 
@@ -72,13 +76,158 @@ const initialFormData = {
   // uploaded_files removed from formData to be managed by separate uploadedFiles state
 };
 
+const priorityConfig = {
+  standard: { color: "bg-slate-100 text-slate-700", label: "Standard" },
+  rush: { color: "bg-orange-100 text-orange-700", label: "Rush" },
+  emergency: { color: "bg-red-100 text-red-700", label: "Emergency" },
+};
+
+function ServiceAddressMap({ address }) {
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+
+  useEffect(() => {
+    if (!address?.latitude || !address?.longitude) return;
+    let isMounted = true;
+
+    const initMap = async () => {
+      try {
+        await loadGooglePlacesAPI();
+        if (!isMounted || !mapRef.current) return;
+
+        const position = { lat: address.latitude, lng: address.longitude };
+        const map = new window.google.maps.Map(mapRef.current, {
+          center: position,
+          zoom: 15,
+          disableDefaultUI: true,
+          zoomControl: true,
+          gestureHandling: 'cooperative',
+        });
+        new window.google.maps.Marker({ position, map });
+        mapInstanceRef.current = map;
+      } catch (err) {
+        console.error('Failed to load map:', err);
+      }
+    };
+
+    initMap();
+    return () => { isMounted = false; };
+  }, [address?.latitude, address?.longitude]);
+
+  if (!address?.latitude || !address?.longitude) return null;
+
+  return <div ref={mapRef} className="h-48 w-full rounded-lg" />;
+}
+
+function CaseInfoPanel({ job, client }) {
+  const primaryAddress = job.addresses?.find(a => a.primary) || job.addresses?.[0];
+
+  return (
+    <div className="space-y-4">
+      {/* Case Information Card */}
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Scale className="w-4 h-4 text-slate-500" />
+            Case Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-slate-500">Job #</span>
+            <span className="font-medium text-slate-900">{job.job_number}</span>
+          </div>
+          {job.recipient?.name && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">Recipient</span>
+              <span className="font-medium text-slate-900">{job.recipient.name}</span>
+            </div>
+          )}
+          {job.case_number && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">Case #</span>
+              <span className="font-medium text-slate-900">{job.case_number}</span>
+            </div>
+          )}
+          {job.court_name && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">Court</span>
+              <span className="font-medium text-slate-900 text-right max-w-[60%]">{job.court_name}</span>
+            </div>
+          )}
+          {job.plaintiff && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">Plaintiff</span>
+              <span className="font-medium text-slate-900 text-right max-w-[60%]">{job.plaintiff}</span>
+            </div>
+          )}
+          {job.defendant && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">Defendant</span>
+              <span className="font-medium text-slate-900 text-right max-w-[60%]">{job.defendant}</span>
+            </div>
+          )}
+          {client?.company_name && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">Client</span>
+              <span className="font-medium text-slate-900 text-right max-w-[60%]">{client.company_name}</span>
+            </div>
+          )}
+
+          <div className="border-t border-slate-200 my-2 pt-2 flex justify-between items-center">
+            <span className="text-slate-500">Priority</span>
+            <Badge className={priorityConfig[job.priority]?.color || "bg-slate-100 text-slate-700"}>
+              {priorityConfig[job.priority]?.label || job.priority || "Standard"}
+            </Badge>
+          </div>
+          {job.due_date && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">Due Date</span>
+              <span className="font-medium text-slate-900">
+                {format(new Date(job.due_date), 'MMM d, yyyy')}
+              </span>
+            </div>
+          )}
+
+          {job.service_instructions && (
+            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-xs font-semibold text-amber-800 mb-1">Service Instructions</p>
+              <p className="text-xs text-amber-700 whitespace-pre-wrap">{job.service_instructions}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Service Address Card */}
+      {primaryAddress && (
+        <Card className="shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-slate-500" />
+              Service Address
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="text-sm text-slate-700">
+              <p>{primaryAddress.address1}</p>
+              {primaryAddress.address2 && <p>{primaryAddress.address2}</p>}
+              <p>{primaryAddress.city}, {primaryAddress.state} {primaryAddress.postal_code}</p>
+            </div>
+            <ServiceAddressMap address={primaryAddress} />
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function LogAttemptPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
 
   // Get data from context for instant pre-population
-  const { jobs: contextJobs, clients: contextClients, employees: contextEmployees } = useGlobalData();
+  const { jobs: contextJobs, clients: contextClients, employees: contextEmployees, refreshJobs } = useGlobalData();
 
   // Ref to track if job was pre-populated from context (to avoid showing spinner)
   const jobPrePopulatedRef = useRef(false);
@@ -102,6 +251,18 @@ export default function LogAttemptPage() {
     successful: [],
     unsuccessful: []
   });
+
+  // Relationship types from CompanySettings
+  const defaultRelationshipTypes = [
+    { id: 'default-r1', label: 'Spouse' },
+    { id: 'default-r2', label: 'Co-Occupant' },
+    { id: 'default-r3', label: 'Co-Worker' },
+    { id: 'default-r4', label: 'Manager/Supervisor' },
+    { id: 'default-r5', label: 'Authorized Agent' },
+    { id: 'default-r6', label: 'Other' },
+  ];
+  const [relationshipTypes, setRelationshipTypes] = useState(defaultRelationshipTypes);
+  const [relationshipManualMode, setRelationshipManualMode] = useState(false);
 
   // Form state managed by formData
   const [formData, setFormData] = useState(initialFormData);
@@ -153,30 +314,75 @@ export default function LogAttemptPage() {
 
   // Effect to fetch service type settings from CompanySettings
   useEffect(() => {
+    const defaultServiceTypes = {
+      successful: [
+        { id: 'default-1', label: 'Personal / Individual' },
+        { id: 'default-2', label: 'Substitute Service' },
+        { id: 'default-3', label: 'Authorized Agent' },
+        { id: 'default-4', label: 'Corporate Service' },
+      ],
+      unsuccessful: [
+        { id: 'default-5', label: 'Unsuccessful Attempt' },
+        { id: 'default-6', label: 'Non-Serve - Bad Address' },
+        { id: 'default-7', label: 'Non-Serve - Moved' },
+        { id: 'default-8', label: 'Non-Serve - Evading Service' },
+      ],
+    };
+
     const fetchServiceTypes = async () => {
       try {
-        const result = await CompanySettings.filter({ setting_key: 'service_types' });
+        const result = await CompanySettings.filter({ setting_key: 'service_types', company_id: currentUser?.company_id });
         if (result && result.length > 0) {
           const settings = result[0].setting_value;
-          setServiceTypeSettings({
-            successful: settings.successful || [],
-            unsuccessful: settings.unsuccessful || []
-          });
+          const successful = settings.successful?.length ? settings.successful : defaultServiceTypes.successful;
+          const unsuccessful = settings.unsuccessful?.length ? settings.unsuccessful : defaultServiceTypes.unsuccessful;
+          setServiceTypeSettings({ successful, unsuccessful });
+
+          // Load relationship types from the same settings doc
+          if (settings.relationship_types?.length) {
+            setRelationshipTypes(settings.relationship_types);
+          }
 
           // Set default service_type_detail to first successful option if not already set
-          if (settings.successful && settings.successful.length > 0) {
+          if (successful.length > 0) {
             setFormData(prev => ({
               ...prev,
-              service_type_detail: prev.service_type_detail || settings.successful[0].label
+              service_type_detail: prev.service_type_detail || successful[0].label
             }));
           }
+        } else {
+          // No settings found — use defaults
+          setServiceTypeSettings(defaultServiceTypes);
+          setFormData(prev => ({
+            ...prev,
+            service_type_detail: prev.service_type_detail || defaultServiceTypes.successful[0].label
+          }));
         }
       } catch (error) {
         console.error("Error loading service type settings:", error);
+        // On error, still provide defaults so the dropdown works
+        setServiceTypeSettings(defaultServiceTypes);
+        setFormData(prev => ({
+          ...prev,
+          service_type_detail: prev.service_type_detail || defaultServiceTypes.successful[0].label
+        }));
       }
     };
     fetchServiceTypes();
-  }, []);
+  }, [currentUser]);
+
+  // In edit mode, auto-detect manual relationship mode when the saved value
+  // doesn't match any configured relationship type. This handles:
+  // - Shared jobs from another company with different relationship types
+  // - Previously typed-in custom relationships
+  // - Race condition: re-evaluates when relationshipTypes finishes loading from settings
+  useEffect(() => {
+    if (!isEditMode) return;
+    const val = formData.relationship_to_recipient;
+    if (!val) return;
+    const matchesOption = relationshipTypes.some(rt => rt.label === val);
+    setRelationshipManualMode(!matchesOption);
+  }, [isEditMode, formData.relationship_to_recipient, relationshipTypes]);
 
   // Auto-populate person served name for personal/individual service
   useEffect(() => {
@@ -280,6 +486,7 @@ export default function LogAttemptPage() {
               }));
               setNewAddressInput(attemptData.address_of_attempt); // Show in autocomplete input
             }
+
           } else {
             throw new Error("Attempt not found");
           }
@@ -830,6 +1037,9 @@ export default function LogAttemptPage() {
       await Job.update(job.id, jobUpdatePayload); // Perform a single job update
       // --- END JOB UPDATE ---
 
+      // Refresh jobs cache so dashboard shows correct badge immediately
+      await refreshJobs();
+
       // Show success toast
       toast({
         variant: "success",
@@ -888,7 +1098,7 @@ export default function LogAttemptPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="max-w-5xl mx-auto p-4 md:p-6">
+      <div className="px-4 md:px-8 lg:px-12 py-4 md:py-6">
         {/* Compact Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -913,6 +1123,8 @@ export default function LogAttemptPage() {
           </div>
         )}
 
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Main Form Card */}
           <Card className="shadow-sm">
@@ -1079,27 +1291,37 @@ export default function LogAttemptPage() {
                         </Label>
                         <Select
                           id="relationship"
-                          name="relationship_to_recipient"
-                          value={formData.relationship_to_recipient}
-                          onChange={handleInputChange}
+                          value={relationshipManualMode ? 'other_manual' : formData.relationship_to_recipient}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === 'other_manual') {
+                              setRelationshipManualMode(true);
+                              setFormData(prev => ({ ...prev, relationship_to_recipient: '' }));
+                            } else {
+                              setRelationshipManualMode(false);
+                              setFormData(prev => ({ ...prev, relationship_to_recipient: val }));
+                            }
+                          }}
                           className="w-full mt-1.5 bg-white"
                         >
                           <SelectItem value="">Select...</SelectItem>
-                          <SelectItem value="Spouse">Spouse</SelectItem>
-                          <SelectItem value="Parent">Parent</SelectItem>
-                          <SelectItem value="Child">Child</SelectItem>
-                          <SelectItem value="Sibling">Sibling</SelectItem>
-                          <SelectItem value="Employee">Employee</SelectItem>
-                          <SelectItem value="Manager/Supervisor">Manager/Supervisor</SelectItem>
-                          <SelectItem value="Business Partner">Business Partner</SelectItem>
-                          <SelectItem value="Receptionist">Receptionist</SelectItem>
-                          <SelectItem value="Secretary">Secretary</SelectItem>
-                          <SelectItem value="Authorized Agent">Authorized Agent</SelectItem>
-                          <SelectItem value="Resident">Resident</SelectItem>
-                          <SelectItem value="Co-occupant">Co-occupant</SelectItem>
-                          <SelectItem value="Family Member">Family Member</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
+                          {relationshipTypes.map((item) => (
+                            <SelectItem key={item.id} value={item.label}>
+                              {item.label}
+                            </SelectItem>
+                          ))}
+                          <SelectSeparator />
+                          <SelectItem value="other_manual">Other (type in)</SelectItem>
                         </Select>
+                        {relationshipManualMode && (
+                          <Input
+                            name="relationship_to_recipient"
+                            value={formData.relationship_to_recipient}
+                            onChange={handleInputChange}
+                            placeholder="Enter relationship..."
+                            className="mt-2 bg-white"
+                          />
+                        )}
                       </div>
                     )}
                   </div>
@@ -1546,6 +1768,15 @@ export default function LogAttemptPage() {
             </div>
           </div>
         </form>
+          </div>
+
+          {/* Right: Case Info Panel (desktop only) */}
+          <div className="hidden lg:block lg:col-span-1">
+            <div className="sticky top-24">
+              {job && <CaseInfoPanel job={job} client={client} />}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -102,7 +102,7 @@ export default function ClientsPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="p-6 md:p-8">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-full mx-auto">
           {/* Header */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>

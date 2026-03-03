@@ -96,7 +96,7 @@ export default function PaymentsTable({ payments, invoices, clients, isLoading }
             {payments.map(payment => (
               <TableRow key={payment.id}>
                 <TableCell className="font-mono text-xs">{payment.transaction_id || payment.id}</TableCell>
-                <TableCell>{getClientName(payment.client_id)}</TableCell>
+                <TableCell className="capitalize">{getClientName(payment.client_id)}</TableCell>
                 <TableCell>{getInvoiceNumber(payment.invoice_id)}</TableCell>
                 <TableCell className="font-medium">${payment.amount.toFixed(2)}</TableCell>
                 <TableCell>

@@ -210,6 +210,18 @@ export default function JobTypeSection({
       });
     }
 
+    // Sort: rush and same_day priority jobs first, then by created date
+    const priorityOrder = { same_day: 0, rush: 1, emergency: 1 };
+    filtered.sort((a, b) => {
+      const aPriority = priorityOrder[a.priority] ?? 2;
+      const bPriority = priorityOrder[b.priority] ?? 2;
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      // Within same priority group, sort by created date (newest first)
+      const aDate = a.created_at?.seconds ? a.created_at.seconds : new Date(a.created_at || 0).getTime() / 1000;
+      const bDate = b.created_at?.seconds ? b.created_at.seconds : new Date(b.created_at || 0).getTime() / 1000;
+      return bDate - aDate;
+    });
+
     return filtered;
   }, [jobs, filters, invoices]);
 

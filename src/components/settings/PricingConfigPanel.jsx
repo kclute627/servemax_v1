@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -27,10 +28,13 @@ import {
   Star,
   Users,
   Check,
-  Eye
+  Eye,
+  Loader2,
+  Zap
 } from "lucide-react";
 import { entities } from "@/firebase/database";
 import { AdminStatsManager } from "@/firebase/adminStats";
+import { FirebaseFunctions } from "@/firebase/functions";
 import { useToast } from "@/components/ui/use-toast";
 
 export default function PricingConfigPanel() {
@@ -38,6 +42,7 @@ export default function PricingConfigPanel() {
   const [customPlans, setCustomPlans] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [showPlanDialog, setShowPlanDialog] = useState(false);
   const [showCustomPlanDialog, setShowCustomPlanDialog] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
@@ -48,6 +53,7 @@ export default function PricingConfigPanel() {
     name: "",
     job_limit: "",
     monthly_price: "",
+    is_free: false,
     features: ["Unlimited clients", "Document generation", "Email support"]
   });
 
@@ -93,6 +99,7 @@ export default function PricingConfigPanel() {
       name: "",
       job_limit: "",
       monthly_price: "",
+      is_free: false,
       features: ["Unlimited clients", "Document generation", "Email support"]
     });
     setShowPlanDialog(true);
@@ -103,7 +110,8 @@ export default function PricingConfigPanel() {
     setPlanForm({
       name: plan.name,
       job_limit: plan.job_limit.toString(),
-      monthly_price: plan.monthly_price.toString(),
+      monthly_price: plan.monthly_price?.toString() || "0",
+      is_free: plan.is_free || false,
       features: plan.features || []
     });
     setShowPlanDialog(true);
@@ -111,23 +119,31 @@ export default function PricingConfigPanel() {
 
   const handleSaveStandardPlan = async () => {
     try {
+      setIsSaving(true);
+
       const planData = {
         name: planForm.name,
-        job_limit: parseInt(planForm.job_limit),
-        monthly_price: parseFloat(planForm.monthly_price),
+        job_limit: parseInt(planForm.job_limit) || 0,
+        monthly_price: planForm.is_free ? 0 : parseFloat(planForm.monthly_price) || 0,
         features: planForm.features,
         is_custom: false,
+        is_free: planForm.is_free,
         is_visible_on_home: true,
         assigned_companies: []
       };
 
-      if (editingPlan) {
-        await entities.PricingPlan.update(editingPlan.id, planData);
-        toast({ title: "Success", description: "Pricing plan updated" });
-      } else {
-        await entities.PricingPlan.create(planData);
-        toast({ title: "Success", description: "Pricing plan created" });
-      }
+      // Use Cloud Function that auto-syncs to Stripe
+      await FirebaseFunctions.createOrUpdatePricingPlan(
+        editingPlan?.id || null,
+        planData
+      );
+
+      toast({
+        title: "Success",
+        description: editingPlan
+          ? "Pricing plan updated and synced to Stripe"
+          : "Pricing plan created and synced to Stripe"
+      });
 
       setShowPlanDialog(false);
       loadData();
@@ -135,24 +151,26 @@ export default function PricingConfigPanel() {
       console.error("Error saving plan:", error);
       toast({
         title: "Error",
-        description: "Failed to save pricing plan",
+        description: error.message || "Failed to save pricing plan",
         variant: "destructive"
       });
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleDeleteStandardPlan = async (planId) => {
-    if (!confirm("Are you sure you want to delete this pricing plan?")) return;
+    if (!confirm("Are you sure you want to delete this pricing plan? This will also archive it in Stripe.")) return;
 
     try {
-      await entities.PricingPlan.delete(planId);
-      toast({ title: "Success", description: "Pricing plan deleted" });
+      await FirebaseFunctions.deletePricingPlan(planId);
+      toast({ title: "Success", description: "Pricing plan deleted and archived in Stripe" });
       loadData();
     } catch (error) {
       console.error("Error deleting plan:", error);
       toast({
         title: "Error",
-        description: "Failed to delete pricing plan",
+        description: error.message || "Failed to delete pricing plan",
         variant: "destructive"
       });
     }
@@ -271,14 +289,37 @@ export default function PricingConfigPanel() {
                     <div>
                       <CardTitle>{plan.name}</CardTitle>
                       <div className="mt-2">
-                        <span className="text-3xl font-bold">${plan.monthly_price}</span>
-                        <span className="text-slate-500">/month</span>
+                        {plan.is_free ? (
+                          <span className="text-3xl font-bold text-green-600">Free</span>
+                        ) : (
+                          <>
+                            <span className="text-3xl font-bold">${plan.monthly_price}</span>
+                            <span className="text-slate-500">/month</span>
+                          </>
+                        )}
                       </div>
                     </div>
-                    <Badge variant="outline" className="gap-1">
-                      <Eye className="w-3 h-3" />
-                      Visible
-                    </Badge>
+                    <div className="flex flex-col gap-1 items-end">
+                      {plan.is_free ? (
+                        <Badge className="bg-green-100 text-green-700 gap-1">
+                          <Zap className="w-3 h-3" />
+                          Free Tier
+                        </Badge>
+                      ) : plan.stripe_price_id ? (
+                        <Badge className="bg-purple-100 text-purple-700 gap-1">
+                          <Check className="w-3 h-3" />
+                          Stripe Synced
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-amber-600 gap-1">
+                          Not synced
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="gap-1">
+                        <Eye className="w-3 h-3" />
+                        Visible
+                      </Badge>
+                    </div>
                   </div>
                   <CardDescription className="text-lg font-semibold mt-2">
                     {plan.job_limit} jobs per month
@@ -432,24 +473,57 @@ export default function PricingConfigPanel() {
                 onChange={(e) => setPlanForm({ ...planForm, job_limit: e.target.value })}
               />
             </div>
-            <div>
-              <Label htmlFor="price">Monthly Price ($)</Label>
-              <Input
-                id="price"
-                type="number"
-                step="0.01"
-                placeholder="e.g., 39.99"
-                value={planForm.monthly_price}
-                onChange={(e) => setPlanForm({ ...planForm, monthly_price: e.target.value })}
+            <div className="flex items-center space-x-2 py-2">
+              <Checkbox
+                id="is_free"
+                checked={planForm.is_free}
+                onCheckedChange={(checked) => setPlanForm({
+                  ...planForm,
+                  is_free: checked,
+                  monthly_price: checked ? "0" : planForm.monthly_price
+                })}
               />
+              <Label htmlFor="is_free" className="text-sm font-medium cursor-pointer">
+                Free tier (no credit card required)
+              </Label>
             </div>
+            {!planForm.is_free && (
+              <div>
+                <Label htmlFor="price">Monthly Price ($)</Label>
+                <Input
+                  id="price"
+                  type="number"
+                  step="0.01"
+                  placeholder="e.g., 39.99"
+                  value={planForm.monthly_price}
+                  onChange={(e) => setPlanForm({ ...planForm, monthly_price: e.target.value })}
+                />
+              </div>
+            )}
+            {!planForm.is_free && planForm.monthly_price && (
+              <p className="text-xs text-slate-500">
+                This plan will be synced to Stripe automatically when saved.
+              </p>
+            )}
+            {planForm.is_free && (
+              <p className="text-xs text-green-600">
+                Users can sign up without entering payment info.
+              </p>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPlanDialog(false)}>
+            <Button variant="outline" onClick={() => setShowPlanDialog(false)} disabled={isSaving}>
               Cancel
             </Button>
-            <Button onClick={handleSaveStandardPlan}>
-              {editingPlan ? "Update" : "Create"} Plan
+            <Button onClick={handleSaveStandardPlan} disabled={isSaving || !planForm.name || !planForm.job_limit}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>{editingPlan ? "Update" : "Create"} Plan</>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

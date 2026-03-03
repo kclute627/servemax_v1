@@ -17,6 +17,7 @@ import {
   Smartphone,
   Info
 } from 'lucide-react';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 const defaultWeights = {
   completion_time: 3,
@@ -79,6 +80,7 @@ const ratingFactors = [
 ];
 
 export default function ServerRatingSettingsPanel() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [weights, setWeights] = useState(defaultWeights);
   const [isLoading, setIsLoading] = useState(true);
@@ -89,7 +91,7 @@ export default function ServerRatingSettingsPanel() {
     const fetchSettings = async () => {
       setIsLoading(true);
       try {
-        const result = await CompanySettings.filter({ setting_key: 'server_rating_weights' });
+        const result = await CompanySettings.filter({ setting_key: 'server_rating_weights', company_id: user?.company_id });
         if (result && result.length > 0) {
           const fetched = result[0];
           setWeights({ ...defaultWeights, ...fetched.setting_value.weights });
@@ -104,10 +106,12 @@ export default function ServerRatingSettingsPanel() {
   }, []);
 
   const handleSave = async () => {
+    if (!user?.company_id) return;
     setIsSaving(true);
     try {
       const dataToSave = {
         setting_key: 'server_rating_weights',
+        company_id: user.company_id,
         setting_value: {
           weights,
           updated_at: new Date().toISOString()

@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { CompanySettings } from '@/api/entities';
+import { CompanySettings, User } from '@/api/entities';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch'; // Added Switch import
-import { Loader2, Plus, Trash2, Save, CheckCircle, AlertCircle, Settings } from 'lucide-react'; // Added Settings import
+import { Loader2, Plus, Trash2, Save, CheckCircle, AlertCircle, Settings, Users } from 'lucide-react';
 
 // Simple UUID generator to replace nanoid
 const generateId = () => `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -24,7 +24,15 @@ const defaultSettings = {
     { id: generateId(), label: 'Non-Serve - Moved' },
     { id: generateId(), label: 'Non-Serve - Evading Service' },
   ],
-  show_description_buttons: true // Add default for new toggle
+  show_description_buttons: true,
+  relationship_types: [
+    { id: generateId(), label: 'Spouse' },
+    { id: generateId(), label: 'Co-Occupant' },
+    { id: generateId(), label: 'Co-Worker' },
+    { id: generateId(), label: 'Manager/Supervisor' },
+    { id: generateId(), label: 'Authorized Agent' },
+    { id: generateId(), label: 'Other' },
+  ]
 };
 
 export default function ServiceSettingsPanel() {
@@ -32,19 +40,26 @@ export default function ServiceSettingsPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [settingsId, setSettingsId] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  useEffect(() => {
+    User.me().then(setCurrentUser).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const fetchSettings = async () => {
+      if (!currentUser?.company_id) return;
       setIsLoading(true);
       try {
-        const result = await CompanySettings.filter({ setting_key: 'service_types' });
+        const result = await CompanySettings.filter({ setting_key: 'service_types', company_id: currentUser.company_id });
         if (result && result.length > 0) {
           const fetched = result[0];
           // Ensure IDs exist for all items and include show_description_buttons setting
           const validatedSettings = {
             successful: fetched.setting_value.successful?.map(item => ({ ...item, id: item.id || generateId() })) || [],
             unsuccessful: fetched.setting_value.unsuccessful?.map(item => ({ ...item, id: item.id || generateId() })) || [],
-            show_description_buttons: fetched.setting_value.show_description_buttons !== false // Default to true if not set
+            show_description_buttons: fetched.setting_value.show_description_buttons !== false,
+            relationship_types: fetched.setting_value.relationship_types?.map(item => ({ ...item, id: item.id || generateId() })) || defaultSettings.relationship_types
           };
           setSettings(validatedSettings);
           setSettingsId(fetched.id);
@@ -58,7 +73,7 @@ export default function ServiceSettingsPanel() {
       setIsLoading(false);
     };
     fetchSettings();
-  }, []);
+  }, [currentUser]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -66,6 +81,7 @@ export default function ServiceSettingsPanel() {
       const dataToSave = {
         setting_key: 'service_types',
         setting_value: settings, // This now includes show_description_buttons
+        ...(currentUser?.company_id && { company_id: currentUser.company_id }),
       };
 
       if (settingsId) {
@@ -188,6 +204,8 @@ export default function ServiceSettingsPanel() {
         {renderList('successful', 'Successful Service', 'Types that appear after marking an attempt as "Served".', CheckCircle)}
         {renderList('unsuccessful', 'Unsuccessful Service', 'Types for attempts that are "Not Served".', AlertCircle)}
       </div>
+
+      {renderList('relationship_types', 'Relationship Types', 'Options for the person served\'s relationship to the recipient.', Users)}
     </div>
   );
 }

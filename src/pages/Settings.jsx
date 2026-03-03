@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign, Users, Star, Mail, Globe } from "lucide-react";
+import { Building, User as UserIcon, CreditCard, ListChecks, Receipt, Bot, DollarSign, Users, Star, Mail, Globe, Upload } from "lucide-react";
 import { User } from "@/api/entities";
 import { isSuperAdmin } from "@/utils/permissions";
 import CompanySettingsPanel from "../components/settings/CompanySettingsPanel";
@@ -15,6 +15,7 @@ import ServerRatingSettingsPanel from "../components/settings/ServerRatingSettin
 import EmailTemplatesPanel from "../components/settings/EmailTemplatesPanel";
 import PortalSettingsPanel from "../components/settings/PortalSettingsPanel";
 import StripeConnectPanel from "../components/settings/StripeConnectPanel";
+import DataImportPanel from "../components/settings/DataImportPanel";
 import { PartnerManagement, PartnershipDirectory, PartnershipRequests } from "@/components/JobSharing";
 
 export default function SettingsPage() {
@@ -92,6 +93,7 @@ export default function SettingsPage() {
                     <TabButton tabName="agents" label="Agents" icon={Bot} />
                     <TabButton tabName="billing" label="Billing" icon={CreditCard} />
                     <TabButton tabName="payments" label="Payments" icon={DollarSign} />
+                    <TabButton tabName="data-import" label="Data Import" icon={Upload} />
                   </>
                 )}
                 {isSuperAdminUser && (
@@ -138,6 +140,7 @@ export default function SettingsPage() {
             {activeTab === 'agents' && isAdmin && !isSuperAdminUser && <AgentsSettingsPanel />}
             {activeTab === 'billing' && isAdmin && !isSuperAdminUser && <BillingPanel />}
             {activeTab === 'payments' && isAdmin && !isSuperAdminUser && <StripeConnectPanel />}
+            {activeTab === 'data-import' && isAdmin && !isSuperAdminUser && <DataImportPanel />}
             {activeTab === 'pricing' && isSuperAdminUser && <PricingConfigPanel />}
             {activeTab === 'email-templates' && isSuperAdminUser && <EmailTemplatesPanel />}
           </div>

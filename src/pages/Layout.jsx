@@ -19,7 +19,8 @@ import {
   BookUser,
   Building2,
   Activity,
-  Shield
+  Shield,
+  Archive
 } from "lucide-react";
 import {
   Tooltip,
@@ -44,6 +45,11 @@ const navigationItems = [
     title: "Jobs",
     url: createPageUrl("Jobs"),
     icon: Briefcase
+  },
+  {
+    title: "Legacy Jobs",
+    url: createPageUrl("LegacyJobs"),
+    icon: Archive
   },
   {
     title: "Clients",
@@ -256,24 +262,32 @@ export default function Layout({ children, currentPageName }) {
                           to={item.url}
                           end={item.title !== 'Jobs'}
                           className={({ isActive }) => {
-                            // Smart matching: Highlight "Jobs" for job-related pages
+                            // Smart matching: Highlight parent nav for sub-pages
                             const isJobsRelated = item.title === 'Jobs' &&
                               (location.pathname.includes('/Jobs') ||
                                 location.pathname.includes('/CreateJob') ||
                                 location.pathname.includes('/jobs'));
-                            const shouldHighlight = isActive || isJobsRelated;
+                            const isClientsRelated = item.title === 'Clients' &&
+                              (location.pathname.includes('/ClientDetails'));
+                            const isAccountingRelated = item.title === 'Accounting' &&
+                              (location.pathname.includes('/InvoiceDetail'));
+                            const shouldHighlight = isActive || isJobsRelated || isClientsRelated || isAccountingRelated;
 
                             return `group flex items-center px-3 py-3 rounded-xl mb-1 hover:bg-white/10 transition-all duration-200 ${isCollapsed ? 'justify-center' : ''
                               } ${shouldHighlight ? 'bg-white/15 shadow-sm ring-1 ring-white/20 backdrop-blur-sm border-r-2 border-[#49F0D1]' : ''}`;
                           }}
                         >
                           {({ isActive }) => {
-                            // Smart matching: Highlight "Jobs" for job-related pages
+                            // Smart matching: Highlight parent nav for sub-pages
                             const isJobsRelated = item.title === 'Jobs' &&
                               (location.pathname.includes('/Jobs') ||
                                 location.pathname.includes('/CreateJob') ||
                                 location.pathname.includes('/jobs'));
-                            const shouldHighlight = isActive || isJobsRelated;
+                            const isClientsRelated = item.title === 'Clients' &&
+                              (location.pathname.includes('/ClientDetails'));
+                            const isAccountingRelated = item.title === 'Accounting' &&
+                              (location.pathname.includes('/InvoiceDetail'));
+                            const shouldHighlight = isActive || isJobsRelated || isClientsRelated || isAccountingRelated;
                             const textColor = isUserSuperAdmin ? 'text-purple-100' : 'text-blue-100';
 
                             return (

@@ -187,19 +187,26 @@ export default function ClientInvoiceDetail() {
           )}
 
           {isPayable && (
-            <Button
-              onClick={handlePayInvoice}
-              disabled={isProcessingPayment}
-              style={{ backgroundColor: primaryColor }}
-              className="text-white"
-            >
-              {isProcessingPayment ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <CreditCard className="w-4 h-4 mr-2" />
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                onClick={handlePayInvoice}
+                disabled={isProcessingPayment}
+                style={{ backgroundColor: primaryColor }}
+                className="text-white"
+              >
+                {isProcessingPayment ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <CreditCard className="w-4 h-4 mr-2" />
+                )}
+                {isProcessingPayment ? 'Processing...' : 'Pay Now'}
+              </Button>
+              {company.invoice_settings?.credit_card_fee_enabled && company.invoice_settings?.credit_card_fee_percent > 0 && (
+                <p className="text-xs text-slate-400">
+                  A {company.invoice_settings.credit_card_fee_percent}% credit card processing fee will be applied
+                </p>
               )}
-              {isProcessingPayment ? 'Processing...' : 'Pay Now'}
-            </Button>
+            </div>
           )}
         </div>
       </div>
@@ -414,20 +421,27 @@ export default function ClientInvoiceDetail() {
                   Balance due: <span className="font-bold text-slate-900">${balanceDue.toFixed(2)}</span>
                 </p>
               </div>
-              <Button
-                size="lg"
-                onClick={handlePayInvoice}
-                disabled={isProcessingPayment}
-                style={{ backgroundColor: primaryColor }}
-                className="text-white"
-              >
-                {isProcessingPayment ? (
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                ) : (
-                  <CreditCard className="w-5 h-5 mr-2" />
+              <div className="flex flex-col items-center sm:items-end gap-1">
+                <Button
+                  size="lg"
+                  onClick={handlePayInvoice}
+                  disabled={isProcessingPayment}
+                  style={{ backgroundColor: primaryColor }}
+                  className="text-white"
+                >
+                  {isProcessingPayment ? (
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  ) : (
+                    <CreditCard className="w-5 h-5 mr-2" />
+                  )}
+                  {isProcessingPayment ? 'Processing...' : `Pay $${balanceDue.toFixed(2)} Now`}
+                </Button>
+                {company.invoice_settings?.credit_card_fee_enabled && company.invoice_settings?.credit_card_fee_percent > 0 && (
+                  <p className="text-xs text-slate-400">
+                    A {company.invoice_settings.credit_card_fee_percent}% credit card processing fee will be applied
+                  </p>
                 )}
-                {isProcessingPayment ? 'Processing...' : `Pay $${balanceDue.toFixed(2)} Now`}
-              </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

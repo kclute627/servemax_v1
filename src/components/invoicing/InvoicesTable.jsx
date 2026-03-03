@@ -431,7 +431,7 @@ export default function InvoicesTable({ invoices, clients, isLoading, onPaymentA
                       {invoice.invoice_number}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-slate-700">{getClientName(invoice.client_id)}</TableCell>
+                  <TableCell className="text-slate-700 capitalize">{getClientName(invoice.client_id)}</TableCell>
                   <TableCell className="text-slate-700">{format(new Date(invoice.invoice_date), "MMM d, yyyy")}</TableCell>
                   <TableCell className="text-slate-700">{format(new Date(invoice.due_date), "MMM d, yyyy")}</TableCell>
                   <TableCell className="font-medium text-green-600">${(invoice.total_paid || 0).toFixed(2)}</TableCell>
@@ -602,7 +602,7 @@ export default function InvoicesTable({ invoices, clients, isLoading, onPaymentA
             <div key={inv.id} className="flex justify-between items-center px-4 py-2.5">
               <div>
                 <span className="font-medium text-sm text-slate-900">{inv.invoice_number}</span>
-                <span className="text-xs text-slate-500 ml-2">{getClientName(inv.client_id)}</span>
+                <span className="text-xs text-slate-500 ml-2 capitalize">{getClientName(inv.client_id)}</span>
               </div>
               <span className="font-semibold text-sm text-slate-900">
                 ${(inv.balance_due || 0).toFixed(2)}

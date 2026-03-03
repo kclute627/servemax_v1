@@ -167,7 +167,7 @@ export default function ClientsTable({ clients, isLoading, onClientUpdate }) {
                         <div className="flex items-center gap-2">
                           <Link
                             to={`${createPageUrl("ClientDetails")}?id=${client.id}`}
-                            className="font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                            className="font-semibold text-slate-900 hover:text-blue-600 hover:underline capitalize"
                           >
                             {client.company_name}
                           </Link>

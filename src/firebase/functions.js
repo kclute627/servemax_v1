@@ -131,12 +131,7 @@ export class FirebaseFunctions {
       return result.data;
     } catch (error) {
       console.error('Send email error:', error);
-      // Mock response for development
-      console.log(`Mock email sent to ${to}: ${subject}`);
-      return {
-        success: true,
-        message: 'Email sent (mock)'
-      };
+      throw error;
     }
   }
 
@@ -556,6 +551,42 @@ export class FirebaseFunctions {
     }
   }
 
+  // Create or update pricing plan with auto Stripe sync (super admin only)
+  static async createOrUpdatePricingPlan(planId, planData) {
+    try {
+      const fn = httpsCallable(functions, 'createOrUpdatePricingPlan');
+      const result = await fn({ planId, planData });
+      return result.data;
+    } catch (error) {
+      console.error('Create/update pricing plan error:', error);
+      throw error;
+    }
+  }
+
+  // Delete pricing plan (super admin only)
+  static async deletePricingPlan(planId) {
+    try {
+      const fn = httpsCallable(functions, 'deletePricingPlan');
+      const result = await fn({ planId });
+      return result.data;
+    } catch (error) {
+      console.error('Delete pricing plan error:', error);
+      throw error;
+    }
+  }
+
+  // Activate free subscription (no payment required)
+  static async activateFreeSubscription(planId, companyId) {
+    try {
+      const fn = httpsCallable(functions, 'activateFreeSubscription');
+      const result = await fn({ planId, companyId });
+      return result.data;
+    } catch (error) {
+      console.error('Activate free subscription error:', error);
+      throw error;
+    }
+  }
+
   // === Stripe Connect Functions ===
 
   // Create Connect onboarding link
@@ -608,6 +639,18 @@ export class FirebaseFunctions {
     }
   }
 
+  // Get invoice by payment token (public - no auth required)
+  static async getInvoiceByPaymentToken(token) {
+    try {
+      const fn = httpsCallable(functions, 'getInvoiceByPaymentToken');
+      const result = await fn({ token });
+      return result.data;
+    } catch (error) {
+      console.error('Get invoice by token error:', error);
+      throw error;
+    }
+  }
+
   // === Job Notes Functions ===
 
   // Create a job note with optional email notification
@@ -622,6 +665,75 @@ export class FirebaseFunctions {
       return result.data;
     } catch (error) {
       console.error('Create job note error:', error);
+      throw error;
+    }
+  }
+
+  // === ServeManager Import Functions ===
+
+  // Validate a ServeManager API key
+  static async validateServeManagerApiKey(apiKey) {
+    try {
+      const fn = httpsCallable(functions, 'validateServeManagerApiKey');
+      const result = await fn({ apiKey });
+      return result.data;
+    } catch (error) {
+      console.error('Validate ServeManager API key error:', error);
+      throw error;
+    }
+  }
+
+  // Start a ServeManager data import
+  static async startServeManagerImport(apiKey) {
+    try {
+      const fn = httpsCallable(functions, 'startServeManagerImport');
+      const result = await fn({ apiKey });
+      return result.data;
+    } catch (error) {
+      console.error('Start ServeManager import error:', error);
+      throw error;
+    }
+  }
+
+  // Get ServeManager import status
+  // @param {string} importId - Optional specific import ID (if omitted, returns latest)
+  static async getServeManagerImportStatus(importId = null) {
+    try {
+      const fn = httpsCallable(functions, 'getServeManagerImportStatus');
+      const result = await fn({ importId });
+      return result.data;
+    } catch (error) {
+      console.error('Get ServeManager import status error:', error);
+      throw error;
+    }
+  }
+
+  // Get legacy jobs with pagination
+  // @param {number} pageSize - Number of jobs per page (max 100)
+  // @param {string} cursor - Cursor for pagination (last job ID)
+  // @param {Object} filters - Optional filters (service_status, job_status)
+  static async getLegacyJobs(pageSize = 50, cursor = null, filters = {}) {
+    try {
+      const fn = httpsCallable(functions, 'getLegacyJobs');
+      const result = await fn({ pageSize, cursor, filters });
+      return result.data;
+    } catch (error) {
+      console.error('Get legacy jobs error:', error);
+      throw error;
+    }
+  }
+
+  // Search legacy jobs
+  // @param {string} searchTerm - Search term
+  // @param {Object} filters - Optional filters
+  // @param {number} limit - Max results (default 50)
+  static async searchLegacyJobs(searchTerm, filters = {}, limit = 50) {
+    try {
+      const fn = httpsCallable(functions, 'searchLegacyJobs');
+      const result = await fn({ searchTerm, filters, limit });
+      return result.data;
+    } catch (error) {
+      console.error('Search legacy jobs error:', error);
       throw error;
     }
   }

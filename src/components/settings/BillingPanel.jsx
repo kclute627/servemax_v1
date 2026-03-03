@@ -73,6 +73,31 @@ export default function BillingPanel() {
   const monthlyRate = currentPlan?.monthly_price || 0;
 
   const handleSubscribe = async (plan) => {
+    // Handle free tier - no Stripe checkout needed
+    if (plan.is_free || plan.monthly_price === 0) {
+      setLoadingCheckout(true);
+      try {
+        await FirebaseFunctions.activateFreeSubscription(plan.id, companyData.id);
+        toast({
+          title: "Success",
+          description: `You're now on the ${plan.name} plan!`
+        });
+        // Reload page to reflect changes
+        window.location.reload();
+      } catch (error) {
+        console.error('Free subscription error:', error);
+        toast({
+          title: "Error",
+          description: error.message || "Failed to activate free plan. Please try again.",
+          variant: "destructive"
+        });
+      } finally {
+        setLoadingCheckout(false);
+      }
+      return;
+    }
+
+    // Paid plans require Stripe checkout
     if (!plan.stripe_price_id) {
       toast({
         title: "Not Available",
@@ -346,42 +371,60 @@ export default function BillingPanel() {
               </p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {pricingPlans.map((plan) => (
-                  <div
-                    key={plan.id}
-                    className="border rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all"
-                  >
-                    <h3 className="font-semibold text-lg">{plan.name}</h3>
-                    <div className="mt-2">
-                      <span className="text-2xl font-bold">${plan.monthly_price || 0}</span>
-                      <span className="text-slate-500">/month</span>
-                    </div>
-                    <p className="text-sm text-slate-600 mt-1">
-                      {plan.job_limit || 'Unlimited'} jobs/month
-                    </p>
-                    {plan.features && plan.features.length > 0 && (
-                      <ul className="mt-3 space-y-1">
-                        {plan.features.slice(0, 3).map((feature, idx) => (
-                          <li key={idx} className="text-sm text-slate-600 flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3 text-green-500" />
-                            {feature}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <Button
-                      onClick={() => handleSubscribe(plan)}
-                      disabled={loadingCheckout || !plan.stripe_price_id}
-                      className="w-full mt-4"
-                      variant={plan.stripe_price_id ? "default" : "outline"}
+                {pricingPlans.map((plan) => {
+                  const isFree = plan.is_free || plan.monthly_price === 0;
+                  const isAvailable = isFree || plan.stripe_price_id;
+
+                  return (
+                    <div
+                      key={plan.id}
+                      className={`border rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all ${
+                        isFree ? 'border-green-200 bg-green-50/30' : ''
+                      }`}
                     >
-                      {loadingCheckout ? (
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      ) : null}
-                      {plan.stripe_price_id ? 'Subscribe' : 'Coming Soon'}
-                    </Button>
-                  </div>
-                ))}
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-semibold text-lg">{plan.name}</h3>
+                        {isFree && (
+                          <Badge className="bg-green-100 text-green-700">Free</Badge>
+                        )}
+                      </div>
+                      <div className="mt-2">
+                        {isFree ? (
+                          <span className="text-2xl font-bold text-green-600">Free</span>
+                        ) : (
+                          <>
+                            <span className="text-2xl font-bold">${plan.monthly_price || 0}</span>
+                            <span className="text-slate-500">/month</span>
+                          </>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-600 mt-1">
+                        {plan.job_limit || 'Unlimited'} jobs/month
+                      </p>
+                      {plan.features && plan.features.length > 0 && (
+                        <ul className="mt-3 space-y-1">
+                          {plan.features.slice(0, 3).map((feature, idx) => (
+                            <li key={idx} className="text-sm text-slate-600 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-green-500" />
+                              {feature}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <Button
+                        onClick={() => handleSubscribe(plan)}
+                        disabled={loadingCheckout || !isAvailable}
+                        className={`w-full mt-4 ${isFree ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                        variant={isAvailable ? "default" : "outline"}
+                      >
+                        {loadingCheckout ? (
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        ) : null}
+                        {isFree ? 'Get Started Free' : isAvailable ? 'Subscribe' : 'Coming Soon'}
+                      </Button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </CardContent>

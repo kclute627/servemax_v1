@@ -183,7 +183,7 @@ export default function ContractorPaymentsTable({ serverPayRecords, isLoading })
                     </span>
                   </div>
                   <div>
-                    <p className="font-semibold text-slate-900 text-left">{getContractorDisplayName(contractor)}</p>
+                    <p className="font-semibold text-slate-900 text-left capitalize">{getContractorDisplayName(contractor)}</p>
                     <p className="text-sm text-slate-500 text-left">{records.length} unpaid job(s)</p>
                   </div>
                 </div>

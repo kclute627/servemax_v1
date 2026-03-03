@@ -79,7 +79,8 @@ import {
   Save, // Icon for save
   ChevronDown,
   ChevronUp,
-  X
+  X,
+  Copy
 } from 'lucide-react';
 import { format } from 'date-fns';
 import AddressAutocomplete from '../components/jobs/AddressAutocomplete';
@@ -788,7 +789,7 @@ export default function JobDetailsPage() {
         // PERFORMANCE: Only fetch if not available in context
         shouldFetchEmployees ? Employee.list().catch(e => { return []; }) : Promise.resolve(contextEmployees),
         shouldFetchClients ? Client.list().catch(e => { return []; }) : Promise.resolve(contextClients),
-        CompanySettings.filter({ setting_key: "invoice_settings" }).catch(e => { return []; }),
+        CompanySettings.filter({ setting_key: "invoice_settings", company_id: user?.company_id }).catch(e => { return []; }),
       ]);
 
       const validatedJobData = await validateJobStatus(jobData, Array.isArray(attemptsData) ? attemptsData : []);
@@ -2662,6 +2663,50 @@ export default function JobDetailsPage() {
                 {isOverdue && ' (Overdue)'}
               </Badge>
             )}
+            <Button
+              onClick={() => {
+                navigate('/CreateJob', {
+                  state: {
+                    duplicateFrom: {
+                      job_type: job.job_type,
+                      client_id: job.client_id,
+                      client_job_number: job.client_job_number || "",
+                      contact_email: job.contact_email || "",
+                      plaintiff: job.plaintiff || "",
+                      defendant: job.defendant || "",
+                      case_number: job.case_number || "",
+                      court_name: job.court_name || "",
+                      court_county: job.court_county || "",
+                      court_address: job.court_address || {},
+                      court_case_id: job.court_case_id || "",
+                      recipient_name: job.recipient?.name || "",
+                      recipient_type: job.recipient?.type || "individual",
+                      addresses: job.addresses || [{
+                        label: "Service Address",
+                        address1: "", address2: "", city: "", state: "", postal_code: "",
+                        latitude: null, longitude: null, primary: true
+                      }],
+                      service_instructions: job.service_instructions || "",
+                      priority: job.priority || "standard",
+                      due_date: "",
+                      first_attempt_instructions: job.first_attempt_instructions || "",
+                      first_attempt_due_date: "",
+                      server_type: job.server_type || "employee",
+                      assigned_server_id: job.assigned_server_id || "unassigned",
+                      // Pass client object for pre-selection
+                      _client: client,
+                      // Pass court case for re-linking
+                      _courtCase: courtCase,
+                    }
+                  }
+                });
+              }}
+              variant="outline"
+              className="gap-2"
+            >
+              <Copy className="w-4 h-4" />
+              Duplicate
+            </Button>
             <Button
               onClick={() => {
                 setEmailPreSelectedContent({});

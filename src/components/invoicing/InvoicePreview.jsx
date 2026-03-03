@@ -129,7 +129,7 @@ export default function InvoicePreview({
   const total = subtotal + taxAmount;
 
   return (
-    <div className={`invoice-preview bg-white ${className}`}>
+    <div className={`invoice-preview bg-white ${className}`} style={{ position: 'relative', overflow: 'hidden' }}>
       <style>{`
         @media print {
           body * {
@@ -353,7 +353,55 @@ export default function InvoicePreview({
         .status-sent { background-color: #dbeafe; color: #1e40af; }
         .status-paid { background-color: #dcfce7; color: #166534; }
         .status-overdue { background-color: #fee2e2; color: #991b1b; }
+
+        .paid-stamp {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%) rotate(-20deg);
+          border: 6px solid #dc2626;
+          border-radius: 12px;
+          padding: 12px 40px;
+          text-align: center;
+          opacity: 0.25;
+          pointer-events: none;
+          z-index: 10;
+        }
+
+        .paid-stamp-text {
+          font-size: 72px;
+          font-weight: 900;
+          color: #dc2626;
+          letter-spacing: 12px;
+          line-height: 1;
+          font-family: 'Arial Black', 'Impact', sans-serif;
+        }
+
+        .paid-stamp-date {
+          font-size: 18px;
+          font-weight: 700;
+          color: #dc2626;
+          margin-top: 4px;
+          letter-spacing: 2px;
+        }
       `}</style>
+
+      {(() => {
+        const invoiceTotal = invoice.total_amount || invoice.total || 0;
+        const amountPaid = invoice.amount_paid || invoice.total_paid || 0;
+        const isPaid = invoice.status?.toLowerCase() === 'paid' || (amountPaid > 0 && amountPaid >= invoiceTotal);
+        if (!isPaid) return null;
+        return (
+          <div className="paid-stamp">
+            <div className="paid-stamp-text">PAID</div>
+            {invoice.paid_date && (
+              <div className="paid-stamp-date">
+                {format(new Date(invoice.paid_date + 'T00:00:00'), 'MM/dd/yyyy')}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="invoice-header">
         <div className="company-info">
@@ -695,18 +743,33 @@ export default function InvoicePreview({
             <span>Total:</span>
             <span>${total.toFixed(2)}</span>
           </div>
-          {invoice.amount_paid > 0 && (
-            <div className="totals-row paid">
-              <span>Amount Paid:</span>
-              <span>-${invoice.amount_paid.toFixed(2)}</span>
-            </div>
-          )}
-          {invoice.balance_due !== undefined && invoice.balance_due > 0 && (
-            <div className="totals-row balance">
-              <span>Balance Due:</span>
-              <span>${invoice.balance_due.toFixed(2)}</span>
-            </div>
-          )}
+          {(() => {
+            const paid = invoice.amount_paid || invoice.total_paid || 0;
+            const invoiceTotal = invoice.total_amount || invoice.total || total;
+            const balance = invoice.balance_due ?? (invoiceTotal - paid);
+            return (
+              <>
+                {paid > 0 && (
+                  <div className="totals-row paid">
+                    <span>Amount Paid:</span>
+                    <span>-${paid.toFixed(2)}</span>
+                  </div>
+                )}
+                {balance > 0 && (
+                  <div className="totals-row balance">
+                    <span>Balance Due:</span>
+                    <span>${balance.toFixed(2)}</span>
+                  </div>
+                )}
+                {paid > 0 && balance <= 0 && (
+                  <div className="totals-row" style={{ color: '#16a34a', fontWeight: 700, fontSize: '16px' }}>
+                    <span>Balance Due:</span>
+                    <span>$0.00</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
 

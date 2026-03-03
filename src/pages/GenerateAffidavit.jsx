@@ -43,6 +43,7 @@ export default function GenerateAffidavitPage() {
   const [companyInfo, setCompanyInfo] = useState(null); // Changed initial state to null
   const [hasCompanyInfo, setHasCompanyInfo] = useState(false); // New state variable
   const [affidavitTemplates, setAffidavitTemplates] = useState([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState('standard_test');
   const [selectedTemplate, setSelectedTemplate] = useState(null); // Full template object
 
@@ -218,10 +219,12 @@ export default function GenerateAffidavitPage() {
       }
 
       setAffidavitTemplates(allTemplates);
+      setTemplatesLoaded(true);
     } catch (err) {
       console.error("Error loading affidavit templates:", err);
       // Fallback: use starter templates only
       setAffidavitTemplates(starterTemplatesList);
+      setTemplatesLoaded(true);
     }
   };
 
@@ -255,8 +258,8 @@ export default function GenerateAffidavitPage() {
 
   // Auto-generate affidavit data when dependencies are loaded
   useEffect(() => {
-    // Only proceed if job data is loaded AND companyInfo has been processed (either loaded or confirmed absent)
-    if (!job || !courtCase || !attempts || !documents || !employees || (companyInfo === null && hasCompanyInfo)) return;
+    // Only proceed if job data is loaded AND companyInfo has been processed AND templates are loaded
+    if (!job || !courtCase || !attempts || !documents || !employees || (companyInfo === null && hasCompanyInfo) || !templatesLoaded) return;
     
     const servedAttempts = attempts.filter(attempt => attempt.status === 'served');
     const latestServedAttempt = servedAttempts.length > 0
@@ -444,7 +447,7 @@ export default function GenerateAffidavitPage() {
 
       return newData;
     });
-  }, [job, client, courtCase, attempts, documents, employees, selectedPhotos, includeNotary, includeCompanyInfo, companyInfo, hasCompanyInfo, selectedTemplateId, selectedTemplate, currentUser]);
+  }, [job, client, courtCase, attempts, documents, employees, selectedPhotos, includeNotary, includeCompanyInfo, companyInfo, hasCompanyInfo, selectedTemplateId, selectedTemplate, currentUser, templatesLoaded]);
 
   // Smart auto-select template based on court location with priority matching
   useEffect(() => {

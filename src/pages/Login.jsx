@@ -4,10 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Mail, Lock, AlertCircle, Shield, ArrowRight } from 'lucide-react';
+import { Mail, Lock, AlertCircle, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { createPageUrl } from '@/utils';
 import PublicNavbar from '@/components/layout/PublicNavbar';
+import logoFullWhite from '@/images/logo-full-white.png';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -80,8 +81,8 @@ export default function LoginPage() {
         <div className="w-full max-w-md relative">
           {/* Header */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-[#0D2E26] rounded-2xl mb-6">
-              <Shield className="w-8 h-8 text-emerald-400" />
+            <div className="inline-flex items-center justify-center bg-[#0D2E26] rounded-2xl px-6 py-4 mb-6">
+              <img src={logoFullWhite} alt="Diligence" className="h-12" />
             </div>
             <h1 className="text-3xl font-bold text-stone-900 mb-2">
               Welcome back

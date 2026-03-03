@@ -13,10 +13,11 @@ import {
   Loader2
 } from "lucide-react";
 
-export default function ClientSearchInput({ value, onValueChange, onClientSelected, onTextChange, selectedClient }) {
+export default function ClientSearchInput({ value, onValueChange, onClientSelected, onTextChange, selectedClient, onUseAsNewClient }) {
   const [filteredClients, setFilteredClients] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [dismissedForNewClient, setDismissedForNewClient] = useState(false);
   const searchTimeoutRef = useRef(null);
   const lastSearchResultsRef = useRef({ hasResults: false });
   const currentSearchTermRef = useRef(""); // Track current search to prevent stale results
@@ -34,7 +35,9 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
     // Only search if 3+ characters
     if (value.length >= 3) {
       setIsLoading(true);
-      setShowDropdown(true);
+      if (!dismissedForNewClient) {
+        setShowDropdown(true);
+      }
 
       // Debounce search by 300ms
       searchTimeoutRef.current = setTimeout(() => {
@@ -109,6 +112,11 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
 
       setFilteredClients(filtered);
 
+      // Hide dropdown if no results found
+      if (filtered.length === 0) {
+        setShowDropdown(false);
+      }
+
       // Track results and notify parent about text change
       const hasResults = filtered.length > 0;
       lastSearchResultsRef.current = { hasResults };
@@ -135,7 +143,8 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
   };
 
   const handleInputFocus = () => {
-    if (value.length > 0) {
+    if (dismissedForNewClient) return;
+    if (value.length > 0 && (value.length < 3 || filteredClients.length > 0 || isLoading)) {
       setShowDropdown(true);
     }
   };
@@ -151,7 +160,10 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
         <Input
           value={value}
-          onChange={(e) => onValueChange(e.target.value)}
+          onChange={(e) => {
+            if (dismissedForNewClient) setDismissedForNewClient(false);
+            onValueChange(e.target.value);
+          }}
           onFocus={handleInputFocus}
           onBlur={handleInputBlur}
           placeholder="Search for a client..."
@@ -201,18 +213,22 @@ export default function ClientSearchInput({ value, onValueChange, onClientSelect
                     </div>
                   ))}
                 </div>
-                {/* <div className="border-t border-slate-200 pt-2 mt-2">
-                  <Button
+                <div className="border-t border-slate-200 pt-2 mt-2">
+                  <button
                     type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={onShowNewClient}
-                    className="w-full gap-2"
+                    className="w-full flex items-center justify-center gap-2 p-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    onClick={() => {
+                      setShowDropdown(false);
+                      setDismissedForNewClient(true);
+                      if (onUseAsNewClient) {
+                        onUseAsNewClient(value);
+                      }
+                    }}
                   >
                     <Plus className="w-4 h-4" />
-                    Add New Client
-                  </Button>
-                </div> */}
+                    Create "{value}" as new client
+                  </button>
+                </div>
               </>
             ) : (
               <div className="p-3 text-center">

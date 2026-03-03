@@ -32,7 +32,7 @@ export default function AgentsSettingsPanel() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const settings = await CompanySettings.filter({ setting_key: 'ai_agents' });
+        const settings = await CompanySettings.filter({ setting_key: 'ai_agents', company_id: user?.company_id });
         if (settings.length > 0 && settings[0].setting_value?.agents) {
           const savedAgents = settings[0].setting_value.agents;
           setAgents(prev => prev.map(agent => {
@@ -69,15 +69,17 @@ export default function AgentsSettingsPanel() {
         enabled
       }));
 
-      const existingSettings = await CompanySettings.filter({ setting_key: 'ai_agents' });
+      const existingSettings = await CompanySettings.filter({ setting_key: 'ai_agents', company_id: user.company_id });
       if (existingSettings.length > 0) {
         await CompanySettings.update(existingSettings[0].id, {
-          setting_value: { agents: agentsToSave }
+          setting_value: { agents: agentsToSave },
+          company_id: user.company_id
         });
       } else {
         await CompanySettings.create({
           setting_key: 'ai_agents',
-          setting_value: { agents: agentsToSave }
+          setting_value: { agents: agentsToSave },
+          company_id: user.company_id
         });
       }
 

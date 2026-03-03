@@ -1,579 +1,907 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { createPageUrl } from "@/utils";
-import { Check, ArrowRight, Shield, Clock, FileCheck, TrendingUp } from "lucide-react";
+import { Check, ArrowRight, Play, Menu, X } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
 import { entities } from "@/firebase/database";
-import { Container } from '@/components/ui/container';
-import clsx from 'clsx';
-import screenshotJobs from '@/images/screenshots/reporting.png';
-import screenshotDocuments from '@/images/screenshots/contacts.png';
-import screenshotAccounting from '@/images/screenshots/inventory.png';
-import screenshotDashboard from '@/images/screenshots/payroll.png';
-import avatarImage1 from '@/images/avatars/avatar-1.png'
-import avatarImage2 from '@/images/avatars/avatar-2.png'
-import avatarImage3 from '@/images/avatars/avatar-3.png'
-import avatarImage4 from '@/images/avatars/avatar-4.png'
-import avatarImage5 from '@/images/avatars/avatar-5.png'
-import screenshotContacts from '@/images/screenshots/contacts.png'
+import { Container } from "@/components/ui/container";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
+import clsx from "clsx";
+import { motion } from "framer-motion";
 
-// Cohesive color palette as CSS custom properties
-const colors = {
-  // Primary forest greens
-  forest: {
-    900: '#0A1F1A',
-    800: '#0D2E26',
-    700: '#134035',
-    600: '#1A5245',
-    500: '#1F6355',
-  },
-  // Accent emerald (harmonizes with forest)
-  emerald: {
-    500: '#10B981',
-    400: '#34D399',
-    300: '#6EE7B7',
-    200: '#A7F3D0',
-    100: '#D1FAE5',
-    50: '#ECFDF5',
-  },
-  // Warm neutrals
-  warm: {
-    50: '#FAFAF9',
-    100: '#F5F5F4',
-    200: '#E7E5E4',
-  }
+import screenshotDashboard from "@/images/screenshots/reporting.png";
+import screenshotContacts from "@/images/screenshots/contacts.png";
+import screenshotInventory from "@/images/screenshots/inventory.png";
+
+import avatarImage1 from "@/images/avatars/avatar-1.png";
+import avatarImage2 from "@/images/avatars/avatar-2.png";
+import avatarImage3 from "@/images/avatars/avatar-3.png";
+import avatarImage4 from "@/images/avatars/avatar-4.png";
+import avatarImage5 from "@/images/avatars/avatar-5.png";
+
+import logoTuple from "@/images/logos/tuple.svg";
+import logoStatamic from "@/images/logos/statamic.svg";
+import logoTransistor from "@/images/logos/transistor.svg";
+import logoLaravel from "@/images/logos/laravel.svg";
+import logoStatickit from "@/images/logos/statickit.svg";
+import logoFullWhite from "@/images/logo-full-white.png";
+
+const fadeIn = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.6 } },
 };
+
+const stagger = {
+  visible: { transition: { staggerChildren: 0.1 } },
+};
+
+const features = [
+  {
+    title: "Track your performance",
+    description:
+      "Real-time dashboards that show job status, server efficiency, and business metrics at a glance.",
+    image: screenshotDashboard,
+  },
+  {
+    title: "Collaborate with your Vendors",
+    description:
+      "Assign jobs, share updates, and manage your network of process servers seamlessly.",
+    image: screenshotContacts,
+  },
+  {
+    title: "Organize Your Serves",
+    description:
+      "Keep every job, attempt, and document organized with smart filters and search.",
+    image: screenshotInventory,
+  },
+];
+
+const testimonials = [
+  {
+    company: "Swift Legal Services",
+    content:
+      "Diligence cut our admin time in half. What took hours now takes minutes.",
+    author: {
+      name: "Michael Torres",
+      role: "Process Server, TX",
+      image: avatarImage1,
+    },
+  },
+  {
+    company: "Metro Process",
+    content:
+      "The affidavit generation alone saves me 5+ hours every week. Game changer.",
+    author: {
+      name: "Sarah Mitchell",
+      role: "Owner, Swift Legal",
+      image: avatarImage4,
+    },
+  },
+  {
+    company: "National Serve Co.",
+    content:
+      "Finally\u2014software built by people who understand process serving.",
+    author: {
+      name: "David Chen",
+      role: "Process Server, CA",
+      image: avatarImage5,
+    },
+  },
+  {
+    company: "Pacific Legal Support",
+    content:
+      "Our team went from spreadsheets to Diligence overnight. Haven\u2019t looked back.",
+    author: {
+      name: "Jessica Park",
+      role: "Operations Manager",
+      image: avatarImage2,
+    },
+  },
+  {
+    company: "Keystone Serving",
+    content:
+      "Invoicing used to take me all weekend. Now it takes 10 minutes on Monday morning.",
+    author: {
+      name: "Robert James",
+      role: "Independent Server, NY",
+      image: avatarImage3,
+    },
+  },
+  {
+    company: "Atlas Process Group",
+    content:
+      "The client portal alone justified the switch. Our attorneys love the real-time updates.",
+    author: {
+      name: "Amanda Wilson",
+      role: "Director of Operations",
+      image: avatarImage1,
+    },
+  },
+];
+
+const faqs = [
+  {
+    q: "How long does it take to get started?",
+    a:
+      "Most users are up and running in 15 minutes. Sign up, add a client, and create your first job. It\u2019s that simple.",
+  },
+  {
+    q: "Can I customize affidavit templates?",
+    a:
+      "Yes. Create templates for any state or court. Dynamic fields auto-populate from your job data so every document is accurate.",
+  },
+  {
+    q: "Is my data secure?",
+    a:
+      "Absolutely. We use industry-standard encryption, secure cloud infrastructure, and your data is never shared with third parties.",
+  },
+  {
+    q: "Can I add my team?",
+    a:
+      "Yes. Invite employees and contractors with custom permissions. Track everyone\u2019s work from a single dashboard.",
+  },
+  {
+    q: "Can I cancel anytime?",
+    a:
+      "Yes. No cancellation fees. Your data stays accessible for 30 days after cancellation.",
+  },
+];
+
+const fallbackPlans = [
+  {
+    name: "Basic",
+    description: "Perfect for independent process servers getting started.",
+    monthly_price: 25,
+    features: [
+      "Up to 50 jobs per month",
+      "Affidavit generation",
+      "Client management",
+      "Email support",
+      "Basic reporting",
+    ],
+  },
+  {
+    name: "Professional",
+    description: "For growing teams that need more power and flexibility.",
+    monthly_price: 25,
+    features: [
+      "Unlimited jobs",
+      "Advanced affidavit templates",
+      "Team management",
+      "Priority support",
+      "Advanced analytics",
+      "Client portal access",
+    ],
+  },
+];
+
+const trustedLogos = [
+  { src: logoTuple, alt: "Tuple" },
+  { src: logoStatamic, alt: "Statamic" },
+  { src: logoTransistor, alt: "Transistor" },
+  { src: logoLaravel, alt: "Laravel" },
+  { src: logoStatickit, alt: "StaticKit" },
+];
+
+const navLinks = [
+  { label: "Blog", href: "#" },
+  { label: "Changelog", href: "#" },
+  { label: "Pricing", href: "#pricing" },
+  { label: "About", href: "#" },
+  { label: "Careers", href: "#" },
+];
 
 export default function HomePage() {
   const navigate = useNavigate();
   const [pricingPlans, setPricingPlans] = useState([]);
   const [isLoadingPricing, setIsLoadingPricing] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     loadPricingPlans();
+  }, []);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 40);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   const loadPricingPlans = async () => {
     try {
       setIsLoadingPricing(true);
       const allPlans = await entities.PricingPlan.list();
-      const standardPlans = allPlans.filter(plan => plan.is_visible_on_home);
-      standardPlans.sort((a, b) => a.monthly_price - b.monthly_price);
+      const standardPlans = allPlans
+        .filter((plan) => plan.is_visible_on_home)
+        .sort((a, b) => a.monthly_price - b.monthly_price);
       setPricingPlans(standardPlans);
     } catch (error) {
       console.error("Error loading pricing plans:", error);
-      setPricingPlans([
-        {
-          name: "Professional",
-          job_limit: 100,
-          monthly_price: 39.99,
-          features: ["Unlimited clients", "Document generation", "Email support"]
-        }
-      ]);
+      setPricingPlans(fallbackPlans);
     } finally {
       setIsLoadingPricing(false);
     }
   };
 
-  const handleLogin = () => navigate(createPageUrl('Login'));
-  const handleSignUp = () => navigate(createPageUrl('SignUp'));
-
-  const primaryFeatures = [
-    {
-      title: 'Job Management',
-      description: 'Create jobs in seconds. Assign servers, track attempts, monitor status. Everything in one place.',
-      image: screenshotJobs,
-    },
-    {
-      title: 'Document Generation',
-      description: 'Auto-generate affidavits and field sheets. Professional documents, zero paperwork.',
-      image: screenshotDocuments,
-    },
-    {
-      title: 'Invoicing',
-      description: 'Create invoices from jobs with one click. Track payments. Get paid faster.',
-      image: screenshotAccounting,
-    },
-    {
-      title: 'Analytics',
-      description: 'See which clients send work. Track server performance. Make smarter decisions.',
-      image: screenshotDashboard,
-    },
-  ];
-
-  const testimonials = [
-    {
-      content: 'Diligence cut our admin time in half. What took hours now takes minutes.',
-      author: { name: 'Michael Torres', role: 'Process Server, TX', image: avatarImage1 },
-    },
-    {
-      content: 'The affidavit generation alone saves me 5+ hours every week.',
-      author: { name: 'Sarah Mitchell', role: 'Swift Legal Services', image: avatarImage4 },
-    },
-    {
-      content: 'Finally—software built by people who understand process serving.',
-      author: { name: 'David Chen', role: 'Process Server, CA', image: avatarImage5 },
-    },
-  ];
-
-  const faqs = [
-    { q: 'How long to get started?', a: 'Most users are running in 15 minutes. Sign up, add a client, create a job.' },
-    { q: 'Can I customize affidavit templates?', a: 'Yes. Create templates for any state or court. Dynamic fields auto-populate.' },
-    { q: 'Is my data secure?', a: 'Industry-standard encryption. Secure cloud infrastructure. Never shared.' },
-    { q: 'Can I add my team?', a: 'Invite employees and contractors with custom permissions. Track everyone.' },
-    { q: 'Mobile support?', a: 'Fully responsive. Works great on any device. Native app coming soon.' },
-    { q: 'Cancel anytime?', a: 'Yes. No fees. Your data stays accessible for 30 days.' },
-  ];
-
-  const secondaryFeatures = [
-    {
-      name: 'Dashboard',
-      summary: 'Real-time insights into jobs, invoices, and performance.',
-      description: 'See which clients send the most work. Track your best servers. Monitor cash flow.',
-      image: screenshotDashboard,
-    },
-    {
-      name: 'Client Hub',
-      summary: 'All clients, contacts, and history in one place.',
-      description: 'Store details, addresses, case history. Never lose track of who needs what.',
-      image: screenshotContacts,
-    },
-    {
-      name: 'Automation',
-      summary: 'Generate documents automatically from job data.',
-      description: 'Professional affidavits and field sheets. Consistent. Compliant. Fast.',
-      image: screenshotDocuments,
-    },
-  ];
-
-  function Plan({ name, price, description, features, featured, onSignUp }) {
-    return (
-      <div className={clsx(
-        'relative rounded-2xl p-8 transition-all duration-300',
-        featured
-          ? 'bg-[#0D2E26] text-white scale-105 shadow-2xl shadow-[#0D2E26]/20'
-          : 'bg-white border border-stone-200 hover:border-emerald-300 hover:shadow-lg'
-      )}>
-        {featured && (
-          <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-            <span className="bg-emerald-500 text-white text-xs font-semibold px-4 py-1.5 rounded-full tracking-wide">
-              MOST POPULAR
-            </span>
-          </div>
-        )}
-        <h3 className={clsx('text-2xl font-semibold', featured ? 'text-white' : 'text-stone-900')}>
-          {name}
-        </h3>
-        <p className={clsx('mt-2 text-sm', featured ? 'text-emerald-200' : 'text-stone-500')}>
-          {description}
-        </p>
-        <p className="mt-6 flex items-baseline gap-1">
-          <span className={clsx('text-5xl font-bold tracking-tight', featured ? 'text-white' : 'text-stone-900')}>
-            {price}
-          </span>
-          <span className={clsx('text-sm', featured ? 'text-emerald-200' : 'text-stone-500')}>/month</span>
-        </p>
-        <Button
-          onClick={onSignUp}
-          className={clsx(
-            'mt-8 w-full h-12 rounded-xl font-medium transition-all',
-            featured
-              ? 'bg-emerald-500 hover:bg-emerald-400 text-white'
-              : 'bg-[#0D2E26] hover:bg-[#134035] text-white'
-          )}
-        >
-          Start free trial
-        </Button>
-        <ul className="mt-8 space-y-3">
-          {features?.map((feature, idx) => (
-            <li key={idx} className="flex items-start gap-3">
-              <Check className={clsx('w-5 h-5 flex-shrink-0 mt-0.5', featured ? 'text-emerald-400' : 'text-emerald-500')} />
-              <span className={clsx('text-sm', featured ? 'text-emerald-100' : 'text-stone-600')}>{feature}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
-
-  function FeaturesDesktop() {
-    const [activeIndex, setActiveIndex] = useState(0);
-
-    return (
-      <div className="hidden lg:block mt-20">
-        <div className="grid grid-cols-3 gap-8">
-          {secondaryFeatures.map((feature, idx) => (
-            <button
-              key={feature.name}
-              onClick={() => setActiveIndex(idx)}
-              className={clsx(
-                'text-left p-6 rounded-2xl transition-all duration-300',
-                idx === activeIndex
-                  ? 'bg-[#0D2E26] text-white shadow-xl'
-                  : 'bg-white hover:bg-stone-50 border border-stone-200'
-              )}
-            >
-              <h3 className={clsx('font-semibold text-lg', idx === activeIndex ? 'text-emerald-400' : 'text-emerald-600')}>
-                {feature.name}
-              </h3>
-              <p className={clsx('mt-2 text-xl font-medium', idx === activeIndex ? 'text-white' : 'text-stone-900')}>
-                {feature.summary}
-              </p>
-              <p className={clsx('mt-3 text-sm', idx === activeIndex ? 'text-emerald-100' : 'text-stone-500')}>
-                {feature.description}
-              </p>
-            </button>
-          ))}
-        </div>
-        <div className="mt-12 rounded-2xl bg-stone-100 p-6 lg:p-10">
-          <div className="overflow-hidden rounded-xl shadow-2xl">
-            <img
-              src={secondaryFeatures[activeIndex].image}
-              alt={secondaryFeatures[activeIndex].name}
-              className="w-full transition-opacity duration-300"
-            />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function FeaturesMobile() {
-    return (
-      <div className="lg:hidden mt-16 space-y-12">
-        {secondaryFeatures.map((feature) => (
-          <div key={feature.name}>
-            <div className="bg-[#0D2E26] text-white p-6 rounded-2xl">
-              <h3 className="text-emerald-400 font-semibold">{feature.name}</h3>
-              <p className="mt-2 text-xl font-medium">{feature.summary}</p>
-              <p className="mt-3 text-sm text-emerald-100">{feature.description}</p>
-            </div>
-            <div className="mt-6 rounded-xl overflow-hidden shadow-lg">
-              <img src={feature.image} alt={feature.name} className="w-full" />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
+  const handleLogin = () => navigate(createPageUrl("Login"));
+  const handleSignUp = () => navigate(createPageUrl("SignUp"));
 
   return (
-    <div className="bg-stone-50 text-stone-900 antialiased">
-      {/* Inject Google Fonts */}
+    <div className="bg-white text-gray-900 antialiased">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-        .font-display { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
         body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
       `}</style>
 
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-stone-50/80 backdrop-blur-xl border-b border-stone-200/50">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-[#0D2E26] flex items-center justify-center">
-              <Shield className="w-4 h-4 text-emerald-400" />
+      {/* ── Navbar (floating pill → sticky bar on scroll) ── */}
+      <nav
+        className={clsx(
+          "fixed top-0 left-0 right-0 z-50 flex justify-center transition-all duration-500 ease-in-out",
+          scrolled ? "pt-0 px-0" : "pt-4 px-4"
+        )}
+      >
+        <div
+          className={clsx(
+            "w-full backdrop-blur-xl border border-white/10 shadow-lg shadow-black/20 transition-all duration-500 ease-in-out",
+            scrolled
+              ? "max-w-none bg-[#0D2E26]/95 rounded-none border-x-0 border-t-0"
+              : "max-w-5xl bg-[#0D2E26]/90 rounded-full"
+          )}
+        >
+          <div
+            className={clsx(
+              "h-14 flex items-center justify-between transition-all duration-500",
+              scrolled ? "max-w-7xl mx-auto px-6 lg:px-8" : "px-8"
+            )}
+          >
+            <img src={logoFullWhite} alt="Diligence" className="h-10" />
+
+            <div className="hidden md:flex items-center gap-6">
+              {navLinks.map((link) => (
+                <a
+                  key={link.label}
+                  href={link.href}
+                  className="text-sm text-gray-300 hover:text-white transition-colors"
+                >
+                  {link.label}
+                </a>
+              ))}
             </div>
-            <span className="text-xl font-bold text-[#0D2E26] tracking-tight">Diligence</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              onClick={handleLogin}
-              className="text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+
+            <div className="hidden md:flex items-center gap-3">
+              <button
+                onClick={handleLogin}
+                className="text-sm text-gray-300 hover:text-white font-medium px-4 py-1.5 transition-colors"
+              >
+                Log in
+              </button>
+              <button
+                onClick={handleSignUp}
+                className="text-sm text-white font-medium px-5 py-1.5 rounded-full bg-emerald-500 hover:bg-emerald-400 transition-colors"
+              >
+                Sign up
+              </button>
+            </div>
+
+            <button
+              className="md:hidden text-white"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
-              Sign in
-            </Button>
-            <Button
-              onClick={handleSignUp}
-              className="bg-[#0D2E26] hover:bg-[#134035] text-white rounded-full px-5"
-            >
-              Start free trial
-            </Button>
+              {mobileMenuOpen ? (
+                <X className="w-5 h-5" />
+              ) : (
+                <Menu className="w-5 h-5" />
+              )}
+            </button>
           </div>
         </div>
-      </header>
+
+        {mobileMenuOpen && (
+          <div className="absolute top-20 left-4 right-4 max-w-5xl mx-auto bg-[#0D2E26] rounded-2xl border border-white/10 shadow-xl px-6 py-4 space-y-3">
+            {navLinks.map((link) => (
+              <a
+                key={link.label}
+                href={link.href}
+                className="block text-sm text-gray-300 hover:text-white py-2"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {link.label}
+              </a>
+            ))}
+            <div className="flex gap-3 mt-2">
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleLogin();
+                }}
+                className="flex-1 text-sm text-white font-medium py-2.5 rounded-full border border-white/25 hover:bg-white/10 transition-colors"
+              >
+                Log in
+              </button>
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleSignUp();
+                }}
+                className="flex-1 text-sm text-white font-medium py-2.5 rounded-full bg-emerald-500 hover:bg-emerald-400 transition-colors"
+              >
+                Sign up
+              </button>
+            </div>
+          </div>
+        )}
+      </nav>
 
       <main>
-        {/* Hero Section */}
-        <section className="pt-32 pb-20 lg:pt-40 lg:pb-32 relative overflow-hidden">
-          {/* Subtle gradient background */}
-          <div className="absolute inset-0 bg-gradient-to-b from-emerald-50/50 to-stone-50 pointer-events-none" />
-          <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-gradient-to-br from-emerald-100/30 to-transparent rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+        {/* ── Hero ── */}
+        <section className="relative pt-36 pb-20 lg:pt-18 lg:pb-28 bg-[#0A1F1A] overflow-hidden">
+          <div className="absolute inset-0 pointer-events-none">
+            {/* softer core glow */}
+            <div className="absolute top-[-22%] left-1/2 -translate-x-1/2 w-[120%] h-[620px] bg-gradient-to-b from-teal-200/55 via-emerald-300/30 to-transparent rounded-[50%] blur-[90px] opacity-30" />
+            <div className="absolute top-[-12%] left-1/2 -translate-x-1/2 w-[140%] h-[520px] bg-gradient-to-b from-teal-300/35 via-emerald-500/15 to-transparent rounded-[50%] blur-[130px]" />
+            <div className="absolute top-[-18%] left-[-8%] w-[55%] h-[480px] bg-gradient-to-br from-emerald-300/25 via-teal-400/10 to-transparent rounded-full blur-[120px]" />
+            <div className="absolute top-[-12%] right-[-8%] w-[50%] h-[420px] bg-gradient-to-bl from-teal-300/22 via-cyan-300/10 to-transparent rounded-full blur-[110px]" />
+            <div className="absolute top-[2%] left-1/2 -translate-x-1/2 w-[680px] h-[320px] bg-gradient-to-b from-teal-200/25 to-transparent rounded-full blur-[80px]" />
+
+            {/* premium noise */}
+            <div
+              className="absolute inset-0 opacity-[0.06] mix-blend-soft-light"
+              style={{
+                backgroundImage:
+                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.35'/%3E%3C/svg%3E\")",
+              }}
+            />
+
+            {/* softer fade */}
+            <div className="absolute top-[260px] left-0 right-0 h-[440px] bg-gradient-to-b from-transparent via-[#0B201B]/65 to-[#071612]" />
+          </div>
 
           <Container className="relative">
-            <div className="max-w-4xl mx-auto text-center">
-              {/* Badge */}
-              <div className="inline-flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-sm font-medium mb-8">
-                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                Built for process servers
-              </div>
+            <motion.div
+              className="max-w-4xl mx-auto text-center"
+              initial="hidden"
+              animate="visible"
+              variants={stagger}
+            >
+              
 
-              <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight text-stone-900 leading-[1.1]">
-                The platform that runs your
-                <span className="relative mx-3">
-                  <span className="relative z-10 text-[#0D2E26]">serving business</span>
-                  <span className="absolute bottom-2 left-0 right-0 h-4 bg-emerald-200/60 -skew-x-3 -z-0" />
-                </span>
-              </h1>
+              <motion.h1
+                variants={fadeIn}
+                className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-white leading-[1.1] capitalize"
+              >
+               Build your buisness with <br></br> a partner not a competitor
+               
+              </motion.h1>
 
-              <p className="mt-8 text-xl text-stone-600 max-w-2xl mx-auto leading-relaxed">
-                Manage jobs, generate affidavits, invoice clients, and track your team—all in one place.
-                Less admin. More serving.
-              </p>
+              <motion.p
+                variants={fadeIn}
+                className="mt-8 text-lg lg:text-xl text-gray-400 max-w-2xl mx-auto leading-relaxed"
+              >
+                Manage jobs, generate affidavits, invoice clients, and track your team — all from one powerful dashboard. Spend less time on admin and more time serving.
+              </motion.p>
 
-              <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+              <motion.div
+                variants={fadeIn}
+                className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4"
+              >
                 <Button
                   size="lg"
                   onClick={handleSignUp}
-                  className="h-14 px-8 rounded-full bg-[#0D2E26] hover:bg-[#134035] text-white text-lg font-medium shadow-xl shadow-[#0D2E26]/20 transition-all hover:shadow-2xl hover:scale-[1.02]"
+                  className="h-12 px-8 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white text-base font-medium shadow-lg shadow-emerald-500/25 transition-all hover:shadow-xl hover:scale-[1.02]"
                 >
-                  Start free trial
-                  <ArrowRight className="ml-2 w-5 h-5" />
+                  Start Free Trial
+                  <ArrowRight className="ml-2 w-4 h-4" />
                 </Button>
                 <Button
                   size="lg"
                   variant="outline"
-                  onClick={handleLogin}
-                  className="h-14 px-8 rounded-full border-stone-300 text-stone-700 hover:bg-stone-100 text-lg"
+                  className="h-12 px-8 rounded-full border-gray-600 text-gray-300 hover:bg-white/5 hover:text-white text-base"
                 >
-                  Watch demo
+                  <Play className="mr-2 w-4 h-4" />
+                  Watch Demo
                 </Button>
-              </div>
+              </motion.div>
+            </motion.div>
 
-              {/* Social proof */}
-              <div className="mt-16 pt-10 border-t border-stone-200">
-                <p className="text-sm text-stone-500 mb-6">Trusted by process servers across the country</p>
-                <div className="flex items-center justify-center gap-8 flex-wrap">
-                  {[
-                    { icon: Clock, label: '10k+', desc: 'Jobs completed' },
-                    { icon: FileCheck, label: '5k+', desc: 'Affidavits generated' },
-                    { icon: TrendingUp, label: '50%', desc: 'Time saved' },
-                  ].map((stat, idx) => (
-                    <div key={idx} className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
-                        <stat.icon className="w-5 h-5 text-emerald-600" />
-                      </div>
-                      <div className="text-left">
-                        <div className="font-bold text-stone-900">{stat.label}</div>
-                        <div className="text-xs text-stone-500">{stat.desc}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            <motion.div
+              className="mt-16 lg:mt-20 max-w-5xl mx-auto"
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.4 }}
+            >
+              <div className="rounded-xl overflow-hidden shadow-2xl shadow-black/40 ring-1 ring-white/10">
+                <img
+                  src={screenshotDashboard}
+                  alt="Diligence Dashboard"
+                  className="w-full"
+                />
               </div>
-            </div>
+            </motion.div>
           </Container>
         </section>
 
-        {/* Features Section */}
-        <section id="features" className="py-20 lg:py-32 bg-[#0D2E26] relative overflow-hidden">
-          <Container className="relative">
-            <div className="max-w-3xl mx-auto text-center mb-16">
-              <h2 className="font-display text-4xl lg:text-5xl font-bold text-white tracking-tight">
-                Everything you need to run your business
-              </h2>
-              <p className="mt-6 text-xl text-emerald-200/80">
-                From job intake to final invoice. One platform. Zero chaos.
-              </p>
-            </div>
-
-            {/* Feature Cards Grid */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {primaryFeatures.map((feature, idx) => (
-                <div
-                  key={feature.title}
-                  className="group bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 hover:bg-white/10 transition-all duration-300"
-                >
-                  <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center mb-4">
-                    <span className="text-2xl font-bold text-emerald-400">{idx + 1}</span>
-                  </div>
-                  <h3 className="text-lg font-semibold text-white mb-2">{feature.title}</h3>
-                  <p className="text-emerald-100/70 text-sm leading-relaxed">{feature.description}</p>
-                </div>
+        {/* ── Trusted By ── */}
+        <section className="py-14 bg-white border-b border-gray-100">
+          <Container>
+            <p className="text-center text-xs font-semibold tracking-[0.2em] text-gray-400 uppercase mb-10">
+              Trusted by teams at
+            </p>
+            <div className="flex items-center justify-center gap-x-12 gap-y-6 flex-wrap opacity-40 grayscale">
+              {trustedLogos.map((logo) => (
+                <img
+                  key={logo.alt}
+                  src={logo.src}
+                  alt={logo.alt}
+                  className="h-8"
+                />
               ))}
             </div>
-
-            {/* Screenshot */}
-            <div className="mt-16">
-              <div className="rounded-2xl overflow-hidden shadow-2xl shadow-black/40 ring-1 ring-white/10">
-                <img src={screenshotJobs} alt="Diligence Dashboard" className="w-full" />
-              </div>
-            </div>
           </Container>
         </section>
 
-        {/* Secondary Features */}
-        <section id="secondary-features" className="py-20 lg:py-32 bg-stone-50">
+        {/* ── Features ── */}
+        <section className="py-20 lg:py-28 bg-[#F9FAFB]">
           <Container>
-            <div className="max-w-2xl mx-auto text-center">
-              <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-900 tracking-tight">
-                Simplify your daily workflow
-              </h2>
-              <p className="mt-6 text-xl text-stone-600">
-                Less time on admin. More time serving papers and growing your business.
-              </p>
-            </div>
-            <FeaturesMobile />
-            <FeaturesDesktop />
-          </Container>
-        </section>
-
-        {/* CTA Section */}
-        <section className="py-20 lg:py-32 bg-gradient-to-br from-[#0D2E26] to-[#134035] relative overflow-hidden">
-          <div className="absolute inset-0">
-            <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" />
-            <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" />
-          </div>
-
-          <Container className="relative">
-            <div className="max-w-3xl mx-auto text-center">
-              <h2 className="font-display text-4xl lg:text-5xl font-bold text-white tracking-tight">
-                Ready to streamline your business?
-              </h2>
-              <p className="mt-6 text-xl text-emerald-100/80">
-                Join hundreds of process servers who trust Diligence. Start your free trial today—no credit card required.
-              </p>
-              <Button
-                size="lg"
-                onClick={handleSignUp}
-                className="mt-10 h-14 px-10 rounded-full bg-emerald-500 hover:bg-emerald-400 text-[#0D2E26] font-semibold text-lg shadow-xl transition-all hover:scale-[1.02]"
+            <motion.div
+              className="text-center mb-16"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-100px" }}
+              variants={stagger}
+            >
+              <motion.div variants={fadeIn}>
+                <span className="inline-flex items-center bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide uppercase">
+                  Features
+                </span>
+              </motion.div>
+              <motion.h2
+                variants={fadeIn}
+                className="mt-6 text-3xl lg:text-5xl font-bold text-gray-900 tracking-tight"
               >
-                Start free trial
-                <ArrowRight className="ml-2 w-5 h-5" />
-              </Button>
-            </div>
-          </Container>
-        </section>
+                Built for clarity, built for speed
+              </motion.h2>
+            </motion.div>
 
-        {/* Testimonials */}
-        <section id="testimonials" className="py-20 lg:py-32 bg-stone-50">
-          <Container>
-            <div className="max-w-2xl mx-auto text-center mb-16">
-              <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-900 tracking-tight">
-                Trusted nationwide
-              </h2>
-              <p className="mt-6 text-xl text-stone-600">
-                See why process servers choose Diligence.
-              </p>
-            </div>
-
-            <div className="grid md:grid-cols-3 gap-8">
-              {testimonials.map((testimonial, idx) => (
-                <div
-                  key={idx}
-                  className="bg-white rounded-2xl p-8 shadow-sm border border-stone-200 hover:shadow-lg hover:border-emerald-200 transition-all duration-300"
+            <motion.div
+              className="grid md:grid-cols-3 gap-8"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-100px" }}
+              variants={stagger}
+            >
+              {features.map((feature) => (
+                <motion.div
+                  key={feature.title}
+                  variants={fadeIn}
+                  className="bg-white rounded-2xl overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow duration-300"
                 >
-                  <div className="flex items-center gap-1 mb-6">
-                    {[...Array(5)].map((_, i) => (
-                      <svg key={i} className="w-5 h-5 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                      </svg>
-                    ))}
-                  </div>
-                  <p className="text-stone-700 text-lg leading-relaxed">"{testimonial.content}"</p>
-                  <div className="mt-6 pt-6 border-t border-stone-100 flex items-center gap-4">
-                    <img
-                      src={testimonial.author.image}
-                      alt={testimonial.author.name}
-                      className="w-12 h-12 rounded-full object-cover"
-                    />
-                    <div>
-                      <div className="font-semibold text-stone-900">{testimonial.author.name}</div>
-                      <div className="text-sm text-stone-500">{testimonial.author.role}</div>
+                  <div className="bg-[#0D2E26] p-5">
+                    <div className="rounded-lg overflow-hidden">
+                      <img
+                        src={feature.image}
+                        alt={feature.title}
+                        className="w-full"
+                      />
                     </div>
                   </div>
-                </div>
+                  <div className="p-6">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {feature.title}
+                    </h3>
+                    <p className="mt-2 text-sm text-gray-500 leading-relaxed">
+                      {feature.description}
+                    </p>
+                  </div>
+                </motion.div>
               ))}
-            </div>
+            </motion.div>
           </Container>
         </section>
 
-        {/* Pricing */}
-        <section id="pricing" className="py-20 lg:py-32 bg-[#0D2E26]">
+        {/* ── Mission Statement ── */}
+        <section className="py-20 lg:py-28 bg-white">
           <Container>
-            <div className="max-w-2xl mx-auto text-center mb-16">
-              <h2 className="font-display text-4xl lg:text-5xl font-bold text-white tracking-tight">
+            <motion.p
+              className="max-w-4xl mx-auto text-center text-2xl lg:text-3xl font-medium text-gray-900 leading-relaxed lg:leading-relaxed"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-100px" }}
+              transition={{ duration: 0.6 }}
+            >
+              We help people turn ordinary content into polished results that
+              capture attention, express creativity, and inspire real-world
+              action.
+            </motion.p>
+          </Container>
+        </section>
+
+        {/* ── Pricing ── */}
+        <section id="pricing" className="py-20 lg:py-28 bg-[#F9FAFB]">
+          <Container>
+            <motion.div
+              className="text-center mb-16"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-100px" }}
+              variants={stagger}
+            >
+              <motion.div variants={fadeIn}>
+                <span className="inline-flex items-center bg-emerald-50 text-emerald-600 px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide uppercase">
+                  Pricing Plan
+                </span>
+              </motion.div>
+              <motion.h2
+                variants={fadeIn}
+                className="mt-6 text-3xl lg:text-5xl font-bold text-gray-900 tracking-tight"
+              >
                 Simple, transparent pricing
-              </h2>
-              <p className="mt-6 text-xl text-emerald-100/80">
-                Choose the plan that fits your business. All plans include a 30-day free trial.
-              </p>
-            </div>
+              </motion.h2>
+              <motion.p
+                variants={fadeIn}
+                className="mt-4 text-lg text-gray-500 max-w-2xl mx-auto"
+              >
+                Choose the plan that fits your business. All plans include a
+                30-day free trial.
+              </motion.p>
+            </motion.div>
 
             {isLoadingPricing ? (
               <div className="text-center py-12">
                 <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
               </div>
             ) : (
-              <div className="grid lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
-                {pricingPlans.map((plan, index) => (
-                  <Plan
-                    key={plan.id || index}
-                    name={plan.name}
-                    price={`$${plan.monthly_price}`}
-                    description={plan.description || `${plan.job_limit} jobs per month`}
-                    features={plan.features || []}
-                    featured={index === 1}
-                    onSignUp={handleSignUp}
-                  />
-                ))}
-              </div>
+              <motion.div
+                className={clsx(
+                  "grid gap-8 mx-auto",
+                  pricingPlans.length === 2
+                    ? "md:grid-cols-2 max-w-4xl"
+                    : pricingPlans.length >= 3
+                    ? "md:grid-cols-3 max-w-6xl"
+                    : "max-w-md"
+                )}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, margin: "-100px" }}
+                variants={stagger}
+              >
+                {pricingPlans.map((plan, index) => {
+                  const isFree = plan.is_free || plan.monthly_price === 0;
+                  return (
+                    <motion.div
+                      key={plan.id || index}
+                      variants={fadeIn}
+                      className="bg-white rounded-2xl border border-gray-200 p-8 hover:shadow-lg transition-shadow duration-300 relative"
+                    >
+                      {isFree && (
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                          <span className="bg-emerald-500 text-white text-xs font-semibold px-4 py-1 rounded-full whitespace-nowrap">
+                            NO CREDIT CARD REQUIRED
+                          </span>
+                        </div>
+                      )}
+                      <h3 className="text-2xl font-bold text-gray-900">
+                        {plan.name}
+                      </h3>
+                      <p className="mt-2 text-sm text-gray-500">
+                        {plan.description || `${plan.job_limit} jobs per month`}
+                      </p>
+                      <div className="mt-6 flex items-baseline gap-1">
+                        {isFree ? (
+                          <span className="text-5xl font-bold text-emerald-600">
+                            Free
+                          </span>
+                        ) : (
+                          <>
+                            <span className="text-5xl font-bold text-gray-900">
+                              ${plan.monthly_price}
+                            </span>
+                            <span className="text-gray-500 text-sm">
+                              /month
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <Button
+                        onClick={handleSignUp}
+                        className={clsx(
+                          "mt-8 w-full h-12 rounded-xl font-medium",
+                          isFree
+                            ? "bg-emerald-500 hover:bg-emerald-400 text-white"
+                            : "bg-[#0D2E26] hover:bg-[#134035] text-white"
+                        )}
+                      >
+                        {isFree ? "Start Free" : "Get Started Now"}
+                      </Button>
+                      <ul className="mt-8 space-y-3">
+                        {(plan.features || []).map((feature, idx) => (
+                          <li key={idx} className="flex items-start gap-3">
+                            <Check className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+                            <span className="text-sm text-gray-600">
+                              {feature}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
             )}
           </Container>
         </section>
 
-        {/* FAQ */}
-        <section id="faq" className="py-20 lg:py-32 bg-stone-50">
+        {/* ── Testimonials ── */}
+        <section className="py-20 lg:py-28 bg-[#0A1F1A]">
           <Container>
-            <div className="max-w-2xl mx-auto text-center mb-16">
-              <h2 className="font-display text-4xl lg:text-5xl font-bold text-stone-900 tracking-tight">
-                Questions? Answers.
-              </h2>
-              <p className="mt-6 text-xl text-stone-600">
-                Everything you need to know about Diligence.
-              </p>
-            </div>
+            <motion.div
+              className="text-center mb-16"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-100px" }}
+              variants={stagger}
+            >
+              <motion.div variants={fadeIn}>
+                <span className="inline-flex items-center bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide uppercase">
+                  Why Our Clients Love Us
+                </span>
+              </motion.div>
+              <motion.h2
+                variants={fadeIn}
+                className="mt-6 text-3xl lg:text-5xl font-bold text-white tracking-tight"
+              >
+                Real stories from real users
+              </motion.h2>
+            </motion.div>
 
-            <div className="max-w-3xl mx-auto">
-              <div className="grid md:grid-cols-2 gap-8">
-                {faqs.map((faq, idx) => (
-                  <div key={idx} className="bg-white rounded-xl p-6 border border-stone-200">
-                    <h3 className="font-semibold text-stone-900 text-lg">{faq.q}</h3>
-                    <p className="mt-3 text-stone-600">{faq.a}</p>
+            <motion.div
+              className="grid grid-cols-1 md:grid-cols-6 gap-6"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-100px" }}
+              variants={stagger}
+            >
+              {testimonials.map((t, idx) => (
+                <motion.div
+                  key={idx}
+                  variants={fadeIn}
+                  className={clsx(
+                    "bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-sm",
+                    idx < 2 ? "md:col-span-3" : "md:col-span-2"
+                  )}
+                >
+                  <p className="text-sm font-semibold text-emerald-400 mb-3">
+                    {t.company}
+                  </p>
+                  <p className="text-gray-300 leading-relaxed">
+                    &ldquo;{t.content}&rdquo;
+                  </p>
+                  <div className="mt-6 flex items-center gap-3">
+                    <img
+                      src={t.author.image}
+                      alt={t.author.name}
+                      className="w-10 h-10 rounded-full object-cover"
+                    />
+                    <div>
+                      <p className="text-sm font-medium text-white">
+                        {t.author.name}
+                      </p>
+                      <p className="text-xs text-gray-400">{t.author.role}</p>
+                    </div>
                   </div>
-                ))}
+                </motion.div>
+              ))}
+            </motion.div>
+          </Container>
+        </section>
+
+        {/* ── FAQ ── */}
+        <section className="py-20 lg:py-28 bg-[#0D2E26]">
+          <Container>
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-20">
+              <motion.div
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true, margin: "-100px" }}
+                variants={stagger}
+              >
+                <motion.div variants={fadeIn}>
+                  <span className="inline-flex items-center bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide uppercase">
+                    Frequently Asked Questions
+                  </span>
+                </motion.div>
+                <motion.h2
+                  variants={fadeIn}
+                  className="mt-6 text-3xl lg:text-5xl font-bold text-white tracking-tight leading-tight"
+                >
+                  Everything you
+                  <br />
+                  want to know
+                </motion.h2>
+              </motion.div>
+
+              <div>
+                <Accordion type="single" collapsible>
+                  {faqs.map((faq, idx) => (
+                    <AccordionItem
+                      key={idx}
+                      value={`faq-${idx}`}
+                      className="border-b border-white/10"
+                    >
+                      <AccordionTrigger className="text-white text-base font-medium hover:no-underline py-5 [&>svg]:text-gray-400">
+                        {faq.q}
+                      </AccordionTrigger>
+                      <AccordionContent className="text-gray-400 text-sm leading-relaxed">
+                        {faq.a}
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
               </div>
             </div>
           </Container>
         </section>
+
+        {/* ── CTA Banner ── */}
+        <section className="py-20 lg:py-28 bg-[#0A1F1A] relative overflow-hidden">
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-96 h-96 bg-emerald-500/8 rounded-full blur-3xl" />
+            <div className="absolute top-1/2 right-1/4 -translate-y-1/2 w-96 h-96 bg-emerald-500/8 rounded-full blur-3xl" />
+          </div>
+          <Container className="relative">
+            <motion.div
+              className="max-w-3xl mx-auto text-center"
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-100px" }}
+              variants={stagger}
+            >
+              <motion.h2
+                variants={fadeIn}
+                className="text-3xl lg:text-5xl font-bold text-white tracking-tight"
+              >
+                Ready To Streamline Your Business?
+              </motion.h2>
+              <motion.p
+                variants={fadeIn}
+                className="mt-6 text-lg text-gray-400 max-w-2xl mx-auto"
+              >
+                Join hundreds of process servers who trust Diligence. Start your
+                free trial today—no credit card required.
+              </motion.p>
+              <motion.div variants={fadeIn}>
+                <Button
+                  size="lg"
+                  onClick={handleSignUp}
+                  className="mt-10 h-12 px-10 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white font-medium text-base shadow-lg shadow-emerald-500/25 transition-all hover:scale-[1.02]"
+                >
+                  Get Started
+                  <ArrowRight className="ml-2 w-4 h-4" />
+                </Button>
+              </motion.div>
+            </motion.div>
+          </Container>
+        </section>
       </main>
 
-      {/* Footer */}
-      <footer className="bg-[#0A1F1A] py-12">
+      {/* ── Footer ── */}
+      <footer className="bg-[#0A1F1A] border-t border-white/10 pt-16 pb-10">
         <Container>
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                <Shield className="w-4 h-4 text-emerald-400" />
+          <div className="grid grid-cols-2 md:grid-cols-12 gap-8 lg:gap-12">
+            <div className="col-span-2 md:col-span-4">
+              <img src={logoFullWhite} alt="Diligence" className="h-12" />
+              <p className="mt-4 text-sm text-gray-500 max-w-xs">
+                The all-in-one platform for process serving businesses.
+              </p>
+            </div>
+
+            <div className="md:col-span-2">
+              <h4 className="text-sm font-semibold text-white mb-4">Product</h4>
+              <ul className="space-y-3">
+                {["Blog", "Docs", "Changelog", "Pricing"].map((item) => (
+                  <li key={item}>
+                    <a
+                      href="#"
+                      className="text-sm text-gray-400 hover:text-white transition-colors"
+                    >
+                      {item}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="md:col-span-2">
+              <h4 className="text-sm font-semibold text-white mb-4">Company</h4>
+              <ul className="space-y-3">
+                {["About", "Careers"].map((item) => (
+                  <li key={item}>
+                    <a
+                      href="#"
+                      className="text-sm text-gray-400 hover:text-white transition-colors"
+                    >
+                      {item}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="md:col-span-2">
+              <h4 className="text-sm font-semibold text-white mb-4">Legal</h4>
+              <ul className="space-y-3">
+                <li>
+                  <Link
+                    to={createPageUrl("Terms")}
+                    className="text-sm text-gray-400 hover:text-white transition-colors"
+                  >
+                    Terms of Service
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to={createPageUrl("PrivacyPolicy")}
+                    className="text-sm text-gray-400 hover:text-white transition-colors"
+                  >
+                    Privacy Policy
+                  </Link>
+                </li>
+              </ul>
+            </div>
+
+            <div className="col-span-2 md:col-span-2 flex md:justify-end items-start">
+              <div className="flex gap-4">
+                <a
+                  href="#"
+                  className="text-gray-500 hover:text-white transition-colors"
+                  aria-label="Twitter"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                  </svg>
+                </a>
+                <a
+                  href="#"
+                  className="text-gray-500 hover:text-white transition-colors"
+                  aria-label="LinkedIn"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+                  </svg>
+                </a>
+                <a
+                  href="#"
+                  className="text-gray-500 hover:text-white transition-colors"
+                  aria-label="GitHub"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+                  </svg>
+                </a>
               </div>
-              <span className="text-lg font-bold text-white tracking-tight">Diligence</span>
             </div>
-            <div className="flex items-center gap-6">
-              <Link
-                to={createPageUrl('PrivacyPolicy')}
-                className="text-emerald-100/60 hover:text-emerald-100 text-sm transition-colors"
-              >
-                Privacy Policy
-              </Link>
-              <Link
-                to={createPageUrl('Terms')}
-                className="text-emerald-100/60 hover:text-emerald-100 text-sm transition-colors"
-              >
-                Terms of Service
-              </Link>
-            </div>
-            <p className="text-emerald-100/60 text-sm">
-              &copy; {new Date().getFullYear()} Diligent. All rights reserved.
+          </div>
+
+          <div className="mt-12 pt-8 border-t border-white/10">
+            <p className="text-sm text-gray-500">
+              &copy; {new Date().getFullYear()} Diligence. All rights reserved.
             </p>
           </div>
         </Container>

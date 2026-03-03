@@ -9,7 +9,6 @@ import {
   User,
   AlertCircle,
   Check,
-  Shield,
   ArrowRight
 } from 'lucide-react';
 import { FirebaseAuth } from '@/firebase/auth';
@@ -27,6 +26,7 @@ import {
 } from '@/utils/authErrors';
 import AddressAutocomplete from '@/components/jobs/AddressAutocomplete';
 import PublicNavbar from '@/components/layout/PublicNavbar';
+import logoFullWhite from '@/images/logo-full-white.png';
 
 export default function SignUpPage() {
   const navigate = useNavigate();
@@ -185,8 +185,8 @@ export default function SignUpPage() {
         <div className="w-full max-w-2xl relative">
           {/* Header */}
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-[#0D2E26] rounded-2xl mb-6">
-              <Shield className="w-8 h-8 text-emerald-400" />
+            <div className="inline-flex items-center justify-center bg-[#0D2E26] rounded-2xl px-6 py-4 mb-6">
+              <img src={logoFullWhite} alt="Diligence" className="h-12" />
             </div>
             <h1 className="text-3xl font-bold text-stone-900 mb-2">
               Start your free trial

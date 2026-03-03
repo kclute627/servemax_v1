@@ -684,10 +684,87 @@ export class CompanyManager {
     });
     const company = await entities.Company.create(schema);
 
+    // Auto-initialize default CompanySettings for the new company
+    await CompanyManager.createDefaultSettings(company.id);
+
     // Auto-sync to directory if eligible and enabled
     await DirectoryManager.syncFromCompany(company);
 
     return company;
+  }
+
+  static async createDefaultSettings(companyId) {
+    try {
+      await entities.CompanySettings.bulkCreate([
+        {
+          setting_key: 'service_types',
+          company_id: companyId,
+          setting_value: {
+            successful: [
+              { id: 'default-1', label: 'Personal / Individual' },
+              { id: 'default-2', label: 'Substitute Service' },
+              { id: 'default-3', label: 'Authorized Agent' },
+              { id: 'default-4', label: 'Corporate Service' },
+            ],
+            unsuccessful: [
+              { id: 'default-5', label: 'Unsuccessful Attempt' },
+              { id: 'default-6', label: 'Non-Serve - Bad Address' },
+              { id: 'default-7', label: 'Non-Serve - Moved' },
+              { id: 'default-8', label: 'Non-Serve - Evading Service' },
+            ],
+            show_description_buttons: true,
+            relationship_types: [
+              { id: 'default-r1', label: 'Spouse' },
+              { id: 'default-r2', label: 'Co-Occupant' },
+              { id: 'default-r3', label: 'Co-Worker' },
+              { id: 'default-r4', label: 'Manager/Supervisor' },
+              { id: 'default-r5', label: 'Authorized Agent' },
+              { id: 'default-r6', label: 'Other' },
+            ]
+          }
+        },
+        {
+          setting_key: 'job_priorities',
+          company_id: companyId,
+          setting_value: {
+            priorities: [
+              { name: 'standard', label: 'Standard', days_offset: 14, first_attempt_days: 3 },
+              { name: 'rush', label: 'Rush', days_offset: 2, first_attempt_days: 1 },
+              { name: 'same_day', label: 'Same Day', days_offset: 0, first_attempt_days: 0 }
+            ]
+          }
+        },
+        {
+          setting_key: 'job_sharing',
+          company_id: companyId,
+          setting_value: { enabled: false }
+        },
+        {
+          setting_key: 'kanban_board',
+          company_id: companyId,
+          setting_value: {
+            enabled: true,
+            columns: [
+              { id: 'default-col-pending', title: 'Pending', order: 0 },
+              { id: 'default-col-assigned', title: 'Assigned', order: 1 },
+              { id: 'default-col-in-progress', title: 'In Progress', order: 2 },
+              { id: 'default-col-served', title: 'Served', order: 3 },
+              { id: 'default-col-needs-affidavit', title: 'Needs Affidavit', order: 4 },
+              { id: 'default-col-unable', title: 'Unable to Serve', order: 5 },
+              { id: 'default-col-cancelled', title: 'Cancelled', order: 6 },
+            ]
+          }
+        },
+        {
+          setting_key: 'server_rating_weights',
+          company_id: companyId,
+          setting_value: { weights: {} }
+        }
+      ]);
+    } catch (error) {
+      console.error('Failed to create default company settings:', error);
+      // Non-fatal: UI has fallback defaults everywhere
+    }
   }
 
   static async getCompanyByOwnerId(ownerId) {

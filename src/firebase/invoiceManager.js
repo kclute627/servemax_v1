@@ -3,6 +3,18 @@ import { StatsManager } from './stats';
 import { FirebaseFunctions } from './functions';
 
 /**
+ * Generate a secure random payment token
+ */
+function generatePaymentToken() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let token = '';
+  for (let i = 0; i < 32; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
+}
+
+/**
  * InvoiceManager - Enhanced invoice management with automatic financial stats tracking
  * Wraps the base Invoice and Payment entities to include business intelligence tracking
  */
@@ -24,12 +36,16 @@ export class InvoiceManager {
         throw new Error('total_amount must be greater than 0');
       }
 
+      // Generate a unique payment token for public payment link
+      const paymentToken = generatePaymentToken();
+
       // Create the invoice using the base entity
       const invoice = await entities.Invoice.create({
         ...invoiceData,
         status: invoiceData.status || 'sent',
         amount_paid: 0,
         amount_outstanding: invoiceData.total_amount,
+        payment_token: paymentToken,
         created_at: new Date(),
         updated_at: new Date()
       });
@@ -304,12 +320,27 @@ export class InvoiceManager {
   static async sendInvoiceEmail(invoiceId, clientEmail, invoiceData = {}) {
     try {
       // Fetch invoice if not provided
-      const invoice = invoiceData.id ? invoiceData : await this.getInvoiceById(invoiceId);
+      let invoice = invoiceData.id ? invoiceData : await this.getInvoiceById(invoiceId);
       if (!invoice) {
         throw new Error(`Invoice ${invoiceId} not found`);
       }
 
       console.log('[sendInvoiceEmail] Sending invoice', invoiceId, 'to', clientEmail);
+
+      // Ensure invoice has a payment token for the public payment link
+      let paymentToken = invoice.payment_token;
+      if (!paymentToken) {
+        paymentToken = generatePaymentToken();
+        await entities.Invoice.update(invoiceId, {
+          payment_token: paymentToken,
+          updated_at: new Date(),
+        });
+        invoice.payment_token = paymentToken;
+      }
+
+      // Build the payment URL using the current origin or fallback
+      const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://app.usediligence.com';
+      const paymentUrl = `${baseUrl}/pay/${paymentToken}`;
 
       // Send email via Cloud Function
       const result = await FirebaseFunctions.sendEmail(
@@ -324,7 +355,7 @@ export class InvoiceManager {
             total_amount: invoice.total_amount || invoice.total,
             due_date: invoice.due_date,
             job_reference: invoice.job_reference || invoice.reference,
-            invoice_view_url: `https://www.servemax.pro/invoices/${invoiceId}`,
+            invoice_view_url: paymentUrl,
           },
           companyId: invoice.company_id,
         }
@@ -346,6 +377,7 @@ export class InvoiceManager {
         invoiceId,
         recipientEmail: clientEmail,
         messageId: result.messageId,
+        paymentUrl,
       };
 
     } catch (error) {

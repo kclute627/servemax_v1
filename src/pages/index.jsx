@@ -62,6 +62,12 @@ import System from "./System";
 
 import InvoiceDetail from "./InvoiceDetail";
 
+import LegacyJobs from "./LegacyJobs";
+
+import LegacyJobDetails from "./LegacyJobDetails";
+
+import PublicInvoice from "./PublicInvoice";
+
 // Client Portal pages
 import PortalLayout from "./portal/PortalLayout";
 import ClientLogin from "./portal/ClientLogin";
@@ -147,6 +153,10 @@ const PAGES = {
 
     InvoiceDetail: InvoiceDetail,
 
+    LegacyJobs: LegacyJobs,
+
+    LegacyJobDetails: LegacyJobDetails,
+
 }
 
 function _getCurrentPage(url) {
@@ -217,6 +227,8 @@ function PagesContent() {
                 <Route path="/Subscriptions" element={<ProtectedRoute><Subscriptions /></ProtectedRoute>} />
                 <Route path="/System" element={<ProtectedRoute><System /></ProtectedRoute>} />
                 <Route path="/InvoiceDetail" element={<ProtectedRoute><InvoiceDetail /></ProtectedRoute>} />
+                <Route path="/LegacyJobs" element={<ProtectedRoute><LegacyJobs /></ProtectedRoute>} />
+                <Route path="/LegacyJobDetails" element={<ProtectedRoute><LegacyJobDetails /></ProtectedRoute>} />
             </Routes>
         </Layout>
     );
@@ -262,9 +274,23 @@ function ICRoutes() {
     );
 }
 
+// Public invoice payment page (no auth required)
+function PublicPaymentRoutes() {
+    return (
+        <Routes>
+            <Route path="/pay/:token" element={<PublicInvoice />} />
+        </Routes>
+    );
+}
+
 // Main app content wrapper
 function AppContent() {
     const location = useLocation();
+
+    // Check if we're on a public payment route (no auth required)
+    if (location.pathname.startsWith('/pay/')) {
+        return <PublicPaymentRoutes />;
+    }
 
     // Check if we're on a portal route
     if (location.pathname.startsWith('/portal/')) {

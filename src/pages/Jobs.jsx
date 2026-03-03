@@ -128,39 +128,64 @@ export default function JobsPage() {
 
   // URL params handling removed - filters are now per-section
 
-  // Sort jobs by priority and due date (filtering is now server-side)
-  const sortedJobs = useMemo(() => {
-    let jobsToSort = [...jobs];
+  // Helper to match a job against a search query (client-side)
+  const jobMatchesSearch = useCallback((job, query) => {
+    if (!query) return true;
+    const q = query.toLowerCase().trim();
+    // Match against common fields
+    if (job.job_number?.toLowerCase().includes(q)) return true;
+    if (job.recipient?.name?.toLowerCase().includes(q)) return true;
+    if (job.case_number?.toLowerCase().includes(q)) return true;
+    if (job.client_job_number?.toLowerCase().includes(q)) return true;
+    if (job.case_name?.toLowerCase().includes(q)) return true;
+    if (job.server_name?.toLowerCase().includes(q)) return true;
+    if (job.plaintiff?.toLowerCase().includes(q)) return true;
+    if (job.defendant?.toLowerCase().includes(q)) return true;
+    // Match against client name
+    const client = clients.find(c => c.id === job.client_id);
+    if (client?.company_name?.toLowerCase().includes(q)) return true;
+    // Match against address
+    const addr = job.addresses?.[0];
+    if (addr) {
+      if (addr.address1?.toLowerCase().includes(q)) return true;
+      if (addr.city?.toLowerCase().includes(q)) return true;
+      if (addr.state?.toLowerCase().includes(q)) return true;
+      if (addr.postal_code?.toLowerCase().includes(q)) return true;
+    }
+    return false;
+  }, [clients]);
+
+  // Sort and filter jobs client-side
+  const sortedAndFilteredJobs = useMemo(() => {
+    let result = [...jobs];
+
+    // Client-side search filtering
+    if (searchTerm && searchTerm.trim()) {
+      result = result.filter(job => jobMatchesSearch(job, searchTerm));
+    }
 
     // Sort by priority and due date
     const priorityOrder = { emergency: 3, rush: 2, standard: 1 };
-
-    jobsToSort.sort((a, b) => {
-      // 1. Priority sort (descending)
+    result.sort((a, b) => {
       const priorityA = priorityOrder[a.priority] || 0;
       const priorityB = priorityOrder[b.priority] || 0;
-      if (priorityA !== priorityB) {
-        return priorityB - priorityA;
-      }
+      if (priorityA !== priorityB) return priorityB - priorityA;
 
-      // 2. Due Date sort (ascending - most urgent first)
       const dateA = a.due_date ? new Date(a.due_date) : null;
       const dateB = b.due_date ? new Date(b.due_date) : null;
-
       if (!dateA && !dateB) return 0;
       if (!dateA) return 1;
       if (!dateB) return -1;
-
       return dateA - dateB;
     });
 
-    return jobsToSort;
-  }, [jobs]);
+    return result;
+  }, [jobs, searchTerm, jobMatchesSearch]);
 
-  // Update filteredJobs when sortedJobs changes
+  // Update filteredJobs when sorted/filtered results change
   useEffect(() => {
-    setFilteredJobs(sortedJobs);
-  }, [sortedJobs]);
+    setFilteredJobs(sortedAndFilteredJobs);
+  }, [sortedAndFilteredJobs]);
 
   // Initialize pagination on mount
   useEffect(() => {
@@ -169,32 +194,7 @@ export default function JobsPage() {
       // Load initial jobs with default filters (active jobs)
       loadJobsPaginatedRef.current({ is_closed: false }, '', true);
     }
-  }, [paginationInitialized, user]); // Removed loadJobsPaginated from deps - using ref instead
-
-  // Debounced server-side search
-  useEffect(() => {
-    // Clear any existing timeout
-    if (searchDebounceRef.current) {
-      clearTimeout(searchDebounceRef.current);
-    }
-
-    // Don't trigger search on initial empty state
-    if (!paginationInitialized) return;
-
-    // Set new timeout for debounced search
-    // Use ref to avoid dependency on searchJobs which changes frequently
-    searchDebounceRef.current = setTimeout(() => {
-      if (searchJobsRef.current) {
-        searchJobsRef.current(searchTerm);
-      }
-    }, 300); // 300ms debounce
-
-    return () => {
-      if (searchDebounceRef.current) {
-        clearTimeout(searchDebounceRef.current);
-      }
-    };
-  }, [searchTerm, paginationInitialized]); // Removed searchJobs from deps - using ref instead
+  }, [paginationInitialized, user]);
 
   // Sync URL search param with searchTerm
   useEffect(() => {

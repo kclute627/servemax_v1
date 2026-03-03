@@ -4,6 +4,8 @@ import { Invoice, Client, Payment, Job } from '@/api/entities';
 import { entities } from '@/firebase/database';
 import { createPageUrl } from '@/utils';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { useGlobalData } from '@/components/GlobalDataContext';
+import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -33,11 +35,15 @@ import {
 import { useToast } from '@/components/ui/use-toast';
 import InvoicePreview from '../components/invoicing/InvoicePreview';
 import html2pdf from 'html2pdf.js';
+import { InvoiceManager } from '@/firebase/invoiceManager';
+import { FirebaseFunctions } from '@/firebase/functions';
 
 const statusConfig = {
   draft: { color: 'bg-slate-100 text-slate-700', label: 'Draft' },
   issued: { color: 'bg-blue-100 text-blue-700', label: 'Issued' },
   sent: { color: 'bg-blue-100 text-blue-700', label: 'Sent' },
+  partial: { color: 'bg-amber-100 text-amber-700', label: 'Partial' },
+  partially_paid: { color: 'bg-amber-100 text-amber-700', label: 'Partial' },
   paid: { color: 'bg-green-100 text-green-700', label: 'Paid' },
   overdue: { color: 'bg-red-100 text-red-700', label: 'Overdue' },
   cancelled: { color: 'bg-slate-100 text-slate-500', label: 'Cancelled' }
@@ -48,6 +54,7 @@ export default function InvoiceDetailPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { companyData, employees } = useGlobalData();
 
   const [invoice, setInvoice] = useState(null);
   const [client, setClient] = useState(null);
@@ -67,6 +74,12 @@ export default function InvoiceDetailPage() {
     notes: ''
   });
   const [invoiceModified, setInvoiceModified] = useState(false); // Track if invoice was modified during session
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [emailMessage, setEmailMessage] = useState('');
+  const [emailContactToggles, setEmailContactToggles] = useState({});
+  const [emailEmployeeToggles, setEmailEmployeeToggles] = useState({});
+  const [emailAdditional, setEmailAdditional] = useState('');
 
   useEffect(() => {
     loadInvoiceData();
@@ -160,17 +173,32 @@ export default function InvoiceDetailPage() {
   const handleSaveEdit = async (updatedData) => {
     setIsSaving(true);
     try {
+      const amountPaid = invoice.amount_paid || invoice.total_paid || 0;
+      const newTotal = updatedData.total_amount;
+      const newBalanceDue = newTotal - amountPaid;
+
+      // Recalculate status based on new total vs amount already paid
+      let newStatus = invoice.status;
+      if (amountPaid > 0) {
+        if (newBalanceDue <= 0) {
+          newStatus = 'paid';
+        } else {
+          newStatus = 'partially_paid';
+        }
+      }
+
       await Invoice.update(invoice.id, {
         invoice_date: updatedData.invoice_date || invoice.invoice_date,
         due_date: updatedData.due_date || invoice.due_date,
         tax_rate: updatedData.tax_rate,
         tax_amount: updatedData.tax_amount,
-        total_tax_amount: updatedData.tax_amount, // For compatibility
+        total_tax_amount: updatedData.tax_amount,
         line_items: updatedData.line_items,
         subtotal: updatedData.subtotal,
-        total_amount: updatedData.total_amount,
-        total: updatedData.total_amount, // For compatibility
-        balance_due: updatedData.balance_due
+        total_amount: newTotal,
+        total: newTotal,
+        balance_due: Math.max(0, newBalanceDue),
+        status: newStatus
       });
 
       // Log to job activity
@@ -293,15 +321,98 @@ export default function InvoiceDetailPage() {
   };
 
   const handleEmail = () => {
-    toast({
-      title: 'Coming Soon',
-      description: 'Email functionality will be available soon.'
+    // Initialize client contact toggles (primary enabled by default)
+    const contactToggles = {};
+    (client?.contacts || []).forEach((contact, idx) => {
+      if (contact.email) {
+        contactToggles[idx] = !!contact.primary;
+      }
     });
+    // If no primary, enable the first contact with email
+    if (!Object.values(contactToggles).some(v => v)) {
+      const firstIdx = Object.keys(contactToggles)[0];
+      if (firstIdx !== undefined) contactToggles[firstIdx] = true;
+    }
+    setEmailContactToggles(contactToggles);
+    setEmailEmployeeToggles({});
+    setEmailMessage('');
+    setEmailAdditional('');
+    setShowEmailDialog(true);
+  };
+
+  const handleSendEmail = async () => {
+    // Collect recipients
+    const recipients = [];
+    (client?.contacts || []).forEach((contact, idx) => {
+      if (emailContactToggles[idx] && contact.email) {
+        recipients.push(contact.email);
+      }
+    });
+    (employees || []).forEach((emp) => {
+      if (emailEmployeeToggles[emp.id] && emp.email) {
+        recipients.push(emp.email);
+      }
+    });
+    if (emailAdditional.trim()) {
+      emailAdditional.split(/[,;\s]+/).filter(e => e.includes('@')).forEach(e => recipients.push(e.trim()));
+    }
+
+    const uniqueRecipients = [...new Set(recipients)];
+    if (uniqueRecipients.length === 0) {
+      toast({ title: 'No recipients', description: 'Please select at least one recipient.', variant: 'destructive' });
+      return;
+    }
+
+    setIsSendingEmail(true);
+    try {
+      // Use InvoiceManager which handles token generation and template
+      for (const email of uniqueRecipients) {
+        await InvoiceManager.sendInvoiceEmail(invoice.id, email, {
+          id: invoice.id,
+          invoice_number: invoice.invoice_number,
+          total_amount: invoice.total_amount || invoice.total,
+          due_date: invoice.due_date,
+          client_name: client?.company_name || 'Client',
+          company_id: invoice.company_id,
+          message: emailMessage || undefined,
+        });
+      }
+
+      // Update activity log on linked job
+      if (job) {
+        const newLogEntry = {
+          timestamp: new Date().toISOString(),
+          event_type: 'invoice_emailed',
+          description: `Invoice #${invoice.invoice_number} emailed to ${uniqueRecipients.join(', ')}`,
+          user_name: user?.full_name || user?.displayName || user?.email || 'System',
+        };
+        const currentLog = Array.isArray(job.activity_log) ? job.activity_log : [];
+        await Job.update(job.id, { activity_log: [...currentLog, newLogEntry] });
+      }
+
+      toast({
+        title: 'Invoice Emailed',
+        description: `Sent to ${uniqueRecipients.length} recipient${uniqueRecipients.length !== 1 ? 's' : ''}.`,
+      });
+      setShowEmailDialog(false);
+      loadInvoiceData(true);
+    } catch (error) {
+      console.error('Error sending invoice email:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Email Failed',
+        description: error.message || 'Failed to send invoice email. Please try again.',
+      });
+    }
+    setIsSendingEmail(false);
   };
 
   const handleApplyPayment = () => {
+    const invoiceTotal = invoice.total_amount || invoice.total || 0;
+    const amountPaid = invoice.amount_paid || invoice.total_paid || 0;
+    const balanceDue = invoice.balance_due ?? (invoiceTotal - amountPaid);
     setPaymentForm({
-      amount: invoice.balance_due?.toFixed(2) || '0.00',
+      amount: balanceDue > 0 ? balanceDue.toFixed(2) : '0.00',
       payment_date: new Date().toISOString().split('T')[0],
       payment_method: 'check',
       notes: ''
@@ -326,29 +437,42 @@ export default function InvoiceDetailPage() {
         return;
       }
 
-      const currentUser = await user;
-
       const paymentData = {
         invoice_id: invoice.id,
         client_id: invoice.client_id,
+        company_id: user?.company_id,
         amount: paymentAmount,
         payment_date: paymentForm.payment_date,
         payment_method: paymentForm.payment_method,
         notes: paymentForm.notes,
-        created_by: currentUser?.id
+        created_by: user?.uid
       };
 
       await Payment.create(paymentData);
 
-      const newAmountPaid = (invoice.amount_paid || 0) + paymentAmount;
-      const newBalanceDue = invoice.total_amount - newAmountPaid;
-      const newStatus = newBalanceDue <= 0 ? 'paid' : invoice.status;
+      const invoiceTotal = invoice.total_amount || invoice.total || 0;
+      const newAmountPaid = (invoice.amount_paid || invoice.total_paid || 0) + paymentAmount;
+      const newBalanceDue = invoiceTotal - newAmountPaid;
 
-      await Invoice.update(invoice.id, {
+      let newStatus;
+      if (newBalanceDue <= 0) {
+        newStatus = 'paid';
+      } else if (newAmountPaid > 0) {
+        newStatus = 'partially_paid';
+      } else {
+        newStatus = invoice.status;
+      }
+
+      const invoiceUpdate = {
         amount_paid: newAmountPaid,
-        balance_due: newBalanceDue,
+        total_paid: newAmountPaid,
+        balance_due: Math.max(0, newBalanceDue),
         status: newStatus
-      });
+      };
+      if (newStatus === 'paid') {
+        invoiceUpdate.paid_date = paymentForm.payment_date;
+      }
+      await Invoice.update(invoice.id, invoiceUpdate);
 
       // Log to job activity
       if (invoice.job_ids && invoice.job_ids.length > 0) {
@@ -404,7 +528,16 @@ export default function InvoiceDetailPage() {
     );
   }
 
-  const statusInfo = statusConfig[invoice.status?.toLowerCase()] || statusConfig.draft;
+  // Derive the effective status - handles stale DB data
+  const invoiceTotal = invoice.total_amount || invoice.total || 0;
+  const amountPaid = invoice.amount_paid || invoice.total_paid || 0;
+  let effectiveStatus = invoice.status?.toLowerCase() || 'draft';
+  if (amountPaid > 0 && amountPaid >= invoiceTotal && effectiveStatus !== 'paid') {
+    effectiveStatus = 'paid';
+  } else if (amountPaid > 0 && amountPaid < invoiceTotal && effectiveStatus !== 'partially_paid' && effectiveStatus !== 'partial') {
+    effectiveStatus = 'partially_paid';
+  }
+  const statusInfo = statusConfig[effectiveStatus] || statusConfig.draft;
 
   // Determine back navigation URL
   const params = new URLSearchParams(location.search);
@@ -455,7 +588,7 @@ export default function InvoiceDetailPage() {
         <div className="max-w-5xl mx-auto">
           <div className="flex gap-3 justify-end transition-all duration-300">
             {/* Draft invoices: Edit + Issue buttons */}
-            {(invoice.status?.toLowerCase() === 'draft' || !invoice.status) && !isEditing && (
+            {(effectiveStatus === 'draft' || !invoice.status) && !isEditing && (
               <>
                 <Button
                   variant="outline"
@@ -485,8 +618,8 @@ export default function InvoiceDetailPage() {
               </>
             )}
 
-            {/* Issued/Sent invoices: Edit, Download, Print, Email, Payment buttons */}
-            {(invoice.status?.toLowerCase() === 'issued' || invoice.status?.toLowerCase() === 'sent') && !isEditing && (
+            {/* Issued/Sent/Partial invoices: Edit, Download, Print, Email, Payment buttons */}
+            {['issued', 'sent', 'partial', 'partially_paid'].includes(effectiveStatus) && !isEditing && (
               <>
                 <Button
                   variant="outline"
@@ -504,9 +637,9 @@ export default function InvoiceDetailPage() {
                   <Printer className="w-4 h-4" />
                   Print
                 </Button>
-                <Button variant="outline" onClick={handleEmail} className="gap-2">
-                  <Mail className="w-4 h-4" />
-                  Email
+                <Button variant="outline" onClick={handleEmail} disabled={isSendingEmail} className="gap-2">
+                  {isSendingEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                  {isSendingEmail ? 'Sending...' : 'Email'}
                 </Button>
                 <Button onClick={handleApplyPayment} className="gap-2">
                   <CreditCard className="w-4 h-4" />
@@ -515,9 +648,17 @@ export default function InvoiceDetailPage() {
               </>
             )}
 
-            {/* Paid invoices: Download, Print + Email (no editing) */}
-            {invoice.status?.toLowerCase() === 'paid' && (
+            {/* Paid invoices: Download, Print + Email (no Apply Payment, can edit to add items) */}
+            {effectiveStatus === 'paid' && !isEditing && (
               <>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsEditing(true)}
+                  className="gap-2"
+                >
+                  <Edit className="w-4 h-4" />
+                  Edit Invoice
+                </Button>
                 <Button variant="outline" onClick={handleDownloadPDF} className="gap-2">
                   <Download className="w-4 h-4" />
                   Download PDF
@@ -526,9 +667,9 @@ export default function InvoiceDetailPage() {
                   <Printer className="w-4 h-4" />
                   Print
                 </Button>
-                <Button variant="outline" onClick={handleEmail} className="gap-2">
-                  <Mail className="w-4 h-4" />
-                  Email
+                <Button variant="outline" onClick={handleEmail} disabled={isSendingEmail} className="gap-2">
+                  {isSendingEmail ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                  {isSendingEmail ? 'Sending...' : 'Email'}
                 </Button>
               </>
             )}
@@ -555,6 +696,142 @@ export default function InvoiceDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Email Invoice Dialog */}
+      <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Email Invoice #{invoice?.invoice_number}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            {/* Invoice summary */}
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-600">Amount</span>
+                <span className="font-semibold text-slate-900">${(invoice?.total_amount || invoice?.total || 0).toFixed(2)}</span>
+              </div>
+              {invoice?.due_date && (
+                <div className="flex items-center justify-between text-sm mt-1">
+                  <span className="text-slate-600">Due Date</span>
+                  <span className="text-slate-700">{(() => { try { return new Date(invoice.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch { return 'N/A'; } })()}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Client contacts */}
+            {client?.contacts?.filter(c => c.email).length > 0 && (
+              <div>
+                <Label className="text-sm font-medium text-slate-700 mb-2 block">Client Contacts</Label>
+                <div className="space-y-2">
+                  {client.contacts.filter(c => c.email).map((contact, idx) => {
+                    const originalIdx = client.contacts.indexOf(contact);
+                    return (
+                      <div key={originalIdx} className="flex items-center justify-between p-2 rounded-lg border border-slate-200 bg-white">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-900 truncate">
+                            {contact.first_name} {contact.last_name}
+                            {contact.primary && <span className="text-xs text-blue-600 ml-1">(Primary)</span>}
+                          </p>
+                          <p className="text-xs text-slate-500 truncate">{contact.email}</p>
+                        </div>
+                        <Switch
+                          checked={emailContactToggles[originalIdx] || false}
+                          onCheckedChange={(checked) =>
+                            setEmailContactToggles(prev => ({ ...prev, [originalIdx]: checked }))
+                          }
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Employee contacts */}
+            {employees?.filter(e => e.email).length > 0 && (
+              <div>
+                <Label className="text-sm font-medium text-slate-700 mb-2 block">Employee Contacts</Label>
+                <div className="space-y-2">
+                  {employees.filter(e => e.email).map((emp) => (
+                    <div key={emp.id} className="flex items-center justify-between p-2 rounded-lg border border-slate-200 bg-white">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 truncate">
+                          {emp.first_name} {emp.last_name}
+                        </p>
+                        <p className="text-xs text-slate-500 truncate">{emp.email}</p>
+                      </div>
+                      <Switch
+                        checked={emailEmployeeToggles[emp.id] || false}
+                        onCheckedChange={(checked) =>
+                          setEmailEmployeeToggles(prev => ({ ...prev, [emp.id]: checked }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Manual email addresses */}
+            <div>
+              <Label htmlFor="inv_additional_emails" className="text-sm font-medium text-slate-700 mb-1 block">
+                Additional Email Addresses
+              </Label>
+              <Input
+                id="inv_additional_emails"
+                value={emailAdditional}
+                onChange={(e) => setEmailAdditional(e.target.value)}
+                placeholder="email@example.com, another@example.com"
+              />
+              <p className="text-xs text-slate-400 mt-1">Separate multiple addresses with commas</p>
+            </div>
+
+            {/* Message */}
+            <div>
+              <Label htmlFor="inv_email_message" className="text-sm font-medium text-slate-700 mb-1 block">
+                Message (Optional)
+              </Label>
+              <Textarea
+                id="inv_email_message"
+                value={emailMessage}
+                onChange={(e) => setEmailMessage(e.target.value)}
+                placeholder="Add a personal message to include in the email..."
+                rows={3}
+                className="resize-none"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowEmailDialog(false)}
+                disabled={isSendingEmail}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSendEmail}
+                disabled={isSendingEmail}
+                className="gap-2"
+              >
+                {isSendingEmail ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Send Email
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Payment Dialog */}
       <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>

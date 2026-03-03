@@ -22,10 +22,12 @@ import InvoiceStatusChart from '../components/accounting/InvoiceStatusChart';
 import ServerPayTable from '../components/accounting/ServerPayTable';
 import ContractorPaymentsTable from '../components/accounting/ContractorPaymentsTable';
 import { useGlobalData } from '../components/GlobalDataContext';
+import { DATE_RANGE_OPTIONS } from '@/utils/dateRangeHelpers';
 
 export default function AccountingPage() {
   const { invoices, payments, clients, employees, serverPayRecords, isLoading, refreshData } = useGlobalData();
   const [activeTab, setActiveTab] = useState('overview');
+  const [statsDateRange, setStatsDateRange] = useState(DATE_RANGE_OPTIONS.THIS_MONTH);
   const location = useLocation();
 
   // Invoice filters
@@ -309,7 +311,12 @@ export default function AccountingPage() {
 
             {/* Overview Tab */}
             <TabsContent value="overview" className="space-y-8 mt-6">
-              <AccountingStats invoices={invoices} isLoading={isLoading} />
+              <AccountingStats
+                invoices={invoices}
+                isLoading={isLoading}
+                dateRange={statsDateRange}
+                onDateRangeChange={setStatsDateRange}
+              />
 
               {/* Invoice Aging + Invoice Status Chart Row */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -330,15 +337,29 @@ export default function AccountingPage() {
                           over60: { amount: 0, count: 0 }
                         };
 
-                        const outstandingInvoices = invoices.filter(inv =>
-                          inv.status?.toLowerCase() !== 'cancelled' &&
-                          ['issued', 'sent', 'overdue', 'partial', 'partially_paid'].includes(inv.status?.toLowerCase())
-                        );
+                        // Derive effective status to handle stale DB data
+                        const getEffStatus = (inv) => {
+                          const s = inv.status?.toLowerCase() || 'draft';
+                          const t = inv.total_amount || inv.total || 0;
+                          const p = inv.amount_paid || inv.total_paid || 0;
+                          if (p > 0 && t > 0 && p >= t) return 'paid';
+                          if (p > 0 && t > 0 && p < t) return 'partially_paid';
+                          return s;
+                        };
+
+                        const outstandingInvoices = invoices.filter(inv => {
+                          const eff = getEffStatus(inv);
+                          return eff !== 'cancelled' && eff !== 'paid' && eff !== 'draft' &&
+                            ['issued', 'sent', 'overdue', 'partial', 'partially_paid'].includes(eff);
+                        });
 
                         outstandingInvoices.forEach(inv => {
                           const invoiceDate = new Date(inv.invoice_date || inv.created_at);
                           const daysOld = Math.floor((now - invoiceDate) / (1000 * 60 * 60 * 24));
-                          const amount = inv.balance_due || inv.amount_outstanding || inv.total_amount || inv.total || 0;
+                          const total = inv.total_amount || inv.total || 0;
+                          const paid = inv.amount_paid || inv.total_paid || 0;
+                          const rawBalance = inv.balance_due ?? inv.amount_outstanding ?? (total - paid);
+                          const amount = (isNaN(rawBalance) || rawBalance < 0) ? 0 : rawBalance;
 
                           if (daysOld < 30) {
                             aging.under30.amount += amount;

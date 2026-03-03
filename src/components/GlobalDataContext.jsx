@@ -139,7 +139,7 @@ export const GlobalDataProvider = ({ children }) => {
         SecureInvoiceAccess.list().catch(() => []),
         SecurePaymentAccess.list().catch(() => []),
         SecureServerPayRecordAccess.list().catch(() => []),
-        CompanySettings.filter({ setting_key: ["job_priorities", "job_sharing", "kanban_board", "server_rating_weights"] }).catch(() => []),
+        CompanySettings.filter({ setting_key: ["job_priorities", "job_sharing", "kanban_board", "server_rating_weights"], company_id: user.company_id }).catch(() => []),
         DirectoryManager.getDirectoryListing(user.company_id).catch(() => null)
       ]);
 

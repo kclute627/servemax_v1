@@ -214,11 +214,12 @@ export default function BusinessStatsPanel() {
           return createdAt < prevEndDate && inv.status?.toLowerCase() !== 'cancelled';
         });
         const prevOutstandingInvoices = allPrevInvoices.filter(inv =>
-          ['issued', 'sent', 'overdue', 'partial', 'partially_paid'].includes(inv.status?.toLowerCase())
+          inv.status?.toLowerCase() !== 'paid'
         );
-        const prevOutstanding = prevOutstandingInvoices.reduce((sum, inv) =>
-          sum + (inv.balance_due || inv.amount_outstanding || inv.total_amount || inv.total || 0), 0
-        );
+        const prevOutstanding = prevOutstandingInvoices.reduce((sum, inv) => {
+          const balance = inv.balance_due ?? inv.amount_outstanding ?? inv.total_amount ?? inv.total ?? 0;
+          return sum + (typeof balance === 'number' ? balance : parseFloat(balance) || 0);
+        }, 0);
 
         prevFinancial = {
           total_billed: prevTotalBilled,
@@ -313,14 +314,16 @@ export default function BusinessStatsPanel() {
         .reduce((sum, inv) => sum + (inv.total_amount || inv.total || 0), 0);
 
       // Calculate outstanding from ALL invoices (not period-filtered)
-      // Match the Accounting page calculation: exclude cancelled, use balance_due
-      const allActiveInvoices = invoices.filter(inv => inv.status?.toLowerCase() !== 'cancelled');
-      const outstandingInvoices = allActiveInvoices.filter(inv =>
-        ['issued', 'sent', 'overdue', 'partial', 'partially_paid'].includes(inv.status?.toLowerCase())
-      );
-      const outstanding = outstandingInvoices.reduce((sum, inv) =>
-        sum + (inv.balance_due || inv.amount_outstanding || inv.total_amount || inv.total || 0), 0
-      );
+      // Include any non-cancelled, non-paid invoice that has a balance due
+      const allActiveInvoices = invoices.filter(inv => {
+        const status = inv.status?.toLowerCase();
+        return status !== 'cancelled' && status !== 'paid';
+      });
+      const outstanding = allActiveInvoices.reduce((sum, inv) => {
+        // Use balance_due if available (prefer ?? over || to handle 0 correctly)
+        const balance = inv.balance_due ?? inv.amount_outstanding ?? inv.total_amount ?? inv.total ?? 0;
+        return sum + (typeof balance === 'number' ? balance : parseFloat(balance) || 0);
+      }, 0);
 
       // Calculate performance changes (simplified - just show 0 for now)
       const realTimeStats = {

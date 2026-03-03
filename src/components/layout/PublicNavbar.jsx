@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Shield } from 'lucide-react';
 import { createPageUrl } from '@/utils';
+import logoFullWhite from '@/images/logo-full-white.png';
 
 export default function PublicNavbar() {
   const navigate = useNavigate();
@@ -18,8 +18,8 @@ export default function PublicNavbar() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const isLoginPage = location.pathname.includes('/login');
-  const isSignUpPage = location.pathname.includes('/signup') || location.pathname.includes('/sign-up');
+  const isLoginPage = location.pathname.includes('/login') || location.pathname.includes('/Login');
+  const isSignUpPage = location.pathname.includes('/signup') || location.pathname.includes('/sign-up') || location.pathname.includes('/SignUp');
 
   const handleLogoClick = () => {
     navigate(createPageUrl('Home'));
@@ -39,10 +39,10 @@ export default function PublicNavbar() {
         fixed top-0 left-0 right-0 z-50
         transition-all duration-300 ease-in-out
         ${scrolled
-          ? 'bg-stone-50/95 backdrop-blur-xl shadow-sm'
-          : 'bg-stone-50/80 backdrop-blur-sm'
+          ? 'bg-[#0D2E26]/95 backdrop-blur-xl shadow-md'
+          : 'bg-[#0D2E26]/90 backdrop-blur-sm'
         }
-        border-b border-stone-200/50
+        border-b border-white/10
       `}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -50,14 +50,9 @@ export default function PublicNavbar() {
           {/* Logo */}
           <button
             onClick={handleLogoClick}
-            className="flex items-center gap-2 group transition-transform duration-200 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded-lg px-2 py-1"
+            className="focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-[#0D2E26] rounded-lg"
           >
-            <div className="w-8 h-8 bg-[#0D2E26] rounded-lg flex items-center justify-center">
-              <Shield className="w-4 h-4 text-emerald-400" />
-            </div>
-            <span className="text-xl font-bold text-[#0D2E26] tracking-tight">
-              Diligence
-            </span>
+            <img src={logoFullWhite} alt="Diligence" className="h-10" />
           </button>
 
           {/* Navigation Actions */}
@@ -66,7 +61,7 @@ export default function PublicNavbar() {
               <Button
                 variant="ghost"
                 onClick={handleLogin}
-                className="hidden sm:inline-flex text-stone-600 hover:text-stone-900 hover:bg-stone-100 transition-colors duration-200"
+                className="hidden sm:inline-flex text-gray-300 hover:text-white hover:bg-white/10 transition-colors duration-200"
               >
                 Sign in
               </Button>
@@ -74,7 +69,7 @@ export default function PublicNavbar() {
             {!isSignUpPage && (
               <Button
                 onClick={handleSignUp}
-                className="bg-[#0D2E26] hover:bg-[#134035] text-white rounded-full px-5 transition-all duration-200"
+                className="bg-emerald-500 hover:bg-emerald-400 text-white rounded-full px-5 transition-all duration-200"
               >
                 Start free trial
               </Button>

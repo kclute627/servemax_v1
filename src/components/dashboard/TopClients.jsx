@@ -153,7 +153,7 @@ export default function TopClients({ clientsData, isLoading, period, onPeriodCha
                         </span>
                       </TableCell>
                       <TableCell className="py-3">
-                        <span className="text-[#1F1F21] font-medium ">
+                        <span className="text-[#1F1F21] font-medium capitalize">
                           {item.client.company_name}
                         </span>
                       </TableCell>

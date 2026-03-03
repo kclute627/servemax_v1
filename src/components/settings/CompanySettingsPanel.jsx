@@ -278,26 +278,26 @@ export default function CompanySettingsPanel() {
       }
 
       // Save other settings to CompanySettings collection
-      const existingPrioritySettings = await CompanySettings.filter({ setting_key: "job_priorities" });
+      const existingPrioritySettings = await CompanySettings.filter({ setting_key: "job_priorities", company_id: user.company_id });
       if (existingPrioritySettings.length > 0) {
-        await CompanySettings.update(existingPrioritySettings[0].id, { setting_value: { priorities } });
+        await CompanySettings.update(existingPrioritySettings[0].id, { setting_value: { priorities }, company_id: user.company_id });
       } else {
-        await CompanySettings.create({ setting_key: "job_priorities", setting_value: { priorities } });
+        await CompanySettings.create({ setting_key: "job_priorities", setting_value: { priorities }, company_id: user.company_id });
       }
 
-      const existingJobSharingSettings = await CompanySettings.filter({ setting_key: "job_sharing" });
+      const existingJobSharingSettings = await CompanySettings.filter({ setting_key: "job_sharing", company_id: user.company_id });
       if (existingJobSharingSettings.length > 0) {
-        await CompanySettings.update(existingJobSharingSettings[0].id, { setting_value: { enabled: jobSharingEnabled } });
+        await CompanySettings.update(existingJobSharingSettings[0].id, { setting_value: { enabled: jobSharingEnabled }, company_id: user.company_id });
       } else {
-        await CompanySettings.create({ setting_key: "job_sharing", setting_value: { enabled: jobSharingEnabled } });
+        await CompanySettings.create({ setting_key: "job_sharing", setting_value: { enabled: jobSharingEnabled }, company_id: user.company_id });
       }
 
       // Save kanban board settings
-      const existingKanbanSettings = await CompanySettings.filter({ setting_key: "kanban_board" });
+      const existingKanbanSettings = await CompanySettings.filter({ setting_key: "kanban_board", company_id: user.company_id });
       if (existingKanbanSettings.length > 0) {
-        await CompanySettings.update(existingKanbanSettings[0].id, { setting_value: kanbanBoard });
+        await CompanySettings.update(existingKanbanSettings[0].id, { setting_value: kanbanBoard, company_id: user.company_id });
       } else {
-        await CompanySettings.create({ setting_key: "kanban_board", setting_value: kanbanBoard });
+        await CompanySettings.create({ setting_key: "kanban_board", setting_value: kanbanBoard, company_id: user.company_id });
       }
 
       // Refresh global data to update all components
